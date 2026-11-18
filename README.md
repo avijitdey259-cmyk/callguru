@@ -36,7 +36,7 @@ npm run build      # production build -> dist/
 
 | Variable | Purpose |
 |---|---|
-| `VITE_API_URL` | Backend API base URL (optional; demo mode works without it, default `/api`) |
+| `VITE_API_URL` | Backend API base URL, e.g. `https://callguru-production.up.railway.app`. The frontend (`src/api.ts`) reads it, fetches `/api/health` + `/api/experts` (5s timeout) and shows a "Live" badge on the marketplace; when it is empty or unreachable the site falls back to local seed data ("Demo") and keeps working fully. |
 | `VITE_FIREBASE_API_KEY` etc. | Real Firebase Auth/Firestore (not included — add before real users) |
 
 Never commit secrets, tokens or phone numbers to this repo.
@@ -48,4 +48,5 @@ Never commit secrets, tokens or phone numbers to this repo.
 - `src/store.tsx` — wallet/auth/call-history state (localStorage)
 - `src/data.ts` — seed data + contact-ban check + TV channels
 - `src/components.tsx` — Facebook-style layout, top bar, mobile bottom nav
-- `server/index.js` — demo Express API (health, experts, top-up, call gate)
+- `src/api.ts` — backend client: reads `VITE_API_URL`, fetches `/api/health` + `/api/experts` (5s timeout), merges live rates/online status onto the seed, falls back to demo data when unreachable; `useExperts()` hook + Live/Demo indicator
+- `server/index.js` — demo Express API (health, experts, top-up, call gate) with minimal CORS so the Netlify frontend can call it from a browser

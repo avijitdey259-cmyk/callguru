@@ -5,6 +5,16 @@ import express from 'express'
 
 const app = express()
 app.use(express.json())
+// Minimal CORS for the demo API: the Netlify frontend runs on a different
+// origin, so browsers would block cross-origin calls without these headers.
+// No credentials, no secrets — the demo API takes no auth.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  if (req.method === 'OPTIONS') return res.sendStatus(204)
+  next()
+})
 const PORT = process.env.PORT || 4000
 
 const experts = [

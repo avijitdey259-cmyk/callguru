@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
+import { useExperts } from './api'
 import { Btn, Card } from './components'
 import {
-  CATEGORIES, DATING_PROFILES, EXPERTS, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
+  CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, type Expert
 } from './data'
@@ -132,7 +133,8 @@ export function Marketplace() {
   const [services, setServices] = useState(SERVICES)
   const [q, setQ] = useState('')
   const navigate = useNavigate()
-  const filteredExperts = EXPERTS.filter(e => (cat === 'সবগুলো' || e.category === cat) && (e.name + e.title).toLowerCase().includes(q.toLowerCase()))
+  const { experts: liveExperts, source } = useExperts()
+  const filteredExperts = liveExperts.filter(e => (cat === 'সবগুলো' || e.category === cat) && (e.name + e.title).toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap items-center">
@@ -141,7 +143,11 @@ export function Marketplace() {
       </div>
       <input className="w-full border rounded-lg px-3 py-2 dark:bg-fb-card dark:border-slate-600" placeholder="খুঁজুন — ডাক্তার, শিক্ষক, আইনজীবী…" value={q} onChange={e => setQ(e.target.value)} />
       <div className="flex gap-2 flex-wrap">{CATEGORIES.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
-      <h2 className="font-bold">এক্সপার্ট — প্রতি মিনিটে কল</h2>
+      <h2 className="font-bold flex items-center gap-2 flex-wrap">এক্সপার্ট — প্রতি মিনিটে কল
+        {source === 'live'
+          ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">● Live — Railway ব্যাকএন্ড</span>
+          : <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">Demo — স্থানীয় ডেটা</span>}
+      </h2>
       <div className="grid sm:grid-cols-2 gap-3">
         {filteredExperts.map(e => <ExpertCard key={e.id} expert={e} />)}
         {filteredExperts.length === 0 && <p className="text-sm text-gray-500">কোনো এক্সপার্ট পাওয়া যায়নি।</p>}
@@ -190,7 +196,8 @@ export function ExpertCard({ expert }: { expert: Expert }) {
 
 export function ExpertProfile() {
   const { id } = useParams()
-  const expert = EXPERTS.find(e => e.id === id)
+  const { experts: liveExperts } = useExperts()
+  const expert = liveExperts.find(e => e.id === id)
   const navigate = useNavigate()
   if (!expert) return <Card>এক্সপার্ট পাওয়া যায়নি। <Link className="text-fb-blue" to="/marketplace">ফিরে যান</Link></Card>
   return (
@@ -239,7 +246,8 @@ export function CallPage() {
   const { type, id } = useParams()
   const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user } = useStore()
   const navigate = useNavigate()
-  const expert = type === 'expert' ? EXPERTS.find(e => e.id === id) : undefined
+  const { experts: liveExperts } = useExperts()
+  const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'বন্ধু') : undefined
   const rate = expert ? expert.rate : FRIEND_RATE
   const name = expert ? expert.name : decodeURIComponent(friendName || 'বন্ধু')
