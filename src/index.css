@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html, body, #root { min-height: 100%; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Bengali', sans-serif; background: #F0F2F5; }
+.dark body { background: #18191A; color: #E4E6EB; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+.snap-x-scroll { scroll-snap-type: x mandatory; }
+.snap-x-scroll > * { scroll-snap-align: start; }

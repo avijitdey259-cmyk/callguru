@@ -1,0 +1,51 @@
+# CallGuru
+
+Bilingual (English & Bengali) live pay-per-minute expert consultation, social community and creator marketplace — React 18 + Vite + TypeScript + Tailwind, with a small Express backend in `server/`.
+
+**Live demo:** frontend works standalone in demo/local mode (localStorage seed data, no live backend required). Real Firebase Auth, SMS gateway, WebRTC signalling/TURN and payment gateways need real project credentials before real users.
+
+## Key rules (v6)
+
+- **Calls are PREPAID** — top-up first, no balance = no call. Live prepaid meter, auto-cut when balance runs out.
+- **Chat is FREE** everywhere. Calls are NOT free.
+- **Free minutes: NOT 2 minutes free.** Only the first call's first 1 minute free, for first users / first friend.
+- Friend calls flat **৳10/min**; expert calls at the expert's own rate.
+- Wallet packs **৳100–৳1,000**; bKash / Nagad / Bank / USDT (TRC20) top-up.
+- Chat blocks phone numbers, WhatsApp/Facebook/Telegram links and emails (attempts logged, repeat attempts escalate).
+- Dating is **18+ only**, 30 free likes/day, Premium ৳99/month, Boost ~৳10, Super Like 15 coins.
+- Live TV: Bangladeshi channels only, in-app HLS player + official source link. No external video links.
+- Call recordings are **admin-only, for appeals** (30-day retention). Call screen shows only a small red dot — no "Recording" text.
+- Affiliate commission (10%) only after the referred user's **first deposit AND first purchase** — never on signup/clicks alone. Referral is 2-tier (1.0 / 0.5 points, 1 point = ৳50).
+
+## Run locally
+
+```bash
+npm install
+npm run dev        # frontend on http://localhost:5173
+npm run server     # demo API on http://localhost:4000 (optional)
+npm run build      # production build -> dist/
+```
+
+## Deploy on Netlify
+
+1. Create a Netlify site from this GitHub repo (or drag-and-drop `dist/`).
+2. Build command: `npm run build` — Publish directory: `dist` (see `netlify.toml`; SPA redirect `/* -> /index.html` included).
+3. Free subdomain is assigned automatically, e.g. `callguru.netlify.app`.
+
+## Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_URL` | Backend API base URL (optional; demo mode works without it, default `/api`) |
+| `VITE_FIREBASE_API_KEY` etc. | Real Firebase Auth/Firestore (not included — add before real users) |
+
+Never commit secrets, tokens or phone numbers to this repo.
+
+## Structure
+
+- `src/App.tsx` — routes (React Router)
+- `src/pages.tsx` — all pages/flows (feed, marketplace, call, wallet, friends, chat, dating, Live TV, admin…)
+- `src/store.tsx` — wallet/auth/call-history state (localStorage)
+- `src/data.ts` — seed data + contact-ban check + TV channels
+- `src/components.tsx` — Facebook-style layout, top bar, mobile bottom nav
+- `server/index.js` — demo Express API (health, experts, top-up, call gate)
