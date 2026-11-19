@@ -4,8 +4,10 @@ import { EXPERTS } from './data'
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
 export type ChatMsg = { id: string; from: string; text: string; time: string }
-// ডেটিং KYC — একবারই করা হয়; পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না, শুধু শেষ ৪ সংখ্যা
-export type KycInfo = { name: string; dob: string; idType: string; idLast4: string; verifiedAt: string }
+export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'
+// ডেটিং KYC — জমা দিলে অ্যাডমিন দেখে মিলিয়ে অনুমোদন/বাতিল করেন; অনুমোদন হলেই ডেটিং খুলবে।
+// পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না, শুধু শেষ ৪ সংখ্যা; সেলফি ও লাইভ ভিডিও ক্লিপ শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয়
+export type KycInfo = { name: string; dob: string; idType: string; idLast4: string; selfie?: string; selfieVideo?: string; submittedAt: string; verifiedAt: string | null }
 
 type Store = {
   user: { name: string; email: string } | null
@@ -41,9 +43,14 @@ type Store = {
   setLiveRate: (v: number) => void
   liveEarnings: number
   addLiveEarnings: (n: number) => void
+  kycStatus: KycStatus
   kycVerified: boolean
   kycInfo: KycInfo | null
-  completeKyc: (info: Omit<KycInfo, 'verifiedAt'>) => void
+  kycRejectReason: string
+  submitKyc: (info: Omit<KycInfo, 'submittedAt' | 'verifiedAt'>) => void
+  approveKyc: () => void
+  rejectKyc: (reason: string) => void
+  resetKyc: () => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -77,9 +84,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [liveRate, setLiveRateState] = useState<number>(() => load('liveRate', 5))
   // হোস্টের মোট লাইভ আয় (নিজের লাইভ থেকে ৭০% শেয়ার জমা হয়) — স্থায়ীভাবে সংরক্ষিত
   const [liveEarnings, setLiveEarnings] = useState<number>(() => load('liveEarnings', 0))
-  // ডেটিং KYC — একবার সম্পন্ন হলে আর কখনো চাওয়া হয় না (রিলোড/নতুন ভিজিটেও নয়)
-  const [kycVerified, setKycVerified] = useState<boolean>(() => load('kycVerified', false))
-  const [kycInfo, setKycInfo] = useState<KycInfo | null>(() => load('kycInfo', null))
+  // ডেটিং KYC — জমা → অ্যাডমিন পর্যালোচনা → অনুমোদন হলেই ডেটিং খুলবে; অনুমোদিত হলে আর কখনো চাওয়া হয় না
+  const [kycStatus, setKycStatus] = useState<KycStatus>(() => {
+    const s = load<KycStatus | null>('kycStatus', null)
+    if (s) return s
+    // পুরোনো ডেমোতে যারা আগে (অটো) যাচাই হয়েছিল, তারা অনুমোদিতই থাকবে — আবার KYC লাগবে না
+    return load('kycVerified', false) ? 'approved' : 'none'
+  })
+  const [kycInfo, setKycInfo] = useState<KycInfo | null>(() => {
+    const info = load<KycInfo | null>('kycInfo', null)
+    if (info && !info.submittedAt) return { ...info, submittedAt: info.verifiedAt ?? new Date().toISOString() }
+    return info
+  })
+  const [kycRejectReason, setKycRejectReason] = useState<string>(() => load('kycRejectReason', ''))
 
   useEffect(() => save('user', user), [user])
   useEffect(() => save('balance', balance), [balance])
@@ -96,8 +113,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('datingRate', datingRate), [datingRate])
   useEffect(() => save('liveRate', liveRate), [liveRate])
   useEffect(() => save('liveEarnings', liveEarnings), [liveEarnings])
-  useEffect(() => save('kycVerified', kycVerified), [kycVerified])
+  useEffect(() => save('kycStatus', kycStatus), [kycStatus])
   useEffect(() => save('kycInfo', kycInfo), [kycInfo])
+  useEffect(() => save('kycRejectReason', kycRejectReason), [kycRejectReason])
 
   const value: Store = useMemo(() => ({
     user,
@@ -144,10 +162,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLiveRate: (v) => { const n = Math.floor(Number(v)); if (Number.isFinite(n) && n >= 1) setLiveRateState(n) },
     liveEarnings,
     addLiveEarnings: (n) => { const m = Math.floor(Number(n)); if (Number.isFinite(m) && m > 0) setLiveEarnings(e => e + m) },
-    kycVerified,
+    kycStatus,
+    kycVerified: kycStatus === 'approved',
     kycInfo,
-    completeKyc: (info) => { setKycInfo({ ...info, verifiedAt: new Date().toISOString() }); setKycVerified(true) }
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveRate, liveEarnings, kycVerified, kycInfo])
+    kycRejectReason,
+    submitKyc: (info) => { setKycInfo({ ...info, submittedAt: new Date().toISOString(), verifiedAt: null }); setKycRejectReason(''); setKycStatus('pending') },
+    approveKyc: () => { setKycInfo(prev => prev ? { ...prev, verifiedAt: new Date().toISOString() } : prev); setKycStatus('approved') },
+    rejectKyc: (reason) => { setKycRejectReason(reason.trim()); setKycStatus('rejected') },
+    resetKyc: () => { setKycInfo(null); setKycRejectReason(''); setKycStatus('none') }
+  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -646,20 +646,39 @@ function ageFromDob(dobStr: string): number | null {
   return age
 }
 
+// সেলফি ছোট আকারে নামানো হয় (সর্বোচ্চ ৩২০px, JPEG ০.৭) — অ্যাডমিন দেখে মিলাতে পারবেন, আর localStorage-এ জায়গাও কম লাগবে
+function downscaleImage(source: HTMLVideoElement | HTMLImageElement, w: number, h: number): string {
+  const scale = Math.min(1, 320 / w)
+  const c = document.createElement('canvas')
+  c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale))
+  const ctx = c.getContext('2d')
+  if (!ctx) return ''
+  ctx.drawImage(source, 0, 0, c.width, c.height)
+  return c.toDataURL('image/jpeg', 0.7)
+}
+
 function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () => void }) {
-  const { completeKyc } = useStore()
-  const [step, setStep] = useState<1 | 2 | 'done'>(1)
+  const { submitKyc: submitKycToStore, kycStatus, kycInfo, kycRejectReason, resetKyc } = useStore()
+  const [step, setStep] = useState<1 | 2>(1)
+  const [resubmit, setResubmit] = useState(false)
   const [name, setName] = useState('')
   const [dob, setDob] = useState('')
   const [idType, setIdType] = useState('')
   const [idNumber, setIdNumber] = useState('')
   const [err, setErr] = useState('')
   const [captured, setCaptured] = useState<string | null>(null)
+  const [videoClip, setVideoClip] = useState<string | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [videoNote, setVideoNote] = useState('')
   const [camError, setCamError] = useState('')
   const [camKey, setCamKey] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // ভিডিও রেকর্ডিং চলার সময় ক্যামেরা-ইফেক্টের cleanup যেন ট্র্যাক বন্ধ না করে — নইলে ক্লিপটি মাঝপথে কেটে যাবে
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordingRef = useRef(false)
+  const cancelRecordRef = useRef(false)
 
   function startCamera() {
     setCamError('')
@@ -671,28 +690,69 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   useEffect(() => {
     if (step !== 2 || captured) return
     startCamera()
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    return () => { if (recordingRef.current) return; streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, camKey])
 
   function captureSelfie() {
     const v = videoRef.current
+    const stream = streamRef.current
     if (!v || !v.videoWidth) { setCamError('ক্যামেরা থেকে ছবি নেওয়া যায়নি — আবার চেষ্টা করুন বা ছবি আপলোড করুন।'); return }
-    const c = document.createElement('canvas')
-    c.width = v.videoWidth; c.height = v.videoHeight
-    const ctx = c.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(v, 0, 0)
-    setCaptured(c.toDataURL('image/jpeg', 0.8))
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    streamRef.current = null
+    // অ্যাডমিন দেখে মিলাতে পারবেন — ছোট আকারে সংরক্ষণ করা হয়
+    setCaptured(downscaleImage(v, v.videoWidth, v.videoHeight))
+    // লাইভ ভিডিও ক্লিপ (~৩ সেকেন্ড, কম বিটরেট) — অ্যাডমিন ভিডিও চালিয়ে ব্যক্তি মেলাতে পারবেন
+    setVideoClip(null); setVideoNote(''); cancelRecordRef.current = false
+    if (stream && typeof MediaRecorder !== 'undefined') {
+      try {
+        const rec = new MediaRecorder(stream, { videoBitsPerSecond: 200000 })
+        recorderRef.current = rec
+        const chunks: Blob[] = []
+        rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data) }
+        rec.onstop = () => {
+          recordingRef.current = false
+          recorderRef.current = null
+          setRecording(false)
+          if (!cancelRecordRef.current) {
+            const blob = new Blob(chunks, { type: rec.mimeType || 'video/webm' })
+            if (blob.size > 0 && blob.size < 900000) {
+              const r = new FileReader()
+              r.onload = () => setVideoClip(String(r.result))
+              r.readAsDataURL(blob)
+            } else {
+              setVideoNote('লাইভ ভিডিওটি এই ডিভাইসে সংরক্ষণ করা যায়নি — শুধু সেলফি ছবি দিয়ে যাচাই করা হবে।')
+            }
+          }
+          stream.getTracks().forEach(t => t.stop())
+          streamRef.current = null
+        }
+        rec.start()
+        recordingRef.current = true
+        setRecording(true)
+        setTimeout(() => { if (rec.state !== 'inactive') rec.stop() }, 3000)
+      } catch {
+        setVideoNote('লাইভ ভিডিও রেকর্ড করা যায়নি — শুধু সেলফি ছবি দিয়ে যাচাই করা হবে।')
+        stream.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+      }
+    } else {
+      setVideoNote('লাইভ ভিডিও রেকর্ড করা যায়নি — শুধু সেলফি ছবি দিয়ে যাচাই করা হবে।')
+      stream?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
   }
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     if (!f) return
     const r = new FileReader()
-    r.onload = () => setCaptured(String(r.result))
+    r.onload = () => {
+      const img = new Image()
+      img.onload = () => setCaptured(downscaleImage(img, img.width, img.height))
+      img.src = String(r.result)
+    }
     r.readAsDataURL(f)
+    // আপলোড করা ছবিতে লাইভ ভিডিও থাকে না — শুধু সেলফি ছবি দিয়েই যাচাই হবে
+    setVideoClip(null)
+    setVideoNote('আপলোড করা ছবিতে লাইভ ভিডিও থাকে না — শুধু সেলফি ছবি দিয়ে যাচাই করা হবে।')
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
   }
@@ -707,19 +767,46 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   }
   function submitKyc() {
     if (!captured) return
-    // পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা
-    completeKyc({ name: name.trim(), dob, idType, idLast4: idNumber.trim().slice(-4) })
-    setStep('done')
+    // পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা; সেলফি ও লাইভ ভিডিও ক্লিপ শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয়
+    submitKycToStore({ name: name.trim(), dob, idType, idLast4: idNumber.trim().slice(-4), selfie: captured, selfieVideo: videoClip ?? undefined })
     onComplete()
   }
+  function startResubmit() {
+    resetKyc()
+    setName(''); setDob(''); setIdType(''); setIdNumber(''); setCaptured(null); setVideoClip(null); setRecording(false); setVideoNote(''); setErr(''); setCamError('')
+    setResubmit(true); setStep(1)
+  }
 
-  if (step === 'done') {
+  // অনুমোদিত হলে ডেটিংয়ে ঢোকার স্ক্রিন (DatingPage-এ kycSuccess থাকলে এই স্ক্রিন দেখায়)
+  if (kycStatus === 'approved') {
     return (
       <div className="max-w-md mx-auto"><Card className="text-center">
-        <h1 className="text-xl font-bold">✅ KYC সম্পন্ন হয়েছে</h1>
-        <p className="text-sm text-gray-500 mt-2">{name} • যাচাইয়ের তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
+        <h1 className="text-xl font-bold">✅ KYC অনুমোদিত হয়েছে</h1>
+        <p className="text-sm text-gray-500 mt-2">{kycInfo?.name ?? name} • অনুমোদনের তারিখ: {kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : new Date().toLocaleDateString('bn-BD')}</p>
         <p className="text-sm text-green-600 mt-2 font-medium">আর কখনো KYC করতে হবে না — একবারই যথেষ্ট।</p>
         <Btn className="mt-4 w-full" onClick={onEnter}>❤️ ডেটিংয়ে যান</Btn>
+      </Card></div>
+    )
+  }
+  // জমা দেওয়ার পর অ্যাডমিনের অনুমোদনের অপেক্ষা — ডেটিং এখনো বন্ধ
+  if (kycStatus === 'pending') {
+    return (
+      <div className="max-w-md mx-auto"><Card className="text-center">
+        <h1 className="text-xl font-bold">⏳ KYC পর্যালোচনাধীন</h1>
+        <p className="text-sm text-gray-500 mt-2">আপনার KYC জমা হয়েছে ({kycInfo?.name ?? name} • {kycInfo ? new Date(kycInfo.submittedAt).toLocaleDateString('bn-BD') : ''})। অ্যাডমিন আপনার নাম, বয়স, আইডি আর সেলফি মিলিয়ে দেখছেন — অনুমোদন হলে ডেটিং খুলে যাবে।</p>
+        <p className="text-sm text-gray-400 mt-2">অনুমোদন না হওয়া পর্যন্ত ডেটিংয়ের কিছুই দেখা যাবে না।</p>
+      </Card></div>
+    )
+  }
+  // বাতিল হলে কারণ দেখিয়ে আবার জমা দেওয়ার সুযোগ
+  if (kycStatus === 'rejected' && !resubmit) {
+    return (
+      <div className="max-w-md mx-auto"><Card className="text-center">
+        <h1 className="text-xl font-bold">❌ KYC বাতিল হয়েছে</h1>
+        <p className="text-sm text-gray-500 mt-2">অ্যাডমিন আপনার KYC বাতিল করেছেন।</p>
+        <p className="text-sm mt-2 bg-red-50 dark:bg-red-900 rounded-lg px-3 py-2">বাতিলের কারণ: <b>{kycRejectReason || 'কারণ দেওয়া হয়নি'}</b></p>
+        <p className="text-sm text-gray-400 mt-2">তথ্য ঠিক করে আবার KYC জমা দিতে পারেন।</p>
+        <Btn className="mt-4 w-full" onClick={startResubmit}>🔄 আবার KYC জমা দিন</Btn>
       </Card></div>
     )
   }
@@ -757,18 +844,21 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
       {step === 2 && (
         <div className="mt-4 text-center">
           <p className="text-sm font-medium">📸 লাইভ সেলফি তুলুন</p>
-          <p className="text-xs text-gray-400 mt-1">সামনের ক্যামেরায় আপনার লাইভ ছবি তুলুন। সেলফিটি শুধু এই স্ক্রিনেই যাচাই করা হবে — কোথাও সংরক্ষণ বা আপলোড করা হবে না।</p>
+          <p className="text-xs text-gray-400 mt-1">সামনের ক্যামেরায় আপনার লাইভ ছবি তুলুন — ছবির সাথে সাথে ~৩ সেকেন্ডের একটি লাইভ ভিডিও ক্লিপও রেকর্ড হবে। ছবি ও ভিডিও শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয় — অ্যাডমিন আপনার নাম-বয়স-আইডির সাথে ছবি ও ভিডিও মিলিয়ে দেখবেন। অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
           {!captured && <video ref={videoRef} className="w-full aspect-[3/4] bg-black rounded-xl mt-3 object-cover" autoPlay playsInline muted />}
           {captured && <img src={captured} alt="লাইভ সেলফি" className="w-full aspect-[3/4] object-cover rounded-xl mt-3" />}
+          {recording && <p className="text-sm text-red-500 mt-2 font-medium">🎥 লাইভ ভিডিও রেকর্ড হচ্ছে… ~৩ সেকেন্ড অপেক্ষা করুন</p>}
+          {videoClip && <div className="mt-3"><p className="text-xs text-gray-400 mb-1">🎥 আপনার লাইভ ভিডিও ক্লিপ (অ্যাডমিন এটাই দেখবেন)</p><video src={videoClip} controls loop muted playsInline className="w-full aspect-[3/4] object-cover rounded-xl bg-black" /></div>}
+          {videoNote && <p className="text-xs text-amber-600 mt-2">{videoNote}</p>}
           {camError && <p className="text-sm text-red-500 mt-2">{camError}</p>}
           <div className="flex gap-2 mt-3">
             {!captured && <Btn variant="green" className="flex-1" onClick={captureSelfie}>📸 ছবি তুলুন</Btn>}
-            {captured && <Btn variant="ghost" className="flex-1" onClick={() => { setCaptured(null); setCamKey(k => k + 1) }}>🔄 আবার তুলুন</Btn>}
+            {captured && <Btn variant="ghost" className="flex-1" onClick={() => { cancelRecordRef.current = true; if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop(); setCaptured(null); setVideoClip(null); setVideoNote(''); setRecording(false); setCamKey(k => k + 1) }}>🔄 আবার তুলুন</Btn>}
             <Btn variant="ghost" onClick={() => fileRef.current?.click()}>📁 ছবি আপলোড</Btn>
           </div>
           <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={onFile} />
           <p className="text-xs text-gray-400 mt-2">ক্যামেরা না থাকলে ছবি আপলোড করেও সেলফি দেওয়া যাবে (লাইভ ক্যামেরাই ভালো)।</p>
-          <Btn className="w-full mt-4" disabled={!captured} onClick={submitKyc}>✅ KYC সম্পন্ন করুন</Btn>
+          <Btn className="w-full mt-4" disabled={!captured || recording} onClick={submitKyc}>📤 KYC জমা দিন (অ্যাডমিন যাচাই করবেন)</Btn>
           <button className="text-sm text-gray-400 mt-3" onClick={() => setStep(1)}>← আগের ধাপে ফিরুন</button>
         </div>
       )}
@@ -779,12 +869,30 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
 // KYC না থাকলে ডেটিংয়ের ভেতরের রুটগুলোতে (সরাসরি লিংকেও) এই স্ক্রিন দেখাবে
 function DatingKycBlocked() {
   const navigate = useNavigate()
+  const { kycStatus, kycRejectReason } = useStore()
   return (
     <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
       <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
-        <h1 className="text-xl font-bold">🔒 KYC ছাড়া ডেটিং ব্যবহার করা যাবে না</h1>
-        <p className="text-sm text-gray-300 mt-2">ডেটিংয়ের জন্য প্রথমে একবার KYC (লাইভ পরিচয় যাচাই) করতে হবে। KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না।</p>
-        <Btn className="mt-4" onClick={() => navigate('/dating')}>KYC করুন</Btn>
+        {kycStatus === 'pending' ? (
+          <>
+            <h1 className="text-xl font-bold">⏳ KYC পর্যালোচনাধীন</h1>
+            <p className="text-sm text-gray-300 mt-2">আপনার KYC জমা হয়েছে — অ্যাডমিন দেখে মিলিয়ে অনুমোদন করলে ডেটিং খুলে যাবে। অনুমোদন না হওয়া পর্যন্ত ডেটিংয়ের কিছুই দেখা যাবে না।</p>
+            <Btn className="mt-4" onClick={() => navigate('/dating')}>KYC অবস্থা দেখুন</Btn>
+          </>
+        ) : kycStatus === 'rejected' ? (
+          <>
+            <h1 className="text-xl font-bold">❌ KYC বাতিল হয়েছে</h1>
+            <p className="text-sm text-gray-300 mt-2">অ্যাডমিন আপনার KYC বাতিল করেছেন।</p>
+            <p className="text-sm mt-2 bg-red-900 rounded-lg px-3 py-2">বাতিলের কারণ: <b>{kycRejectReason || 'কারণ দেওয়া হয়নি'}</b></p>
+            <Btn className="mt-4" onClick={() => navigate('/dating')}>আবার KYC জমা দিন</Btn>
+          </>
+        ) : (
+          <>
+            <h1 className="text-xl font-bold">🔒 KYC ছাড়া ডেটিং ব্যবহার করা যাবে না</h1>
+            <p className="text-sm text-gray-300 mt-2">ডেটিংয়ের জন্য প্রথমে একবার KYC (লাইভ পরিচয় যাচাই) করতে হবে। KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না।</p>
+            <Btn className="mt-4" onClick={() => navigate('/dating')}>KYC করুন</Btn>
+          </>
+        )}
       </Card>
     </div>
   )
@@ -1557,8 +1665,17 @@ export function AdsPage() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycVerified, kycInfo } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc } = useStore()
   const [tab, setTab] = useState('revenue')
+  const [rejectReason, setRejectReason] = useState('')
+  const [showReject, setShowReject] = useState(false)
+  // অ্যাডমিন লাইভ মনিটরিং — ডেটিং পেজের মতো একই সার্ভার থেকে (GET /api/live) চলমান লাইভের তালিকা
+  const [adminRooms, setAdminRooms] = useState<LiveRoom[] | null>(null)
+  const [adminLiveOk, setAdminLiveOk] = useState(false)
+  function refreshAdminRooms() {
+    fetchLiveRooms().then(r => { if (r) { setAdminRooms(r); setAdminLiveOk(true) } else { setAdminLiveOk(false) } })
+  }
+  useEffect(() => { if (tab === 'kyc') refreshAdminRooms() }, [tab])
   const [rate, setRate] = useState(20)
   const [mins, setMins] = useState(10)
   const [price, setPrice] = useState(10)
@@ -1587,7 +1704,7 @@ export function AdminPage() {
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold">🛡️ অ্যাডমিন প্যানেল</h1>
-      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'recordings', 'livetv', 'moderation'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t}</button>)}</div>
+      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'recordings', 'livetv', 'moderation'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC যাচাই' : t}</button>)}</div>
       {tab === 'revenue' && <Card>
         <h2 className="font-bold">রেভিনিউ ও ফি ক্যালকুলেটর</h2>
         <label className="text-sm block mt-3">কমিশন %</label><input type="number" className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={rate} onChange={e => setRate(Number(e.target.value))} />
@@ -1615,7 +1732,69 @@ export function AdminPage() {
         {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
         {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
       </Card>}
-      {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p><p className="text-sm mt-2">ডেটিং KYC: {kycVerified ? `✅ সম্পন্ন হয়েছে (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, আইডির শেষ ৪: ${kycInfo?.idLast4 ?? ''})` : '⏳ এখনো হয়নি'}</p></Card>}
+      {tab === 'kyc' && <Card>
+        <h2 className="font-bold">🛡️ ডেটিং KYC যাচাই — অ্যাডমিন</h2>
+        <p className="text-xs text-gray-400 mt-1">নাম, বয়স, আইডি আর সেলফি/লাইভ ভিডিও মিলিয়ে দেখে অনুমোদন বা বাতিল করুন। অনুমোদন হলেই ওই ব্যবহারকারীর ডেটিং খুলবে। ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে; এই ডেমোতে জমা শুধু এই ডিভাইসে থাকে।</p>
+        {kycStatus === 'none' && <p className="text-sm mt-3">কোনো KYC জমা পড়েনি।</p>}
+        {kycInfo && (<div className="mt-3">
+          <div className="flex gap-4 flex-wrap items-start">
+            <div>
+              {kycInfo.selfie ? <img src={kycInfo.selfie} alt="KYC সেলফি" className="w-32 aspect-[3/4] object-cover rounded-xl border" /> : <p className="text-sm text-gray-400">সেলফি ছবি নেই</p>}
+              <p className="text-xs text-gray-400 mt-1 w-32">📸 সেলফি ছবি</p>
+            </div>
+            <div>
+              {kycInfo.selfieVideo ? <video src={kycInfo.selfieVideo} controls loop muted playsInline className="w-32 aspect-[3/4] object-cover rounded-xl border bg-black" /> : <p className="text-sm text-gray-400 w-32">🎥 লাইভ ভিডিও এই ডিভাইসে সংরক্ষণ করা যায়নি — শুধু সেলফি ছবি দিয়ে মিলিয়ে দেখুন।</p>}
+              {kycInfo.selfieVideo && <p className="text-xs text-gray-400 mt-1 w-32">🎥 লাইভ ভিডিও (~৩ সেকেন্ড) — চালিয়ে দেখুন</p>}
+            </div>
+            <div className="text-sm space-y-1 flex-1 min-w-[200px]">
+              <p><b>নাম:</b> {kycInfo.name}</p>
+              <p><b>জন্ম তারিখ:</b> {kycInfo.dob} (বয়স: {ageFromDob(kycInfo.dob)} বছর)</p>
+              <p><b>আইডির ধরন:</b> {kycInfo.idType}</p>
+              <p><b>আইডির শেষ ৪:</b> {kycInfo.idLast4}</p>
+              <p><b>জমার তারিখ:</b> {new Date(kycInfo.submittedAt).toLocaleString('bn-BD')}</p>
+              <p><b>অবস্থা:</b> {kycStatus === 'pending' ? '⏳ পর্যালোচনাধীন' : kycStatus === 'approved' ? `✅ অনুমোদিত (${kycInfo.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : ''})` : kycStatus === 'rejected' ? '❌ বাতিল' : '—'}</p>
+              {kycStatus === 'rejected' && <p><b>বাতিলের কারণ:</b> {kycRejectReason || '—'}</p>}
+              <p className="text-xs text-gray-400">ছবি ও ভিডিওর ব্যক্তির সাথে নাম-বয়স-আইডি মিলছে কিনা দেখুন। সেলফি ও ভিডিও শুধু অ্যাডমিন যাচাইয়ের জন্য — অন্য কারো সাথে শেয়ার করবেন না।</p>
+            </div>
+          </div>
+          {kycStatus === 'pending' && (<>
+            <div className="flex gap-2 mt-4 flex-wrap">
+              <Btn variant="green" onClick={() => { approveKyc(); setShowReject(false) }}>✅ অনুমোদন করুন</Btn>
+              <Btn variant="ghost" onClick={() => setShowReject(s => !s)}>❌ বাতিল করুন</Btn>
+            </div>
+            {showReject && (<div className="mt-3">
+              <label className="text-sm font-medium">বাতিলের কারণ (আবশ্যক)</label>
+              <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="যেমন: সেলফি অস্পষ্ট, নামের সাথে আইডি মিলছে না" />
+              <Btn className="mt-2" disabled={!rejectReason.trim()} onClick={() => { rejectKyc(rejectReason); setRejectReason(''); setShowReject(false) }}>বাতিল নিশ্চিত করুন</Btn>
+            </div>)}
+          </>)}
+          {kycStatus === 'approved' && <p className="text-sm text-green-600 mt-3">✅ অনুমোদিত — এই ব্যবহারকারীর ডেটিং খুলে গেছে।</p>}
+          {kycStatus === 'rejected' && <p className="text-sm text-red-500 mt-3">❌ বাতিল হয়েছে — ব্যবহারকারী তথ্য ঠিক করে আবার KYC জমা দিতে পারবেন।</p>}
+        </div>)}
+        <div className="mt-6 pt-4 border-t">
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <h3 className="font-bold">🔴 চলমান লাইভ দেখুন — অ্যাডমিন মনিটরিং</h3>
+            <Btn variant="ghost" onClick={refreshAdminRooms}>🔄 রিফ্রেশ</Btn>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">এখন যারা ডেটিং লাইভে আছেন, অ্যাডমিন এখান থেকে দেখে মনিটর করতে পারেন। লাইভে ঢুকলে দর্শকের মতোই প্রিপেইড রেট প্রযোজ্য হবে।</p>
+          {!adminLiveOk && <p className="text-sm text-amber-600 mt-2">⚠️ লাইভ সার্ভারে পৌঁছানো যাচ্ছে না — ডেমো নোট: সার্ভার চালু হলে চলমান লাইভ এখানে দেখাবে।</p>}
+          {adminLiveOk && adminRooms && adminRooms.length === 0 && <p className="text-sm mt-2">এখন কেউ লাইভে নেই।</p>}
+          {adminLiveOk && adminRooms && adminRooms.length > 0 && (
+            <div className="space-y-2 mt-3">
+              {adminRooms.map(r => (
+                <div key={r.id} className="flex justify-between items-center gap-2 border rounded-lg px-3 py-2 flex-wrap">
+                  <div className="text-sm">
+                    <p className="font-bold">🔴 {r.hostName} <span className="text-xs font-normal text-gray-400">• {r.title || 'ডেটিং লাইভ'}</span></p>
+                    <p className="text-xs text-gray-500">👁️ {r.viewers} জন দেখছে • শুরু: {new Date(r.startedAt).toLocaleTimeString('bn-BD')}</p>
+                  </div>
+                  <Link to={`/dating-live/${r.id}`} className="bg-fb-blue text-white text-sm font-medium px-3 py-1.5 rounded-full">👁️ দেখুন</Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>}
+      {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p><p className="text-sm mt-2">ডেটিং KYC: {kycStatus === 'approved' ? `✅ অনুমোদিত (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, আইডির শেষ ৪: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ পর্যালোচনাধীন — অ্যাডমিন অনুমোদনের অপেক্ষায়' : kycStatus === 'rejected' ? `❌ বাতিল — ${kycRejectReason || 'কারণ দেওয়া হয়নি'}` : '⏳ এখনো হয়নি'}</p></Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">কল রেকর্ডিং — শুধু অ্যাডমিন</h2><p className="text-sm mt-2">রেকর্ডিং শুধু আপিল/বিরোধ নিষ্পত্তির জন্য অ্যাডমিন দেখতে পারেন। সাধারণ ব্যবহারকারীর কোনো রেকর্ড বোতাম নেই। সংরক্ষণ: ৩০ দিন (Cloudflare R2 ফ্রি টিয়ার)। সার্ভারে সংরক্ষিত হয়, ব্যবহারকারীর ফোনে নয়।</p><p className="text-sm mt-1">ডেমোতে কোনো আসল রেকর্ডিং নেই।</p></Card>}
       {tab === 'livetv' && <Card><h2 className="font-bold">লাইভ টিভি চ্যানেল যোগ করুন</h2>
         <label className="text-sm block mt-3">চ্যানেলের নাম</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvName} onChange={e => setTvName(e.target.value)} />
