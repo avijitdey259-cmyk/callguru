@@ -758,17 +758,22 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   }
   function submitIdentity() {
     const age = ageFromDob(dob)
-    if (!name.trim() || !dob || !idType || !idNumber.trim()) { setErr('সব ঘর পূরণ করুন।'); return }
+    const num = idNumber.trim()
+    if (!name.trim() || !dob || !idType || !num) { setErr('সব ঘর পূরণ করুন।'); return }
     if (age === null) { setErr('জন্ম তারিখ সঠিকভাবে দিন।'); return }
     if (age < 18) { setErr('ডেটিংয়ের জন্য বয়স কমপক্ষে ১৮ বছর হতে হবে।'); return }
-    if (idNumber.trim().length < 4) { setErr('সঠিক আইডি নম্বর দিন।'); return }
+    // NID: বাংলাদেশের ফরম্যাট — ১০ বা ১৭ সংখ্যা; পাসপোর্ট/জন্ম নিবন্ধন: কমপক্ষে ৬ অক্ষর
+    if (idType === 'NID') {
+      const digits = num.replace(/[\s-]/g, '')
+      if (!/^\d+$/.test(digits) || (digits.length !== 10 && digits.length !== 17)) { setErr('সঠিক NID নম্বর দিন — ১০ বা ১৭ সংখ্যার হতে হবে।'); return }
+    } else if (num.length < 6) { setErr('সঠিক আইডি নম্বর দিন — কমপক্ষে ৬ অক্ষরের হতে হবে।'); return }
     setErr('')
     setStep(2)
   }
   function submitKyc() {
     if (!captured) return
-    // পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা; সেলফি ও লাইভ ভিডিও ক্লিপ শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয়
-    submitKycToStore({ name: name.trim(), dob, idType, idLast4: idNumber.trim().slice(-4), selfie: captured, selfieVideo: videoClip ?? undefined })
+    // পুরো NID নম্বর প্রথম ধাপ থেকেই সংরক্ষণ করা হয়, যাতে অ্যাডমিন নম্বর মিলিয়ে যাচাই করতে পারেন; সেলফি ও লাইভ ভিডিও ক্লিপ শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয়
+    submitKycToStore({ name: name.trim(), dob, idType, idNumber: idNumber.trim(), idLast4: idNumber.trim().slice(-4), selfie: captured, selfieVideo: videoClip ?? undefined })
     onComplete()
   }
   function startResubmit() {
@@ -834,8 +839,9 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
             <option value="জন্ম নিবন্ধন">জন্ম নিবন্ধন</option>
           </select>
           <label className="text-sm font-medium mt-3 block">আইডি নম্বর</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder="আইডি নম্বর লিখুন" />
-          <p className="text-xs text-gray-400 mt-1">🔒 পুরো আইডি নম্বর সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা রাখা হয়।</p>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder={idType === 'NID' ? 'NID নম্বর — ১০ বা ১৭ সংখ্যা' : 'আইডি নম্বর লিখুন'} />
+          <p className="text-xs text-gray-400 mt-1">🔒 পুরো NID নম্বর সংরক্ষণ করা হয় — শুধু অ্যাডমিন যাচাইয়ের জন্য, অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
+          <p className="text-xs text-amber-600 mt-1">⚠️ পুরো NID অত্যন্ত সংবেদনশীল তথ্য — আসল প্রোডাকশনে এটি প্লেইন টেক্সটে রাখা যাবে না, এনক্রিপ্ট করে ভেরিফায়েড KYC সার্ভিস দিয়ে পরিচালনা করতে হবে।</p>
           {err && <p className="text-sm text-red-500 mt-2">{err}</p>}
           <Btn className="w-full mt-4" onClick={submitIdentity}>পরের ধাপ →</Btn>
           <p className="text-xs text-gray-400 mt-3 text-center">ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে।</p>
@@ -1734,7 +1740,8 @@ export function AdminPage() {
       </Card>}
       {tab === 'kyc' && <Card>
         <h2 className="font-bold">🛡️ ডেটিং KYC যাচাই — অ্যাডমিন</h2>
-        <p className="text-xs text-gray-400 mt-1">নাম, বয়স, আইডি আর সেলফি/লাইভ ভিডিও মিলিয়ে দেখে অনুমোদন বা বাতিল করুন। অনুমোদন হলেই ওই ব্যবহারকারীর ডেটিং খুলবে। ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে; এই ডেমোতে জমা শুধু এই ডিভাইসে থাকে।</p>
+        <p className="text-xs text-gray-400 mt-1">নাম, বয়স, আইডি (পুরো নম্বরসহ) আর সেলফি/লাইভ ভিডিও মিলিয়ে দেখে অনুমোদন বা বাতিল করুন। অনুমোদন হলেই ওই ব্যবহারকারীর ডেটিং খুলবে। ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে; এই ডেমোতে জমা শুধু এই ডিভাইসে থাকে।</p>
+        <p className="text-xs text-amber-600 mt-1">⚠️ পুরো NID নম্বর অত্যন্ত সংবেদনশীল ব্যক্তিগত তথ্য — শুধু অ্যাডমিন যাচাইয়ের জন্য দেখুন, কারো সাথে শেয়ার করবেন না। আসল প্রোডাকশনে পুরো NID প্লেইন টেক্সটে সংরক্ষণ করা যাবে না, এনক্রিপ্ট করে ভেরিফায়েড KYC সার্ভিস দিয়ে পরিচালনা করতে হবে।</p>
         {kycStatus === 'none' && <p className="text-sm mt-3">কোনো KYC জমা পড়েনি।</p>}
         {kycInfo && (<div className="mt-3">
           <div className="flex gap-4 flex-wrap items-start">
@@ -1750,6 +1757,7 @@ export function AdminPage() {
               <p><b>নাম:</b> {kycInfo.name}</p>
               <p><b>জন্ম তারিখ:</b> {kycInfo.dob} (বয়স: {ageFromDob(kycInfo.dob)} বছর)</p>
               <p><b>আইডির ধরন:</b> {kycInfo.idType}</p>
+              <p><b>আইডি নম্বর (পুরো):</b> {kycInfo.idNumber ? kycInfo.idNumber : 'পুরো নম্বর সংরক্ষিত নেই (আগের জমা) — আবার KYC জমা দিলে পুরো নম্বর থাকবে'}</p>
               <p><b>আইডির শেষ ৪:</b> {kycInfo.idLast4}</p>
               <p><b>জমার তারিখ:</b> {new Date(kycInfo.submittedAt).toLocaleString('bn-BD')}</p>
               <p><b>অবস্থা:</b> {kycStatus === 'pending' ? '⏳ পর্যালোচনাধীন' : kycStatus === 'approved' ? `✅ অনুমোদিত (${kycInfo.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : ''})` : kycStatus === 'rejected' ? '❌ বাতিল' : '—'}</p>
