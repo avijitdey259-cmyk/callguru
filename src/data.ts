@@ -112,8 +112,8 @@ export function formatBDT(n: number): string { return `৳${Math.round(n).toLoca
 export const DEFAULT_PI_RATE_BDT = 100 // ডিফল্ট: ১ π = ৳১০০ (ডেমো রেট, আসল বাজারদর নয়)
 export const DEFAULT_USDT_RATE_BDT = 120 // ডিফল্ট: ১ USDT = ৳১২০ (ডেমো রেট)
 export const DEFAULT_PI_WITHDRAW_FEE_PCT = 1 // ডিফল্ট Pi তোলার ফি ১% (সর্বনিম্ন ০.১ π)
-export const roundPi = (n: number) => Math.round(n * 100) / 100
-export function formatPi(n: number): string { const v = roundPi(n); return `π ${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` }
+export const roundPi = (n: number) => Math.round(n * 10000) / 10000 // ৪ দশমিক পর্যন্ত — ডেইলি বোনাস ০.০০০১ π যেন গোল হয়ে ০ না হয়ে যায়
+export function formatPi(n: number): string { const v = roundPi(n); return `π ${v.toLocaleString('en-IN', { maximumFractionDigits: 4 })}` }
 // এক্সপার্টদের টাকার রেট → Pi — নির্দিষ্ট ৳১০০ = ১ π রেফারেন্সে (৳১৫ → π ০.১৫); অ্যাডমিনের Pi দর (piRateBDT) থেকে আলাদা, মেশানো হয় না
 export const takaToPi = (taka: number) => roundPi(taka / 100)
 export const PI_MIN_WITHDRAW_USDT = 10 // Pi তুলতে কমপক্ষে ১০ USDT সমান Pi লাগবে

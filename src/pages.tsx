@@ -108,9 +108,9 @@ export function DailyBonusCard() {
           )
         })}
       </div>
-      <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — ৭ম দিনে ৫০ π! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
+      <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — প্রতিদিন ০.০০০১ π। একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
       <Btn variant="green" className="mt-3" disabled={dailyClaimedToday} onClick={claim}>
-        {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (দিন ${nextDay}: ${DAILY_BONUS_REWARDS[nextDay - 1]} π)`}
+        {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (০.০০০১ π)`}
       </Btn>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
     </Card>
