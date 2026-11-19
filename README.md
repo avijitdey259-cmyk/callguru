@@ -2,7 +2,7 @@
 
 Bilingual (English & Bengali) live pay-per-minute expert consultation, social community and creator marketplace — React 18 + Vite + TypeScript + Tailwind, with a small Express backend in `server/`.
 
-> Formerly branded "CallGuru" — renamed to **PiCall** (in-app branding only; GitHub repo and backend are unchanged). Live site: https://picall-76185.web.app (Firebase Hosting; Netlify dropped 2026-11-19).
+> Formerly branded "CallGuru" — renamed to **PiCall** (in-app branding only; GitHub repo and backend are unchanged). Live site: https://picallbd.web.app (Firebase Hosting; Netlify dropped 2026-11-19). The old default site https://picall-76185.web.app still exists.
 >
 > **PWA:** PiCall is installable — `public/manifest.webmanifest` + `public/sw.js` (offline app shell) + an "📲 অ্যাপ ইন্সটল করুন" button in the header, Menu page and landing page. The button uses `beforeinstallprompt` when available, otherwise shows per-browser steps (Android Chrome / iPhone Safari). Real-phone install test is still the user's to do.
 
@@ -36,8 +36,8 @@ npm run build      # production build -> dist/
 
 ## Deploy on Firebase Hosting (automatic)
 
-1. Every push to `main` runs `.github/workflows/firebase-hosting-deploy.yml`: `npm ci`, `npm run build` (Firebase config from GitHub secrets), then deploys `dist/` to https://picall-76185.web.app.
-2. Hosting config: `firebase.json` (public `dist`, SPA rewrite `** → /index.html`); project: `.firebaserc` (`picall-76185`).
+1. Every push to `main` runs `.github/workflows/firebase-hosting-deploy.yml`: `npm ci`, `npm run build` (Firebase config from GitHub secrets), then deploys `dist/` to https://picallbd.web.app.
+2. Hosting config: `firebase.json` (public `dist`, SPA rewrite `** → /index.html`, site `picallbd`); project: `.firebaserc` (`picall-76185`).
 3. Required GitHub secrets: `WIF_PROVIDER` + `WIF_SERVICE_ACCOUNT` (Workload Identity Federation — keyless, no JSON key) + `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` (see `FIREBASE_SETUP.md`). Netlify is no longer used.
 
 ## Environment variables
@@ -61,7 +61,7 @@ Never commit secrets, tokens or phone numbers to this repo.
 - `server/index.js` — Express API (health, experts, top-up, call gate) + self-hosted live server: `GET/POST/DELETE /api/live` rooms and WebSocket signalling (join/offer/answer/ice/gift/chat, viewer-count + host-left), minimal CORS so the Firebase-hosted frontend can call it from a browser
 
 ## Viral growth (all five, built together)
-- **Referral + invite link:** Feed and Wallet have a "বন্ধুকে ডাকুন" card with a personal link `https://picall-76185.web.app/?ref=<code>` (copy + native share). A friend arriving via the link gets 10 π welcome bonus once; when that friend makes their first top-up, the inviter earns 20 π (tracked with a pending-referrer record). The existing points/affiliate system is untouched. Demo: referral tracking is per-device (localStorage); real cross-device tracking needs the backend.
+- **Referral + invite link:** Feed and Wallet have a "বন্ধুকে ডাকুন" card with a personal link `https://picallbd.web.app/?ref=<code>` (copy + native share). A friend arriving via the link gets 10 π welcome bonus once; when that friend makes their first top-up, the inviter earns 20 π (tracked with a pending-referrer record). The existing points/affiliate system is untouched. Demo: referral tracking is per-device (localStorage); real cross-device tracking needs the backend.
 - **Shareable clips:** every reel has a Share button (native share, clipboard fallback) with a per-reel share count; Go Live and live-watch end screens have a "📤 শেয়ার করুন" button. Total shares are tracked in the store and shown on the Reels page.
 - **Daily bonus + streak:** Feed top card. 7-day ladder rising step by step: Day 1: 0.0001, Day 2: 0.00025, Day 3: 0.0004, Day 4: 0.00055, Day 5: 0.0007, Day 6: 0.00085, Day 7: 0.001 π, then the cycle restarts at Day 1. Missing a day resets the streak to Day 1. Claimable once per day. **30-day gift box (random draw):** 30 consecutive daily claims unlock a 🎁 gift box on top of the daily bonus — a random draw at claim time: the top prize is 1 π, everyone else gets a random consolation prize of 0.0001 / 0.00025 / 0.0005 / 0.001 π. After claiming, the 30-day counter restarts for the next cycle; missing a day resets the 30-day progress too.
 - **Live gift leaderboard:** Feed section "🏆 সপ্তাহের লিডারবোর্ড" — top live hosts by gifts and top gift-givers, seeded with clearly-marked demo data, merged with the user's own live earnings / gifts sent on this device. Weekly (current week label).

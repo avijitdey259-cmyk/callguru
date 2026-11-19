@@ -2,7 +2,7 @@
 
 > সাইটে Gmail ১-ক্লিক লগইন বোতাম তৈরি আছে। Firebase প্রজেক্টের তথ্য না থাকলে বোতাম ডেমো মোডে চলে। নিচের ধাপগুলো করলেই আসল Google লগইন চালু হবে। কোনো টাকা লাগে না — Firebase Spark (ফ্রি) প্ল্যানই যথেষ্ট।
 >
-> **ডিপ্লয়:** সাইটটি এখন GitHub থেকে স্বয়ংক্রিয়ভাবে Firebase Hosting-এ deploy হয় — `main` ব্রাঞ্চে প্রতিটি push-এ (`.github/workflows/firebase-hosting-deploy.yml`)। **Netlify আর ব্যবহার হয় না** (ক্রেডিট শেষ হয়ে ডিপ্লয় বন্ধ হয়ে গিয়েছিল)। লাইভ সাইট: https://picall-76185.web.app
+> **ডিপ্লয়:** সাইটটি এখন GitHub থেকে স্বয়ংক্রিয়ভাবে Firebase Hosting-এ deploy হয় — `main` ব্রাঞ্চে প্রতিটি push-এ (`.github/workflows/firebase-hosting-deploy.yml`)। **Netlify আর ব্যবহার হয় না** (ক্রেডিট শেষ হয়ে ডিপ্লয় বন্ধ হয়ে গিয়েছিল)। লাইভ সাইট: https://picallbd.web.app (আগের ডিফল্ট সাইট https://picall-76185.web.app-ও এখনো আছে)।
 
 ## ধাপ ১ — Firebase প্রজেক্ট বানান (Step 1 — Create a Firebase project)
 
@@ -37,7 +37,7 @@ GitHub রিপো `avijitdey259-cmyk/callguru` → **Settings → Secrets and 
 
 ## ধাপ ৪ — যাচাই করুন (Step 4 — Verify)
 
-1. https://picall-76185.web.app/login খুলুন — বোতামের নিচে "আসল Gmail লগইন চালু আছে" লেখা থাকবে।
+1. https://picallbd.web.app/login খুলুন — বোতামের নিচে "আসল Gmail লগইন চালু আছে" লেখা থাকবে।
 2. **Gmail দিয়ে ১-ক্লিক লগইন** চাপুন → Google পপ-আপ আসবে → নিজের Gmail বাছুন → ফিডে ঢুকবেন, আপনার আসল নাম + ইমেইলে।
 
 ## জরুরি কথা (Important)
