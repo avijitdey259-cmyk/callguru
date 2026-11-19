@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { EXPERTS, roundPi, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -28,6 +28,12 @@ export const REF_INVITER_PI = 20 // রেফার করা বন্ধুর
 export const INVITE_BASE_URL = 'https://picallbd.web.app/'
 // অ্যাপের একমাত্র অ্যাডমিন/মালিক — শুধু এই ইমেইলের ব্যবহারকারীই অ্যাডমিন প্যানেল দেখতে পান
 export const ADMIN_EMAIL = 'avijitdey259@gmail.com'
+// টপ-আপ অটো Pi রূপান্তর — টাকা হলে ÷ Pi দর, USDT হলে × USDT দর ÷ Pi দর (অ্যাডমিন-নির্ধারিত দরে)
+export function topUpPi(amount: number, currency: 'BDT' | 'USDT', piRateBDT: number, usdtRateBDT: number): number {
+  const m = Number(amount)
+  if (!Number.isFinite(m) || m <= 0) return 0
+  return roundPi(currency === 'USDT' ? (m * usdtRateBDT) / piRateBDT : m / piRateBDT)
+}
 
 function todayStr(): string { return new Date().toLocaleDateString('en-CA') }
 function yesterdayStr(): string { return new Date(Date.now() - 86400000).toLocaleDateString('en-CA') }
@@ -39,9 +45,7 @@ type Store = {
   isAdmin: boolean
   login: (name: string, email: string) => void
   logout: () => void
-  balance: number
   topUp: (amount: number, method: string) => void
-  deduct: (amount: number) => boolean
   freeFirstMinuteUsed: boolean
   markFreeMinuteUsed: () => void
   calls: CallRecord[]
@@ -132,7 +136,6 @@ function save(key: string, value: unknown) { try { localStorage.setItem('callgur
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ name: string; email: string } | null>(() => load('user', null))
-  const [balance, setBalance] = useState<number>(() => load('balance', 0))
   const [freeFirstMinuteUsed, setFreeUsed] = useState<boolean>(() => load('freeUsed', false))
   const [calls, setCalls] = useState<CallRecord[]>(() => load('calls', []))
   const [friends, setFriends] = useState<Friend[]>(() => load('friends', [
@@ -232,7 +235,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [piWithdrawFeePct, setPiWithdrawFeePctState] = useState<number>(() => load('piWithdrawFeePct', DEFAULT_PI_WITHDRAW_FEE_PCT))
 
   useEffect(() => save('user', user), [user])
-  useEffect(() => save('balance', balance), [balance])
   useEffect(() => save('freeUsed', freeFirstMinuteUsed), [freeFirstMinuteUsed])
   useEffect(() => save('calls', calls), [calls])
   useEffect(() => save('friends', friends), [friends])
@@ -286,14 +288,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPiLedger(prev => [{ id: 'pl-' + Date.now() + '-' + Math.floor(Math.random() * 1000), date: new Date().toLocaleString('bn-BD'), type, label, amount: m }, ...prev])
   }
 
+  // পুরনো টাকা ব্যালেন্স একবার Pi-তে রূপান্তর — এই পরিবর্তনের পর টাকার ব্যালেন্স আর কোথাও থাকে না;
+  // সংরক্ষিত টাকা থাকলে তা Pi হয়ে Pi ব্যালেন্সে যোগ হয়, খতিয়ানে 'সমন্বয়' লাইন পড়ে, আর টাকার হিসাব শূন্য করে দেওয়া হয়।
+  const migratedBdtRef = useRef(false)
+  useEffect(() => {
+    if (migratedBdtRef.current) return
+    migratedBdtRef.current = true
+    const old = load<number>('balance', 0)
+    if (old > 0) {
+      const pi = topUpPi(old, 'BDT', piRateBDT, usdtRateBDT)
+      if (pi > 0) { setPiBalance(b => roundPi(b + pi)); recordPi('সমন্বয়', 'সমন্বয় — পুরনো টাকা ব্যালেন্স Pi-তে রূপান্তর', pi) }
+      save('balance', 0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const value: Store = useMemo(() => ({
     user,
     isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
     login: (name, email) => setUser({ name, email }),
     logout: () => setUser(null),
-    balance,
+    // ব্যাংক তাৎক্ষণিক টপ-আপ — টাকা অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
     topUp: (amount, _method) => {
-      setBalance(b => b + amount)
+      const pi = topUpPi(amount, 'BDT', piRateBDT, usdtRateBDT)
+      if (pi > 0) { setPiBalance(b => roundPi(b + pi)); recordPi('জমা', `জমা — ${formatBDT(amount)} → ${formatPi(pi)}`, pi) }
       // রেফারেল পুরস্কার: রেফার লিংকে এসে প্রথম টপ-আপ করলেই আমন্ত্রণকারী ২০ কয়েন পান (একবারই)
       if (referrer && !referralRewarded && !hasToppedUp) {
         setReferralRewarded(true)
@@ -304,11 +322,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setRefNotice(`✅ আপনার প্রথম টপ-আপ সম্পূর্ণ হয়েছে — আপনার আমন্ত্রণকারী ${REF_INVITER_PI} π পেয়েছেন!`)
       }
       setHasToppedUp(true)
-    },
-    deduct: (amount) => {
-      let ok = false
-      setBalance(b => { if (b >= amount) { ok = true; return b - amount } return b })
-      return ok
     },
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),
@@ -455,9 +468,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const req = pendingTopUps.find(x => x.id === id)
       if (!req || req.status !== 'pending') return
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'approved' } : x))
-      // USDT হলে অ্যাডমিন-নির্ধারিত দরে টাকায় বদলে ব্যালেন্সে যোগ হয়; টাকা হলে সরাসরি যোগ হয়
-      const credit = req.currency === 'USDT' ? Math.round(req.amount * usdtRateBDT) : req.amount
-      setBalance(b => b + credit)
+      // অনুমোদনে টপ-আপ অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
+      const pi = topUpPi(req.amount, req.currency, piRateBDT, usdtRateBDT)
+      if (pi > 0) {
+        setPiBalance(b => roundPi(b + pi))
+        recordPi('জমা', `জমা — ${req.currency === 'USDT' ? `${req.amount} USDT` : formatBDT(req.amount)} → ${formatPi(pi)}`, pi)
+      }
       if (referrer && !referralRewarded && !hasToppedUp) {
         setReferralRewarded(true)
         setReferrals(r => r + 1)
@@ -469,7 +485,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     rejectTopUp: (id) => {
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'rejected' } : x))
     }
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps])
+  }), [user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

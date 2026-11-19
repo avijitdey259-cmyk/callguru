@@ -13,7 +13,7 @@ import {
   USDT_NETWORKS, piWithdrawFee,
   type Expert
 } from './data'
-import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI } from './store'
+import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { isFirebaseConfigured, signInWithGoogle } from './firebase'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
@@ -731,13 +731,12 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { balance, topUp, deduct, points, referrals, piBalance, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
+  const { topUp, points, referrals, piBalance, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
   const [msg, setMsg] = useState('')
   const [usdtNetwork, setUsdtNetwork] = useState('BEP20')
-  const [buyMsg, setBuyMsg] = useState('')
   const [depAmount, setDepAmount] = useState('')
   const [depRef, setDepRef] = useState('')
   const [depMsg, setDepMsg] = useState('')
@@ -751,25 +750,20 @@ export function WalletPage() {
   const isUsdtAmount = isUsdt || isBinance
   const isManual = method !== 'Bank'
   const net = USDT_NETWORKS.find(n => n.id === usdtNetwork) || USDT_NETWORKS[1]
+  // টপ-আপের অটো Pi রূপান্তর — ফর্মেই দেখা যায় কত Pi পাওয়া যাবে (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর)
+  const previewPi = topUpPi(Number(amount) || 0, isUsdtAmount ? 'USDT' : 'BDT', piRateBDT, usdtRateBDT)
   const DEMO_NUMBERS: Record<string, string> = { bKash: '01XXXXXXXXX', Nagad: '01XXXXXXXXX', Rocket: '01XXXXXXXXX' }
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
     if (isManual) {
       const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : method, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
-      setMsg(err || `✅ ${method} আবেদন জমা হয়েছে — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।`)
+      setMsg(err || `✅ ${method} আবেদন জমা হয়েছে — অ্যাডমিন অনুমোদন দিলে ${formatPi(previewPi)} Pi যোগ হবে।`)
       if (!err) setTrx('')
       return
     }
     const a = Math.round(Number(amount))
     if (!Number.isFinite(a) || a <= 0) { setMsg('সঠিক পরিমাণ দিন।'); return }
-    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method})। নতুন ব্যালেন্স ${formatBDT(balance + a)}।`)
-  }
-  function buyPiQty(qty: number) {
-    const cost = Math.round(qty * piRateBDT)
-    if (balance < cost) { setBuyMsg(`টাকার ব্যালেন্স যথেষ্ট নয় — ${formatBDT(cost)} দরকার।`); return }
-    if (!deduct(cost)) { setBuyMsg('টাকার ব্যালেন্স যথেষ্ট নয়।'); return }
-    addPi(qty, 'Pi কেনা', `Pi কেনা — ${formatBDT(cost)}`)
-    setBuyMsg(`✅ ${formatPi(qty)} কেনা হয়েছে (ডেমো দর ১ Pi = ${formatBDT(piRateBDT)})।`)
+    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method}) — ${formatPi(previewPi)} Pi যোগ হয়েছে। নতুন Pi ব্যালেন্স ${formatPi(piBalance + previewPi)}।`)
   }
   function doDeposit() {
     const m = Number(depAmount)
@@ -798,23 +792,22 @@ export function WalletPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card className="text-center">
         <p className="text-gray-500 text-sm">ওয়ালেট ব্যালেন্স</p>
-        <p className="text-4xl font-extrabold text-green-600">{formatBDT(balance)}</p>
-        <p className="text-lg font-bold text-purple-600 mt-1">π Pi ব্যালেন্স: {formatPi(piBalance)}</p>
+        <p className="text-4xl font-extrabold text-purple-600">π {formatPi(piBalance)}</p>
         <p className="text-sm text-gray-500 mt-1">রিওয়ার্ড পয়েন্ট: {points} • রেফারেল: {referrals} জন</p>
-        <p className="text-xs text-gray-400 mt-1">কল ও লাইভ প্রিপেইড — Pi ব্যালেন্স ছাড়া চলবে না।</p>
+        <p className="text-xs text-gray-400 mt-1">কল ও লাইভ প্রিপেইড — Pi ব্যালেন্স ছাড়া চলবে না। টাকা বা USDT যা-ই ঢোকান, অটো Pi হয়ে যাবে।</p>
       </Card>
       <Card>
         <h2 className="font-bold">💰 টপ-আপ করুন</h2>
         {!isUsdtAmount && <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>}
         <label className="text-sm block mt-3">পরিমাণ ({isUsdtAmount ? 'USDT' : '৳'})</label>
         <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={amount} onChange={e => setAmount(Number(e.target.value))} />
-        {isUsdtAmount && <p className="text-sm mt-1">≈ {formatBDT(Math.round((Number(amount) || 0) * usdtRateBDT))} হবে (দর: ১ USDT = {formatBDT(usdtRateBDT)}, অ্যাডমিন নির্ধারিত)।</p>}
+        {previewPi > 0 && <p className="text-sm mt-1 text-green-600 font-bold">≈ {formatPi(previewPi)} পাবেন (অটো){isUsdtAmount ? ` — দর: ১ USDT = ${formatBDT(usdtRateBDT)}` : ` — দর: ১ Pi = ${formatBDT(piRateBDT)}`}।</p>}
         <label className="text-sm block mt-3">পেমেন্ট মাধ্যম</label>
         <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Rocket', 'Bank', 'USDT', 'Binance Pay'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
         {isManual && <div className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
           <p className="font-bold">ম্যানুয়াল পেমেন্ট — ধাপ:</p>
           <p>১. নিচের ঠিকানায় {isUsdtAmount ? `${amount || 0} USDT` : `${formatBDT(Number(amount) || 0)}`} পাঠান।</p>
-          <p>২. নিচে {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'} লিখে আবেদন জমা দিন। অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।</p>
+          <p>২. নিচে {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'} লিখে আবেদন জমা দিন। অ্যাডমিন অনুমোদন দিলে Pi যোগ হবে।</p>
         </div>}
         {(method === 'bKash' || method === 'Nagad' || method === 'Rocket') && <div className="text-sm mt-3">
           <p>{method} নম্বর (ডেমো): <b>{DEMO_NUMBERS[method]}</b> <span className="text-xs text-gray-400">ডেমো নম্বর — অ্যাডমিন আসল নম্বর বসাবেন</span></p>
@@ -841,8 +834,8 @@ export function WalletPage() {
         <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>{isManual ? 'আবেদন জমা দিন' : 'টপ-আপ করুন'}</Btn>
         {msg && <p className="text-sm mt-2">{msg}</p>}
         {pendingList.length > 0 && <div className="mt-4">
-          <p className="text-sm font-bold">⏳ টপ-আপ পর্যালোচনাধীন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।</p>
-          {pendingList.map(t => <p key={t.id} className="text-sm mt-1">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)} • {t.trxId} • {t.date}</p>)}
+          <p className="text-sm font-bold">⏳ টপ-আপ পর্যালোচনাধীন — অ্যাডমিন অনুমোদন দিলে Pi যোগ হবে।</p>
+          {pendingList.map(t => <p key={t.id} className="text-sm mt-1">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatPi(topUpPi(t.amount, 'USDT', piRateBDT, usdtRateBDT))}` : `${formatBDT(t.amount)} → ${formatPi(topUpPi(t.amount, 'BDT', piRateBDT, usdtRateBDT))}`} • {t.trxId} • {t.date}</p>)}
         </div>}
         {doneList.length > 0 && <div className="mt-3">
           <p className="text-sm font-bold">আগের আবেদন</p>
@@ -856,11 +849,6 @@ export function WalletPage() {
         {piWalletAddress
           ? <p className="text-sm mt-2">আপনার Pi ঠিকানা (ডেমো): <code className="break-all">{piWalletAddress}</code></p>
           : <Btn variant="ghost" className="mt-2" onClick={connectPiWallet}>π Pi সংযুক্ত করুন (ডেমো)</Btn>}
-        <div className="mt-3">
-          <p className="text-sm font-bold">π Pi কিনুন (টাকার ব্যালেন্স থেকে)</p>
-          <div className="flex gap-2 flex-wrap mt-2">{[1, 5, 10].map(q => <button key={q} onClick={() => buyPiQty(q)} className="px-4 py-2 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">{formatPi(q)} — {formatBDT(Math.round(q * piRateBDT))}</button>)}</div>
-          {buyMsg && <p className="text-sm mt-2">{buyMsg}</p>}
-        </div>
         <div className="mt-3">
           <p className="text-sm font-bold">ডেমো Pi যোগ করুন (টেস্টের জন্য)</p>
           <div className="flex gap-2 flex-wrap mt-2">{[0.1, 0.5, 1].map(a => <button key={a} onClick={() => addDemoPi(a)} className="px-3 py-1.5 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">+{formatPi(a)}</button>)}</div>
@@ -2158,7 +2146,7 @@ export function AdminPage() {
         {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
         {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
         <h3 className="font-bold mt-5">π Pi দর (অ্যাডমিন নির্ধারিত)</h3>
-        <p className="text-xs text-gray-500">Pi কেনা, জমা/তোলা আর USDT বদলের দর এখান থেকে বদলানো যায় — বদলালেই ওয়ালেটে নতুন দর দেখাবে।</p>
+        <p className="text-xs text-gray-500">টপ-আপ রূপান্তর, জমা/তোলা আর USDT বদলের দর এখান থেকে বদলানো যায় — বদলালেই ওয়ালেটে নতুন দর দেখাবে।</p>
         <div className="grid sm:grid-cols-3 gap-3 mt-2">
           <div>
             <label className="text-sm block">Pi দর (৳/Pi)</label>
@@ -2181,12 +2169,13 @@ export function AdminPage() {
         </div>
         <p className="text-xs text-gray-400 mt-2">বর্তমান দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)} • তোলার ফি {piWithdrawFeePct}% (সর্বনিম্ন ০.১ π) • সর্বনিম্ন তোলা ১০ USDT = {formatPi(piMinWithdraw)}।</p>
         <h3 className="font-bold mt-5">টপ-আপ অনুমোদন</h3>
-        <p className="text-xs text-gray-500">ম্যানুয়াল টপ-আপের আবেদন — অনুমোদন দিলে টাকার ব্যালেন্সে যোগ হয় (USDT হলে অ্যাডমিন-নির্ধারিত দরে)।</p>
+        <p className="text-xs text-gray-500">ম্যানুয়াল টপ-আপের আবেদন — অনুমোদন দিলে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর, অ্যাডমিন-নির্ধারিত দরে)।</p>
         {pendingTopUps.length === 0 && <p className="text-sm text-gray-500 mt-2">কোনো আবেদন নেই।</p>}
         {pendingTopUps.map(t => (
           <div key={t.id} className="border rounded-lg p-3 mt-2 flex justify-between gap-2 flex-wrap">
             <div className="text-sm">
               <p className="font-bold">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)}</p>
+              <p className="text-green-600 font-bold">→ {formatPi(topUpPi(t.amount, t.currency, piRateBDT, usdtRateBDT))} Pi যোগ হবে</p>
               <p className="text-gray-500">রেফারেন্স: {t.trxId}</p>
               <p className="text-gray-500">{t.date} • {t.status === 'pending' ? '⏳ পর্যালোচনাধীন' : t.status === 'approved' ? '✅ অনুমোদিত' : '❌ বাতিল'}</p>
             </div>
@@ -2279,7 +2268,7 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, balance, logout, isAdmin } = useStore()
+  const { user, piBalance, logout, isAdmin } = useStore()
   const navigate = useNavigate()
   const tiles = [
     { to: '/feed', label: 'ফিড', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'মার্কেটপ্লেস', icon: '🛍️', color: '#27AE60' },
@@ -2297,7 +2286,7 @@ export function MenuPage() {
         <div className="flex items-center gap-3">
           <span className="w-16 h-16 rounded-full bg-fb-blue text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
           <div><p className="font-bold text-lg">{user ? user.name : 'অতিথি ব্যবহারকারী'}</p><p className="text-sm text-gray-500">{user?.email || 'লগইন করুন'}</p></div>
-          <button onClick={() => navigate('/wallet')} className="ml-auto bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 font-bold px-3 py-1.5 rounded-full text-sm">💰 {formatBDT(balance)}</button>
+          <button onClick={() => navigate('/wallet')} className="ml-auto bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(piBalance)}</button>
         </div>
         {user ? <Btn variant="ghost" className="mt-3" onClick={() => { logout(); navigate('/') }}>লগআউট</Btn>
           : <Btn className="mt-3" onClick={() => navigate('/login')}>লগইন করুন</Btn>}
