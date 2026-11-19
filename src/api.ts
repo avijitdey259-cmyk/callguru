@@ -1,4 +1,4 @@
-// CallGuru API client — talks to the live backend (Railway) when VITE_API_URL is
+// PiCall API client — talks to the live backend (Railway) when VITE_API_URL is
 // set, and falls back to the local seed data (demo mode) otherwise.
 // The site must keep working fully offline/demo: any backend failure, timeout,
 // bad response shape, or missing env var means "demo" — never a broken page.

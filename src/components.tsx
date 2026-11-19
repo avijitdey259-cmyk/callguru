@@ -16,7 +16,7 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-fb-card shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center gap-2 px-3 h-[52px]">
-        <Link to="/feed" className="text-[26px] font-extrabold text-fb-blue leading-none">CallGuru</Link>
+        <Link to="/feed" className="text-[26px] font-extrabold text-fb-blue leading-none">PiCall</Link>
         <div className="hidden md:flex flex-1 justify-center gap-1">
           {[
             { to: '/feed', label: '🏠 হোম' }, { to: '/reels', label: '▶️ ভিডিও' },
@@ -93,7 +93,7 @@ export function Layout() {
           <div className="sticky top-[64px] space-y-4 p-2">
             <div className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm">
               <h3 className="font-bold text-gray-500 text-sm mb-2">Sponsored</h3>
-              <p className="text-sm">CallGuru প্রিমিয়াম — ডেটিংয়ে আনলিমিটেড লাইক, কে লাইক দিয়েছে দেখুন। মাত্র ৳৯৯/মাস।</p>
+              <p className="text-sm">PiCall প্রিমিয়াম — ডেটিংয়ে আনলিমিটেড লাইক, কে লাইক দিয়েছে দেখুন। মাত্র ৳৯৯/মাস।</p>
               <Link to="/dating" className="text-fb-blue text-sm font-medium">বিস্তারিত →</Link>
             </div>
             <div className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm">

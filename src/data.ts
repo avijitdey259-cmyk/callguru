@@ -1,4 +1,4 @@
-// CallGuru seed data — demo/local mode. No real user data, no secrets.
+// PiCall seed data — demo/local mode. No real user data, no secrets.
 export type Expert = {
   id: string; name: string; title: string; category: string;
   rate: number; rating: number; calls: number; online: boolean;
@@ -65,7 +65,7 @@ export type Post = { id: string; author: string; time: string; text: string; lik
 export const SEED_POSTS: Post[] = [
   { id: 'p1', author: 'ডা. রাহাত হোসেন', time: '২ ঘণ্টা আগে', text: 'শীতকালে শিশুদের সর্দি-কাশি বাড়ে। গরম পানি, বিশ্রাম আর প্রয়োজনে ডাক্তারের পরামর্শ নিন। সরাসরি কল করে পরামর্শ নিতে পারেন।', likes: 128, comments: 24, shares: 12, color: '#1877F2' },
   { id: 'p2', author: 'মেহজাবিন চৌধুরী', time: '৫ ঘণ্টা আগে', text: 'IELTS Speaking-এ ভালো করতে প্রতিদিন ১৫ মিনিট ইংরেজিতে কথা বলার অভ্যাস করুন। আজকের লাইভ ক্লাস রাত ৮টায়।', likes: 342, comments: 61, shares: 45, color: '#E67E22' },
-  { id: 'p3', author: 'CallGuru', time: 'আজ সকালে', text: 'নতুন অফার! প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি — শুধু প্রথম ব্যবহারকারী ও প্রথম বন্ধুর জন্য। চ্যাট সবসময় ফ্রি।', likes: 890, comments: 132, shares: 210, color: '#27AE60' }
+  { id: 'p3', author: 'PiCall', time: 'আজ সকালে', text: 'নতুন অফার! প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি — শুধু প্রথম ব্যবহারকারী ও প্রথম বন্ধুর জন্য। চ্যাট সবসময় ফ্রি।', likes: 890, comments: 132, shares: 210, color: '#27AE60' }
 ]
 
 export const STORIES = [
@@ -120,7 +120,7 @@ export const PI_MIN_WITHDRAW_USDT = 10 // Pi তুলতে কমপক্ষ�
 export const piMinWithdraw = (piRateBDT: number, usdtRateBDT: number) => roundPi((PI_MIN_WITHDRAW_USDT * usdtRateBDT) / piRateBDT) // ডিফল্ট দরে ১২ π
 export const piWithdrawFee = (amount: number, feePct: number) => Math.max(0.1, roundPi((amount * feePct) / 100)) // ফি: feePct%, সর্বনিম্ন ০.১ π
 // ম্যানুয়াল টপ-আপের ডেমো ঠিকানা/আইডি — আসল ঠিকানা নয়, ডেমো; অ্যাডমিন আসলগুলো বসাবেন
-export const BINANCE_PAY_ID = 'CALLGURU-DEMO-0000'
+export const BINANCE_PAY_ID = 'PICALL-DEMO-0000'
 export const MANUAL_TOPUP_METHODS = ['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay']
 // USDT নেটওয়ার্ক — দুটিই ম্যানুয়াল (TRC20 নেই); প্রতিটির আলাদা ডেমো ঠিকানা (ফি আনুমানিক, পরিবর্তন হতে পারে)
 export const USDT_NETWORKS = [

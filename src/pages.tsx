@@ -60,7 +60,7 @@ export function InviteCard() {
     catch { setMsg('লিংক: ' + link) }
   }
   async function share() {
-    const r = await shareLink('CallGuru — লাইভ এক্সপার্ট পরামর্শ', 'CallGuru-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ π বোনাস!', link)
+    const r = await shareLink('PiCall — লাইভ এক্সপার্ট পরামর্শ', 'PiCall-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ π বোনাস!', link)
     setMsg(r === 'shared' ? '✅ শেয়ার হয়েছে!' : r === 'copied' ? '✅ লিংক কপি হয়েছে — বন্ধুকে পাঠান!' : '')
   }
   return (
@@ -193,7 +193,7 @@ export function Landing() {
     <div className="space-y-6">
       <RefWelcomeBanner />
       <Card className="text-center py-10 bg-gradient-to-br from-blue-600 to-blue-400 !text-white">
-        <h1 className="text-4xl font-extrabold">CallGuru</h1>
+        <h1 className="text-4xl font-extrabold">PiCall</h1>
         <p className="mt-2 text-lg">লাইভ এক্সপার্ট পরামর্শ • সোশ্যাল কমিউনিটি • ক্রিয়েটর মার্কেটপ্লেস</p>
         <p className="mt-1 text-sm opacity-90">চ্যাট সম্পূর্ণ ফ্রি • কল প্রিপেইড • প্রথম কলের প্রথম ১ মিনিট ফ্রি</p>
         <div className="mt-5 flex gap-3 justify-center">
@@ -233,7 +233,7 @@ export function LoginPage() {
   return (
     <div className="max-w-md mx-auto">
       <Card>
-        <h1 className="text-2xl font-bold text-center">CallGuru-তে স্বাগতম</h1>
+        <h1 className="text-2xl font-bold text-center">PiCall-তে স্বাগতম</h1>
         <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল/পাসওয়ার্ড • OTP</p>
         <button onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800">
           <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
@@ -531,7 +531,7 @@ export function CallPage() {
     if (ended) return
     setEnded(true); setEndReason(reason || 'কল শেষ')
     const cost = roundPi(Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate)
-    if (cost > 0) addPi(-cost)
+    if (cost > 0) addPi(-cost, 'কল খরচ', `কল — ${name}`)
     if (isFreeAvailable && seconds > 0) markFreeMinuteUsed()
     addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: seconds, cost, freeMinute: isFreeAvailable && seconds > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
   }
@@ -664,6 +664,49 @@ export function CallHistory() {
   )
 }
 
+// ---------- π Pi রিপোর্ট ----------
+// ওয়ালেটে Pi-র পুরো হিসাব — খতিয়ান (piLedger) থেকে যোগফল; চলমান ব্যালেন্স বর্তমান ব্যালেন্স থেকে পেছনে গুনে বের করা হয়,
+// তাই খতিয়ানের সব লাইনের যোগফল সবসময় বর্তমান ব্যালেন্সের সঙ্গে মেলে।
+function PiReportCard() {
+  const { piLedger, piBalance } = useStore()
+  const sum = (types: string[]) => roundPi(piLedger.filter(r => types.includes(r.type)).reduce((s, r) => s + r.amount, 0))
+  const totalDeposit = sum(['জমা'])
+  const totalWithdraw = roundPi(-sum(['তোলা']))
+  const totalIncome = sum(['ডেইলি বোনাস', 'রেফারেল', 'লাইভ আয়', 'গিফট বক্স'])
+  const totalExpense = roundPi(-sum(['কল খরচ', 'লাইভ দেখা', 'গিফট দেওয়া', 'বুস্ট', 'সুপার লাইক']))
+  let run = piBalance
+  const rows = piLedger.map(r => { const after = run; run = roundPi(run - r.amount); return { ...r, after } })
+  return (
+    <Card>
+      <h2 className="font-bold">📊 π Pi রিপোর্ট</h2>
+      <div className="grid grid-cols-2 gap-2 mt-3 text-center">
+        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট জমা</p><p className="font-bold text-green-600">{formatPi(totalDeposit)}</p></div>
+        <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট তোলা</p><p className="font-bold text-red-600">{formatPi(totalWithdraw)}</p></div>
+        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট আয় (বোনাস+রেফারেল+লাইভ+গিফট বক্স)</p><p className="font-bold text-green-600">{formatPi(totalIncome)}</p></div>
+        <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট খরচ (কল+লাইভ+গিফট)</p><p className="font-bold text-red-600">{formatPi(totalExpense)}</p></div>
+      </div>
+      <p className="text-center mt-3">বর্তমান Pi ব্যালেন্স: <b className="text-purple-600">{formatPi(piBalance)}</b></p>
+      <p className="text-xs text-gray-400 mt-1">Pi কেনা ও ডেমো Pi আয়-খরচের বাইরে — খতিয়ানে আলাদা লাইনে আছে।</p>
+      {rows.length === 0
+        ? <p className="text-sm text-gray-500 mt-3">এখনো কোনো লেনদেন নেই।</p>
+        : <div className="mt-3 space-y-2">
+          {rows.map(r => (
+            <div key={r.id} className="flex items-start justify-between gap-2 border-b pb-2 last:border-0">
+              <div className="min-w-0">
+                <p className="text-sm font-bold"><span className="bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs mr-1">{r.type}</span>{r.label}</p>
+                <p className="text-xs text-gray-400">{r.date}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className={`text-sm font-bold ${r.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>{r.amount >= 0 ? '+' : '−'}{formatPi(Math.abs(r.amount))}</p>
+                <p className="text-xs text-gray-400">ব্যালেন্স: {formatPi(r.after)}</p>
+              </div>
+            </div>
+          ))}
+        </div>}
+    </Card>
+  )
+}
+
 // ---------- Wallet ----------
 export function WalletPage() {
   const { balance, topUp, deduct, points, referrals, piBalance, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
@@ -703,7 +746,7 @@ export function WalletPage() {
     const cost = Math.round(qty * piRateBDT)
     if (balance < cost) { setBuyMsg(`টাকার ব্যালেন্স যথেষ্ট নয় — ${formatBDT(cost)} দরকার।`); return }
     if (!deduct(cost)) { setBuyMsg('টাকার ব্যালেন্স যথেষ্ট নয়।'); return }
-    addPi(qty)
+    addPi(qty, 'Pi কেনা', `Pi কেনা — ${formatBDT(cost)}`)
     setBuyMsg(`✅ ${formatPi(qty)} কেনা হয়েছে (ডেমো দর ১ Pi = ${formatBDT(piRateBDT)})।`)
   }
   function doDeposit() {
@@ -802,7 +845,7 @@ export function WalletPage() {
         </div>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi জমা (Deposit)</p>
-          <p className="text-sm mt-1">CallGuru-র ডেমো Pi ঠিকানা: <code className="break-all">{PI_DEPOSIT_ADDRESS}</code></p>
+          <p className="text-sm mt-1">PiCall-র ডেমো Pi ঠিকানা: <code className="break-all">{PI_DEPOSIT_ADDRESS}</code></p>
           <Btn variant="ghost" className="mt-1" onClick={() => copyText(PI_DEPOSIT_ADDRESS, 'Pi জমা ঠিকানা')}>📋 ঠিকানা কপি করুন</Btn>
           <label className="text-sm block mt-2">পাঠানো Pi-র পরিমাণ</label>
           <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="যেমন: 5" />
@@ -826,10 +869,11 @@ export function WalletPage() {
         </div>
         <p className="text-xs text-gray-400 mt-3">ডেমো Pi ওয়ালেট — আসল Pi পেমেন্টের জন্য অফিসিয়াল Pi SDK + Pi অ্যাপের অনুমোদন লাগবে; এখানে কোনো আসল ব্লকচেইন লেনদেন হয় না, সিড/প্রাইভেট কি চাওয়া বা সংরক্ষণ করা হয় না।</p>
       </Card>
+      <PiReportCard />
       <InviteCard />
       <Card>
         <h2 className="font-bold">🔗 অ্যাফিলিয়েট ও রেফারেল</h2>
-        <p className="text-sm mt-1">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">callguru.app/r/avijit</code></p>
+        <p className="text-sm mt-1">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">picall.app/r/avijit</code></p>
         <p className="text-sm mt-1">কমিশন <b>১০%</b> — শুধুমাত্র রেফার করা ব্যবহারকারীর <b>প্রথম ডিপোজিট + প্রথম কেনাকাটা (কল/সার্ভিস/প্রিমিয়াম)</b> সম্পূর্ণ হলেই পাবেন। শুধু সাইনআপ বা ক্লিকে কমিশন নেই।</p>
         <p className="text-sm mt-1">রেফারেল ২-স্তর: লেভেল-১ = ১.০ পয়েন্ট, লেভেল-২ = ০.৫ পয়েন্ট • ১ পয়েন্ট = ৳৫০।</p>
         <Btn variant="ghost" className="mt-3" onClick={() => setAffiliateOn(a => !a)}>{affiliateOn ? 'ড্যাশবোর্ড লুকান' : 'অ্যাফিলিয়েট ড্যাশবোর্ড দেখুন'}</Btn>
@@ -1211,7 +1255,7 @@ export function DatingPage() {
   const [matchedId, setMatchedId] = useState<string | null>(null)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({})
   const [boosted, setBoosted] = useState(false)
-  // আসল লাইভ রুম (CallGuru লাইভ সার্ভার) — সার্ভার না পৌঁছালে ডেমো হোস্ট দেখাবে
+  // আসল লাইভ রুম (PiCall লাইভ সার্ভার) — সার্ভার না পৌঁছালে ডেমো হোস্ট দেখাবে
   const [realRooms, setRealRooms] = useState<LiveRoom[] | null>(null)
   const [liveServerOk, setLiveServerOk] = useState(false)
   function refreshLiveRooms() {
@@ -1231,7 +1275,7 @@ export function DatingPage() {
         </div>
         <div className="flex gap-2 mt-3 flex-wrap">
           <Btn variant={premium ? 'green' : 'primary'} onClick={() => setPremium(!premium)}>{premium ? '✅ প্রিমিয়াম চালু আছে' : 'প্রিমিয়াম নিন — ৳৯৯/মাস'}</Btn>
-          <Btn variant="ghost" onClick={() => { if (piBalance >= 0.1) { addPi(-0.1); setBoosted(true) } else alert('Pi ব্যালেন্স যথেষ্ট নয় — Pi কিনুন।') }}>🚀 Boost (~০.১ π)</Btn>
+          <Btn variant="ghost" onClick={() => { if (piBalance >= 0.1) { addPi(-0.1, 'বুস্ট', 'প্রোফাইল Boost'); setBoosted(true) } else alert('Pi ব্যালেন্স যথেষ্ট নয় — Pi কিনুন।') }}>🚀 Boost (~০.১ π)</Btn>
         </div>
         {boosted && <p className="text-sm text-green-600 mt-2">Boost চালু — আপনার প্রোফাইল বেশি দেখাবে।</p>}
         <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ০.১৫ π • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
@@ -1304,7 +1348,7 @@ export function DatingPage() {
             <p className="text-sm mt-2">{p.about}</p>
             <div className="flex gap-2 mt-3">
               <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('আজকের ৩০টি ফ্রি লাইক শেষ — প্রিমিয়াম নিন।'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ লাইক</Btn>
-              <Btn variant="ghost" onClick={() => { if (piBalance < 0.15) { alert('Super Like-এর জন্য ০.১৫ π লাগবে।'); return } addPi(-0.15); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (০.১৫ π)</Btn>
+              <Btn variant="ghost" onClick={() => { if (piBalance < 0.15) { alert('Super Like-এর জন্য ০.১৫ π লাগবে।'); return } addPi(-0.15, 'সুপার লাইক', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (০.১৫ π)</Btn>
               <Btn variant="ghost" onClick={() => alert('প্রোফাইলটি রিপোর্ট করা হয়েছে — মডারেশন দেখবে।')}>🚩 রিপোর্ট</Btn>
             </div>
             {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatPi(datingRate)}/মিনিট)</Btn>}
@@ -1341,7 +1385,7 @@ export function DatingLivePage() {
   const navigate = useNavigate()
   const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
-  // আসল রুম (CallGuru লাইভ সার্ভার) — ডেমো হোস্টের id না মিললে সার্ভারে খুঁজি
+  // আসল রুম (PiCall লাইভ সার্ভার) — ডেমো হোস্টের id না মিললে সার্ভারে খুঁজি
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
   const [roomLookupDone, setRoomLookupDone] = useState(false)
   const host = seedHost ?? (realRoom ? { id: realRoom.id, name: realRoom.hostName, age: 0, city: '', about: 'লাইভে আছেন', color: '#E91E63' } : undefined)
@@ -1367,7 +1411,7 @@ export function DatingLivePage() {
   const [giftPiTotal, setGiftPiTotal] = useState(0)
   const [shareMsg, setShareMsg] = useState('')
   async function shareLive() {
-    const res = await shareLink('CallGuru লাইভ', 'আমি CallGuru লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
+    const res = await shareLink('PiCall লাইভ', 'আমি PiCall লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
     if (res === 'shared' || res === 'copied') { recordShare(); setShareMsg(res === 'shared' ? '✅ শেয়ার হয়েছে!' : '✅ লাইভের লিংক কপি হয়েছে!') }
   }
   // আসল লাইভ (WebRTC) — সার্ভার না পৌঁছালে ডেমো আচরণই থাকবে
@@ -1384,7 +1428,7 @@ export function DatingLivePage() {
 
   function sendGift(g: { icon: string; name: string; pi: number }) {
     if (piBalance < g.pi) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
-    addPi(-g.pi)
+    addPi(-g.pi, 'গিফট দেওয়া', `লাইভ গিফট — ${g.icon} ${g.name}`)
     addGiftsSent(g.pi)
     setGiftsSent(prev => [...prev, g])
     setGiftPiTotal(t => roundPi(t + g.pi))
@@ -1461,7 +1505,7 @@ export function DatingLivePage() {
     if (ended) return
     setEnded(true); setEndReason(reason || 'লাইভ দেখা শেষ')
     const cost = roundPi(Math.ceil(seconds / 60) * rate)
-    if (cost > 0) addPi(-cost)
+    if (cost > 0) addPi(-cost, 'লাইভ দেখা', `লাইভ দেখা — ${host?.name ?? 'লাইভ'}`)
   }
 
   function sendChat() {
@@ -1633,7 +1677,7 @@ export function DatingGoLivePage() {
   const [endSeconds, setEndSeconds] = useState(0)
   const [shareMsg, setShareMsg] = useState('')
   async function shareLive() {
-    const res = await shareLink('CallGuru লাইভ', 'আমি CallGuru লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
+    const res = await shareLink('PiCall লাইভ', 'আমি PiCall লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
     if (res === 'shared' || res === 'copied') { recordShare(); setShareMsg(res === 'shared' ? '✅ শেয়ার হয়েছে!' : '✅ লাইভের লিংক কপি হয়েছে!') }
   }
   const [endPeak, setEndPeak] = useState(0)
@@ -1833,7 +1877,7 @@ export function DatingGoLivePage() {
               <button onClick={() => setFacingBoth('environment')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'environment' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>📷 পেছনের ক্যামেরা</button>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-3">🔴 লাইভটি অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। লাইভ শুরু হলে CallGuru লাইভ সার্ভারে আসল সম্প্রচার হবে; সার্ভার না পৌঁছালে ডেমো লাইভ চলবে।</p>
+          <p className="text-xs text-gray-400 mt-3">🔴 লাইভটি অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। লাইভ শুরু হলে PiCall লাইভ সার্ভারে আসল সম্প্রচার হবে; সার্ভার না পৌঁছালে ডেমো লাইভ চলবে।</p>
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" onClick={() => setStarted(true)}>🔴 লাইভ শুরু করুন</Btn>
           </div>
@@ -1936,7 +1980,7 @@ export function GroupsPage() {
   const groups = [
     { id: 'g1', name: 'IELTS প্রস্তুতি', members: '১২,৪০০', type: 'গ্রুপ' },
     { id: 'g2', name: 'ফ্রিল্যান্সার বাংলাদেশ', members: '৮,৯০০', type: 'গ্রুপ' },
-    { id: 'g3', name: 'CallGuru এক্সপার্ট', members: '৩,২০০', type: 'পেজ' },
+    { id: 'g3', name: 'PiCall এক্সপার্ট', members: '৩,২০০', type: 'পেজ' },
     { id: 'g4', name: 'ঢাকা হোম সার্ভিস', members: '৫,৬০০', type: 'পেজ' }
   ]
   return (
@@ -1955,7 +1999,7 @@ export function ReelsPage() {
   const [shareMsg, setShareMsg] = useState('')
   async function shareReel(r: { id: string; title: string; creator: string }) {
     const url = `${INVITE_BASE_URL}reels?reel=${r.id}`
-    const res = await shareLink(`CallGuru রিলস — ${r.title}`, `দেখুন: “${r.title}” (${r.creator}) — CallGuru রিলস!`, url)
+    const res = await shareLink(`PiCall রিলস — ${r.title}`, `দেখুন: “${r.title}” (${r.creator}) — PiCall রিলস!`, url)
     if (res === 'shared' || res === 'copied') {
       recordShare(r.id)
       setShareMsg(res === 'shared' ? '✅ রিল শেয়ার হয়েছে!' : '✅ রিলের লিংক কপি হয়েছে — পাঠিয়ে দিন!')
@@ -1964,7 +2008,7 @@ export function ReelsPage() {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">🎬 রিলস ও মনিটাইজেশন</h1>
-      <p className="text-sm text-gray-500">মোট শেয়ার: <b>↗️ {totalShares}</b> • ভালো লাগলে শেয়ার করুন — বন্ধুরা CallGuru-তে আসবে!</p>
+      <p className="text-sm text-gray-500">মোট শেয়ার: <b>↗️ {totalShares}</b> • ভালো লাগলে শেয়ার করুন — বন্ধুরা PiCall-তে আসবে!</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
         {REELS.map(r => (
@@ -2242,7 +2286,7 @@ export function MenuPage() {
           </button>
         ))}
       </div>
-      <Card><p className="text-xs text-gray-400">CallGuru v6 • চ্যাট ফ্রি, কল প্রিপেইড • প্রথম কলের প্রথম ১ মিনিট ফ্রি • কল রেকর্ডিং শুধু অ্যাডমিন (আপিলের জন্য, ৩০ দিন) • শর্তাবলি ও গোপনীয়তা নীতি প্রযোজ্য।</p></Card>
+      <Card><p className="text-xs text-gray-400">PiCall v6 • চ্যাট ফ্রি, কল প্রিপেইড • প্রথম কলের প্রথম ১ মিনিট ফ্রি • কল রেকর্ডিং শুধু অ্যাডমিন (আপিলের জন্য, ৩০ দিন) • শর্তাবলি ও গোপনীয়তা নীতি প্রযোজ্য।</p></Card>
     </div>
   )
 }

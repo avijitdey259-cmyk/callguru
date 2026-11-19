@@ -1,4 +1,4 @@
-// CallGuru live client — talks to the self-hosted live server (same Railway
+// PiCall live client — talks to the self-hosted live server (same Railway
 // service as the REST API). WebSocket URL is derived from VITE_API_URL
 // (https -> wss, http -> ws). When the backend is unreachable, every function
 // here returns null / false and the live pages fall back to their demo
