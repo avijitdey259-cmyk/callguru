@@ -1,7 +1,7 @@
 import { Route, Routes, Navigate } from 'react-router-dom'
 import { Layout } from './components'
 import {
-  AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingPage,
+  AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, Landing, LiveTV, LoginPage,
   Marketplace, MenuPage, ReelsPage, ServicesPage, WalletPage
 } from './pages'
@@ -31,6 +31,8 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="/call/:type/:id" element={<CallPage />} />
+      <Route path="/dating-live/:id" element={<DatingLivePage />} />
+      <Route path="/dating-go-live" element={<DatingGoLivePage />} />
     </Routes>
   )
 }

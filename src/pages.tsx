@@ -616,7 +616,7 @@ export function ChatPage() {
 
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate } = useStore()
+  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveEarnings } = useStore()
   const navigate = useNavigate()
   const [adult, setAdult] = useState(false)
   const [matched, setMatched] = useState<string | null>(null)
@@ -647,6 +647,37 @@ export function DatingPage() {
         {boosted && <p className="text-sm text-green-600 mt-2">Boost চালু — আপনার প্রোফাইল বেশি দেখাবে।</p>}
         <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ১৫ কয়েন • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
       </Card>
+      {/* ---------- ডেটিং লাইভ ---------- */}
+      <Card>
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <h2 className="text-lg font-bold">🔴 ডেটিং লাইভ</h2>
+          <span className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-2 py-1 rounded-full font-bold">LIVE • ১৮+</span>
+        </div>
+        <p className="text-sm mt-2">লাইভ দেখতে {formatBDT(datingRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>।</p>
+        <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>
+        <div className="flex gap-2 mt-3 flex-wrap items-center">
+          <Btn variant="green" onClick={() => navigate('/dating-go-live')}>📹 লাইভে যান</Btn>
+          <span className="text-sm">আপনার মোট লাইভ আয়: <b className="text-green-600">{formatBDT(liveEarnings)}</b> (৭০% শেয়ার)</span>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3 mt-4">
+          {DATING_LIVE_HOSTS.map(h => {
+            const p = DATING_PROFILES.find(x => x.id === h.id)!
+            return (
+              <div key={h.id} className="border rounded-xl p-3 dark:border-slate-600">
+                <div className="flex gap-3 items-center">
+                  <span className="w-12 h-12 rounded-full text-white text-xl flex items-center justify-center font-bold relative" style={{ background: p.color }}>{p.name.slice(0, 1)}
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
+                  </span>
+                  <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন</p></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">{p.about}</p>
+                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(datingRate)}/মিনিট)</Btn>
+                <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
       {matched && matchedId && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 ম্যাচ হয়েছে — {matched}!</p><p className="text-sm">এখন চ্যাট বা ভিডিও কল করতে পারেন।</p>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
           <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">চ্যাট শুরু করুন →</Link>
@@ -670,6 +701,351 @@ export function DatingPage() {
             {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatBDT(datingRate)}/মিনিট)</Btn>}
           </Card>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- ডেটিং লাইভ ----------
+// ডেমো লাইভ হোস্ট — আসল সম্প্রচার নয়; দর্শক সংখ্যাও ডেমো ডেটা
+const DATING_LIVE_HOSTS = [
+  { id: 'dt-1', viewers: 132 },
+  { id: 'dt-3', viewers: 87 },
+  { id: 'dt-5', viewers: 208 },
+]
+const LIVE_CREATOR_SHARE = 0.7 // লাইভকারী পাবেন ৭০%, অ্যাডমিন ৩০% — নির্দিষ্ট ভাগ
+
+function fmtLive(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
+
+// লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
+export function DatingLivePage() {
+  const { id } = useParams()
+  const { balance, deduct, datingRate, user } = useStore()
+  const navigate = useNavigate()
+  const host = DATING_PROFILES.find(p => p.id === id)
+  const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
+  const rate = datingRate
+  const [started, setStarted] = useState(false)
+  const [seconds, setSeconds] = useState(0)
+  const [ended, setEnded] = useState(false)
+  const [endReason, setEndReason] = useState('')
+  const [chat, setChat] = useState<{ from: string; text: string }[]>([])
+  const [chatDraft, setChatDraft] = useState('')
+  const [banMsg, setBanMsg] = useState('')
+  const [banCount, setBanCount] = useState(0)
+
+  const billedMinutes = Math.ceil(seconds / 60)
+  const totalPaid = billedMinutes * rate
+  const creatorShare = Math.floor(totalPaid * LIVE_CREATOR_SHARE)
+  const adminShare = totalPaid - creatorShare
+  const talkableMinutes = Math.floor(balance / rate)
+  const maxSeconds = talkableMinutes * 60
+  const canStart = balance >= rate
+
+  useEffect(() => {
+    if (!started || ended) return
+    const t = setInterval(() => setSeconds(s => {
+      const next = s + 1
+      if (next >= maxSeconds && maxSeconds > 0) { endLive('Auto-cut — ব্যালেন্স শেষ') }
+      return next
+    }), 1000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, ended, maxSeconds])
+
+  function endLive(reason: string) {
+    if (ended) return
+    setEnded(true); setEndReason(reason || 'লাইভ দেখা শেষ')
+    const cost = Math.ceil(seconds / 60) * rate
+    if (cost > 0) deduct(cost)
+  }
+
+  function sendChat() {
+    const err = contactBanCheck(chatDraft)
+    if (err) { setBanMsg(err + ` (চেষ্টা ${banCount + 1} — অ্যাডমিন লগে সংরক্ষিত)`); setBanCount(c => c + 1); return }
+    if (!chatDraft.trim()) return
+    setChat(c => [...c, { from: user?.name || 'আপনি', text: chatDraft }]); setChatDraft(''); setBanMsg('')
+  }
+
+  if (!host) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">লাইভটি পাওয়া যায়নি</h1>
+          <Btn className="mt-4" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
+        </Card>
+      </div>
+    )
+  }
+
+  if (ended) {
+    const cost = Math.ceil(seconds / 60) * rate
+    const creator = Math.floor(cost * LIVE_CREATOR_SHARE)
+    const admin = cost - creator
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">লাইভ দেখা শেষ হয়েছে</h1>
+          <p className="mt-2">{host.name} • {fmtLive(seconds)}</p>
+          <div className="mt-3 space-y-1 text-sm text-left">
+            <p>দেখেছেন: <b>{billedMinutes} মিনিট</b></p>
+            <p>মোট দিয়েছেন: <b>{formatBDT(cost)}</b></p>
+            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creator)}</b></p>
+            <p>অ্যাডমিন পাবেন (৩০%): <b>{formatBDT(admin)}</b></p>
+            <p>বর্তমান ব্যালেন্স: <b>{formatBDT(balance - cost < 0 ? 0 : balance - cost)}</b></p>
+          </div>
+          <p className="text-sm text-gray-300 mt-2">{endReason}</p>
+          <div className="flex gap-2 mt-5 justify-center">
+            <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!started) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
+          <h1 className="text-xl font-bold mt-3">{host.name} লাইভে আছেন</h1>
+          <p className="text-sm text-gray-300">{host.age} • {host.city} • 👁️ {seed?.viewers ?? 50} জন দেখছেন</p>
+          <p className="text-sm mt-2">{host.about}</p>
+          <div className="mt-4 space-y-1 text-sm text-left">
+            <p>দেখার রেট: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
+            <p>লাইভকারী পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
+            <p>ব্যালেন্স: <b>{formatBDT(balance)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
+            <p>ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।</p>
+          {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে টপ-আপ করুন।</p>}
+          <div className="flex gap-2 mt-5">
+            <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ লাইভ দেখা শুরু করুন</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+          </div>
+          <button className="text-sm text-gray-300 mt-3" onClick={() => navigate('/dating')}>← ডেটিংয়ে ফিরুন</button>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col relative">
+      {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
+        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatBDT(totalPaid)}</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center relative">
+        <div className="text-center px-4">
+          <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
+          <span className="w-28 h-28 rounded-full text-white text-4xl flex items-center justify-center font-bold mx-auto mt-3" style={{ background: host.color }}>{host.name.slice(0, 1)}</span>
+          <p className="text-xl font-bold mt-3">{host.name} লাইভে</p>
+          <p className="text-gray-300 text-sm">👁️ {seed?.viewers ?? 50} জন দেখছেন • {fmtLive(seconds)}</p>
+          <div className="mt-3 text-sm space-y-1">
+            <p>আপনি দিয়েছেন: <b>{formatBDT(totalPaid)}</b> ({billedMinutes} মিনিট)</p>
+            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creatorShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare)}</b></p>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">ডেমো লাইভ — হোস্টের আসল ভিডিও স্ট্রিম এখানে দেখানো হচ্ছে না।</p>
+        </div>
+      </div>
+      <div className="px-3 pb-3">
+        <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
+          {chat.length === 0 && <p className="text-xs text-gray-300 text-center">লাইভ চ্যাট — নম্বর/লিংক/ইমেইল শেয়ার ব্লক করা আছে।</p>}
+          {chat.map((m, i) => <p key={i} className="text-sm"><b>{m.from}:</b> {m.text}</p>)}
+        </div>
+        {banMsg && <p className="text-xs text-red-300 text-center mb-2">{banMsg}</p>}
+        <div className="flex gap-2 max-w-md mx-auto mb-4">
+          <input className="flex-1 rounded-full px-3 py-2 text-sm text-black" placeholder="লাইভে মেসেজ লিখুন…" value={chatDraft} onChange={e => setChatDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} />
+          <Btn onClick={sendChat}>পাঠান</Btn>
+        </div>
+        <div className="flex justify-center pb-2">
+          <button onClick={() => endLive('আপনি লাইভ দেখা শেষ করেছেন')} className="px-6 h-14 rounded-full bg-red-600 text-lg font-bold" title="লাইভ ছাড়ুন">❌ লাইভ ছাড়ুন</button>
+        </div>
+        <p className="text-center text-xs text-gray-400">ব্যালেন্স শেষ হলে লাইভ অটো-বন্ধ হবে • সর্বোচ্চ {fmtLive(maxSeconds)}</p>
+      </div>
+    </div>
+  )
+}
+
+// নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
+export function DatingGoLivePage() {
+  const { user, datingRate, liveEarnings, addLiveEarnings } = useStore()
+  const navigate = useNavigate()
+  const rate = datingRate
+  const [started, setStarted] = useState(false)
+  const [seconds, setSeconds] = useState(0)
+  const [viewers, setViewers] = useState(14)
+  const [peakViewers, setPeakViewers] = useState(14)
+  const [ended, setEnded] = useState(false)
+  const [endMyShare, setEndMyShare] = useState(0)
+  const [endGross, setEndGross] = useState(0)
+  const [endSeconds, setEndSeconds] = useState(0)
+  const [endPeak, setEndPeak] = useState(0)
+  const [facing, setFacing] = useState<'user' | 'environment'>('user')
+  const [camCount, setCamCount] = useState<number | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const [camError, setCamError] = useState('')
+  const facingRef = useRef<'user' | 'environment'>('user')
+  const streamRef = useRef<MediaStream | null>(null)
+  const selfRef = useRef<HTMLVideoElement>(null)
+  function setFacingBoth(f: 'user' | 'environment') { facingRef.current = f; setFacing(f) }
+
+  const billedMinutes = Math.ceil(seconds / 60)
+  const gross = billedMinutes * rate
+  const myShare = Math.floor(gross * LIVE_CREATOR_SHARE)
+  const adminShare = gross - myShare
+
+  useEffect(() => {
+    if (!started || ended) return
+    const t = setInterval(() => setSeconds(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [started, ended])
+
+  // ডেমো দর্শক সংখ্যা — আসল দর্শক নয়
+  useEffect(() => {
+    if (!started || ended) return
+    const t = setInterval(() => {
+      setViewers(v => {
+        const next = Math.max(3, v + Math.floor(Math.random() * 6) - 2)
+        setPeakViewers(p => Math.max(p, next))
+        return next
+      })
+    }, 4000)
+    return () => clearInterval(t)
+  }, [started, ended])
+
+  useEffect(() => {
+    if (!started) return
+    let cancelled = false
+    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
+      if (!cancelled) setCamCount(devices.filter(d => d.kind === 'videoinput').length)
+    }).catch(() => { /* ignore */ })
+    navigator.mediaDevices?.getUserMedia?.({ video: { facingMode: facingRef.current }, audio: true }).then(s => {
+      if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
+      streamRef.current = s
+      if (selfRef.current) selfRef.current.srcObject = s
+    }).catch(() => { /* camera unavailable in demo — placeholder stays */ })
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
+  }, [started])
+
+  async function switchCamera() {
+    if (switching || camCount === 1) return
+    const next = facingRef.current === 'user' ? 'environment' : 'user'
+    setSwitching(true); setCamError('')
+    let newStream: MediaStream | null = null
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: next } }, audio: false })
+    } catch {
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next }, audio: false })
+      } catch {
+        setCamError('এই ক্যামেরাটা চালু করা যায়নি — আগের ক্যামেরাতেই থাকলো।')
+        setSwitching(false)
+        return
+      }
+    }
+    const oldAudio = streamRef.current?.getAudioTracks() ?? []
+    streamRef.current?.getVideoTracks().forEach(t => t.stop())
+    const combined = new MediaStream([...newStream.getVideoTracks(), ...oldAudio])
+    streamRef.current = combined
+    if (selfRef.current) selfRef.current.srcObject = combined
+    setFacingBoth(next)
+    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
+      setCamCount(devices.filter(d => d.kind === 'videoinput').length)
+    }).catch(() => { /* ignore */ })
+    setSwitching(false)
+  }
+
+  function endGoLive() {
+    if (ended) return
+    const grossFinal = Math.ceil(seconds / 60) * rate
+    const myFinal = Math.floor(grossFinal * LIVE_CREATOR_SHARE)
+    if (myFinal > 0) addLiveEarnings(myFinal)
+    setEndGross(grossFinal); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
+    setEnded(true)
+  }
+
+  if (ended) {
+    const adminFinal = endGross - endMyShare
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">আপনার লাইভ শেষ হয়েছে</h1>
+          <p className="mt-2">{fmtLive(endSeconds)} • সর্বোচ্চ {endPeak} জন দর্শক</p>
+          <div className="mt-3 space-y-1 text-sm text-left">
+            <p>মোট আয় (দর্শকরা দিয়েছেন): <b>{formatBDT(endGross)}</b></p>
+            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(endMyShare)}</b></p>
+            <p>অ্যাডমিনের শেয়ার (৩০%): <b>{formatBDT(adminFinal)}</b></p>
+            <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatBDT(liveEarnings + endMyShare)}</b></p>
+          </div>
+          <div className="flex gap-2 mt-5 justify-center">
+            <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 ওয়ালেট</Btn>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!started) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">📹 লাইভে যান</span>
+          <h1 className="text-xl font-bold mt-3">নিজে লাইভে যান</h1>
+          <p className="text-sm text-gray-300 mt-1">{user?.name || 'আপনি'} • ডেটিং লাইভ (১৮+)</p>
+          <div className="mt-4 space-y-1 text-sm text-left">
+            <p>দর্শক দেবে: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড)</p>
+            <p>আপনি পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
+            <p>আপনার মোট লাইভ আয় এ পর্যন্ত: <b className="text-green-400">{formatBDT(liveEarnings)}</b></p>
+          </div>
+          <div className="mt-4 text-left">
+            <p className="text-sm text-gray-300 mb-2">📷 কোন ক্যামেরা দিয়ে শুরু করবেন?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setFacingBoth('user')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'user' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>🤳 সামনের ক্যামেরা</button>
+              <button onClick={() => setFacingBoth('environment')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'environment' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>📷 পেছনের ক্যামেরা</button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-3">🔴 লাইভটি অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।</p>
+          <div className="flex gap-2 mt-5">
+            <Btn variant="green" className="flex-1" onClick={() => setStarted(true)}>🔴 লাইভ শুরু করুন</Btn>
+          </div>
+          <button className="text-sm text-gray-300 mt-3" onClick={() => navigate('/dating')}>← ডেটিংয়ে ফিরুন</button>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col relative">
+      {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
+        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">🔴 LIVE • {fmtLive(seconds)}</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center relative">
+        <video ref={selfRef} className="absolute inset-0 w-full h-full object-cover bg-slate-700" style={facing === 'user' ? { transform: 'scaleX(-1)' } : undefined} autoPlay playsInline muted />
+        <div className="relative text-center px-4">
+          <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
+          <p className="text-xl font-bold mt-3">{user?.name || 'আপনি'} লাইভে</p>
+          <p className="text-gray-200 text-sm">👁️ {viewers} জন দেখছেন • {fmtLive(seconds)}</p>
+          <div className="mt-3 text-sm space-y-1 bg-black/50 rounded-xl px-4 py-2">
+            <p>মোট আয়: <b>{formatBDT(gross)}</b> ({billedMinutes} মিনিট)</p>
+            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(myShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare)}</b></p>
+          </div>
+          <p className="text-xs text-gray-300 mt-2">ডেমো লাইভ — দর্শক সংখ্যা ডেমো ডেটা।</p>
+        </div>
+      </div>
+      <div className="px-3 pb-4 relative">
+        {camError && <p className="text-xs text-red-300 text-center mb-2">{camError}</p>}
+        {camCount === 1 && <p className="text-xs text-gray-400 text-center mb-2">এই ডিভাইসে ১টি ক্যামেরা পাওয়া গেছে — ক্যামেরা বদলানো যাবে না।</p>}
+        <div className="flex justify-center gap-3 pb-2">
+          <button onClick={switchCamera} disabled={switching || camCount === 1} className="w-14 h-14 rounded-full bg-slate-700 text-2xl disabled:opacity-40" title="ক্যামেরা বদলান">🔄</button>
+          <button onClick={endGoLive} className="px-6 h-14 rounded-full bg-red-600 text-lg font-bold" title="লাইভ শেষ করুন">❌ লাইভ শেষ করুন</button>
+        </div>
+        <p className="text-center text-xs text-gray-400">🔄 বোতামে সামনে ↔ পেছনে ক্যামেরা বদলানো যাবে</p>
       </div>
     </div>
   )
