@@ -254,7 +254,7 @@ export function LoginPage() {
     <div className="max-w-md mx-auto">
       <Card>
         <h1 className="text-2xl font-bold text-center">PiCall-তে স্বাগতম</h1>
-        <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল/পাসওয়ার্ড • OTP</p>
+        <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল/পাসওয়ার্ড</p>
         <button disabled={busy} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
           <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
           {busy ? 'লগইন হচ্ছে…' : 'Gmail দিয়ে ১-ক্লিক লগইন'}
@@ -268,7 +268,6 @@ export function LoginPage() {
         <label className="text-sm font-medium mt-3 block">ইমেইল</label>
         <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
         <Btn className="w-full mt-4" onClick={() => { if (!name || !email.includes('@')) { setMsg('নাম ও সঠিক ইমেইল দিন।'); return } login(name, email); navigate('/feed') }}>ইমেইল দিয়ে লগইন</Btn>
-        <button className="w-full mt-2 text-sm text-fb-blue" onClick={() => setMsg('OTP ডেমো: [credential:[credential:da5dae17-603a-489e-b327-4d0c0829f7bb]] ব্যবহার করুন (আসল SMS গেটওয়ের জন্য অ্যাকাউন্ট লাগবে)।')}>OTP দিয়ে লগইন</button>
         {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">লগইন করলে আপনি শর্তাবলি ও গোপনীয়তা নীতিতে সম্মত হচ্ছেন। কল রেকর্ডিং শুধু অ্যাডমিন দেখতে পারেন (আপিল/বিরোধের জন্য, ৩০ দিন সংরক্ষণ)।</p>
       </Card>
