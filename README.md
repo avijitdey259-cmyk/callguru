@@ -15,6 +15,7 @@ Bilingual (English & Bengali) live pay-per-minute expert consultation, social co
 - Dating is **18+ only**, 30 free likes/day, Premium ৳99/month, Boost ~৳10, Super Like 15 coins.
 - Live TV: Bangladeshi channels only, in-app HLS player + official source link. No external video links.
 - Call recordings are **admin-only, for appeals** (30-day retention). Call screen shows only a small red dot — no "Recording" text.
+- **Camera switch:** in a call, the 🔄 "ক্যামেরা: সামনে/পেছনে" button switches front ↔ back camera (facingMode `user`/`environment`, exact first, plain fallback). Only the video track is restarted — audio, call timer and billing keep running. Front camera self-view is mirrored, back camera is not. If the device has only 1 camera, the button is disabled with a note. The pre-call screen also lets the user pick front/back before starting.
 - Affiliate commission (10%) only after the referred user's **first deposit AND first purchase** — never on signup/clicks alone. Referral is 2-tier (1.0 / 0.5 points, 1 point = ৳50).
 
 ## Run locally

@@ -257,6 +257,14 @@ export function CallPage() {
   const [muted, setMuted] = useState(false)
   const [camOff, setCamOff] = useState(false)
   const [sharing, setSharing] = useState(false)
+  // Camera facing: 'user' = সামনের (ফ্রন্ট) ক্যামেরা, 'environment' = পেছনের (ব্যাক) ক্যামেরা
+  const [facing, setFacing] = useState<'user' | 'environment'>('user')
+  const [camCount, setCamCount] = useState<number | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const [camError, setCamError] = useState('')
+  const facingRef = useRef<'user' | 'environment'>('user')
+  const streamRef = useRef<MediaStream | null>(null)
+  function setFacingBoth(f: 'user' | 'environment') { facingRef.current = f; setFacing(f) }
   const [ended, setEnded] = useState(false)
   const [endReason, setEndReason] = useState('')
   const [chat, setChat] = useState<{ from: string; text: string }[]>([])
@@ -288,13 +296,50 @@ export function CallPage() {
 
   useEffect(() => {
     if (!started) return
-    let stream: MediaStream | null = null
-    navigator.mediaDevices?.getUserMedia?.({ video: true, audio: true }).then(s => {
-      stream = s
+    let cancelled = false
+    // ক্যামেরা কয়টি আছে গুনে নেওয়া (অনুমতি পাওয়ার পর লেবেলসহ গোনা যায়)
+    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
+      if (!cancelled) setCamCount(devices.filter(d => d.kind === 'videoinput').length)
+    }).catch(() => { /* গোনা না গেলেও কল চলবে */ })
+    navigator.mediaDevices?.getUserMedia?.({ video: { facingMode: facingRef.current }, audio: true }).then(s => {
+      if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
+      streamRef.current = s
       if (selfRef.current) selfRef.current.srcObject = s
     }).catch(() => { /* camera unavailable in demo — placeholder stays */ })
-    return () => { stream?.getTracks().forEach(t => t.stop()) }
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
   }, [started])
+
+  // সামনের ↔ পেছনের ক্যামেরা বদলান — কল, টাইমার বা বিলিং থামবে না; অডিও ট্র্যাক চালু থাকবে
+  async function switchCamera() {
+    if (switching || camCount === 1) return
+    const next = facingRef.current === 'user' ? 'environment' : 'user'
+    setSwitching(true); setCamError('')
+    let newStream: MediaStream | null = null
+    try {
+      // প্রথমে exact চাওয়া — না হলে (ডিভাইসে ওই ক্যামেরা নেই) সাধারণ facingMode দিয়ে চেষ্টা
+      newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: next } }, audio: false })
+    } catch {
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next }, audio: false })
+      } catch {
+        setCamError('এই ক্যামেরাটা চালু করা যায়নি — আগের ক্যামেরাতেই থাকলো।')
+        setSwitching(false)
+        return
+      }
+    }
+    // পুরোনো ভিডিও ট্র্যাকই শুধু বন্ধ করা — অডিও ট্র্যাক চালু থাকবে, কল চলতেই থাকবে
+    const oldAudio = streamRef.current?.getAudioTracks() ?? []
+    streamRef.current?.getVideoTracks().forEach(t => t.stop())
+    const combined = new MediaStream([...newStream.getVideoTracks(), ...oldAudio])
+    streamRef.current = combined
+    if (selfRef.current) selfRef.current.srcObject = combined
+    setFacingBoth(next)
+    // ক্যামেরা গোনা আবার আপডেট করা (কিছু ডিভাইসে অনুমতির পরেই সঠিক সংখ্যা আসে)
+    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
+      setCamCount(devices.filter(d => d.kind === 'videoinput').length)
+    }).catch(() => { /* ignore */ })
+    setSwitching(false)
+  }
 
   function fmt(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
@@ -345,6 +390,14 @@ export function CallPage() {
             <p>কথা বলা যাবে: <b>~{talkableMinutes} মিনিট</b>{isFreeAvailable ? ' (১ মিনিট ফ্রি সহ)' : ''}</p>
             <p>প্রতি মিনিট: <b>{formatBDT(rate)}</b> • ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে।</p>
           </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-300 mb-2">📷 কোন ক্যামেরা দিয়ে শুরু করবেন?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setFacingBoth('user')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'user' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>🤳 সামনের ক্যামেরা</button>
+              <button onClick={() => setFacingBoth('environment')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'environment' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>📷 পেছনের ক্যামেরা</button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">কল চলাকালীনও নিচের 🔄 বোতামে ক্যামেরা বদলানো যাবে।</p>
+          </div>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া কল করা যাবে না। প্রিপেইড কল — আগে টপ-আপ করুন।</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ কল শুরু করুন</Btn>
@@ -372,7 +425,8 @@ export function CallPage() {
           {sharing && <p className="text-xs mt-2 bg-blue-600 inline-block px-2 py-1 rounded">🖥️ স্ক্রিন শেয়ার চলছে</p>}
           {camOff && <p className="text-xs mt-2">📷 ক্যামেরা বন্ধ</p>}
         </div>
-        <video ref={selfRef} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
+        {/* সামনের ক্যামেরায় সেলফ-ভিউ আয়নার মতো (mirror), পেছনের ক্যামেরায় নয় */}
+        <video ref={selfRef} style={{ transform: facing === 'user' ? 'scaleX(-1)' : 'none' }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
       </div>
       <div className="px-3 pb-3">
         <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
@@ -388,8 +442,11 @@ export function CallPage() {
           <button onClick={() => setMuted(m => !m)} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="মাইক">{muted ? '🔇' : '🎤'}</button>
           <button onClick={() => setCamOff(c => !c)} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="ক্যামেরা">{camOff ? '📷' : '📹'}</button>
           <button onClick={() => setSharing(s => !s)} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'bg-blue-600' : 'bg-slate-700'}`} title="স্ক্রিন শেয়ার">🖥️</button>
+          <button onClick={switchCamera} disabled={switching || camCount === 1} className="h-14 px-3 rounded-full bg-slate-700 text-sm font-bold disabled:opacity-50" title="ক্যামেরা বদলান — সামনে ↔ পেছনে">🔄 {switching ? 'বদলানো হচ্ছে…' : `ক্যামেরা: ${facing === 'user' ? 'সামনে' : 'পেছনে'}`}</button>
           <button onClick={() => endCall('আপনি কল শেষ করেছেন')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="কল শেষ">📞</button>
         </div>
+        {camCount === 1 && <p className="text-center text-xs text-yellow-300 mb-1">এই ডিভাইসে ১টি ক্যামেরা পাওয়া গেছে — ক্যামেরা বদলানো যাবে না।</p>}
+        {camError && <p className="text-center text-xs text-red-300 mb-1">{camError}</p>}
         <p className="text-center text-xs text-gray-400">ব্যালেন্স শেষ হলে কল অটো-কাট হবে • সর্বোচ্চ {fmt(maxSeconds)}</p>
       </div>
     </div>
