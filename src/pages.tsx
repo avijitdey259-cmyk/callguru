@@ -4,7 +4,7 @@ import Hls from 'hls.js'
 import { useStore } from './store'
 import { useExperts } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
-import { Btn, Card } from './components'
+import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
@@ -200,6 +200,7 @@ export function Landing() {
           <Btn variant="green" onClick={() => navigate('/login')}>Gmail দিয়ে ১-ক্লিক লগইন</Btn>
           <Btn variant="ghost" className="!bg-white !text-blue-700" onClick={() => navigate('/feed')}>ফিড দেখুন</Btn>
         </div>
+        <div className="mt-4 max-w-xs mx-auto"><InstallButton /></div>
       </Card>
       <div className="grid sm:grid-cols-3 gap-4">
         {[
@@ -2278,6 +2279,7 @@ export function MenuPage() {
         {user ? <Btn variant="ghost" className="mt-3" onClick={() => { logout(); navigate('/') }}>লগআউট</Btn>
           : <Btn className="mt-3" onClick={() => navigate('/login')}>লগইন করুন</Btn>}
       </Card>
+      <InstallButton />
       <div className="grid grid-cols-2 gap-3">
         {tiles.map(t => (
           <button key={t.label} onClick={() => navigate(t.to)} className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm text-left">

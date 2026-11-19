@@ -3,6 +3,8 @@
 Bilingual (English & Bengali) live pay-per-minute expert consultation, social community and creator marketplace — React 18 + Vite + TypeScript + Tailwind, with a small Express backend in `server/`.
 
 > Formerly branded "CallGuru" — renamed to **PiCall** (in-app branding only; GitHub repo, Netlify site URL `callguru-app.netlify.app`, invite links and backend are unchanged).
+>
+> **PWA:** PiCall is installable — `public/manifest.webmanifest` + `public/sw.js` (offline app shell) + an "📲 অ্যাপ ইন্সটল করুন" button in the header, Menu page and landing page. The button uses `beforeinstallprompt` when available, otherwise shows per-browser steps (Android Chrome / iPhone Safari). Real-phone install test is still the user's to do.
 
 **Live demo:** frontend works standalone in demo/local mode (localStorage seed data, no live backend required). The live server (WebSocket signalling + WebRTC, STUN only) is self-hosted in `server/` — see "Dating Live" below. Real Firebase Auth, SMS gateway, a TURN server and payment gateways still need real project credentials before real users.
 

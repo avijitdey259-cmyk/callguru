@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
 import { formatBDT } from './data'
@@ -30,6 +31,7 @@ export function TopBar() {
         <button onClick={() => navigate('/wallet')} className="hidden sm:flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-sm font-bold px-3 py-1.5 rounded-full" title="ওয়ালেট ব্যালেন্স">💰 {formatBDT(balance)}</button>
         <button onClick={toggleDark} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center" title="Dark mode">{dark ? '☀️' : '🌙'}</button>
         <button onClick={() => navigate('/chat')} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center" title="মেসেঞ্জার">💬</button>
+        <InstallButton compact />
         <button onClick={() => navigate('/menu')} className="w-9 h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold" title="প্রোফাইল">{user ? user.name.slice(0, 1) : '👤'}</button>
       </div>
     </header>
@@ -112,6 +114,48 @@ export function Layout() {
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`bg-white dark:bg-fb-card rounded-xl shadow-sm p-4 ${className}`}>{children}</div>
+}
+
+// ---------- PWA ইন্সটল ----------
+// ব্রাউজারের beforeinstallprompt ধরলে সরাসরি ইন্সটল হয়; না ধরলে (iPhone Safari, আগেই ইন্সটল) প্রতি-ব্রাউজার ধাপ দেখানো হয়।
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
+
+export function InstallButton({ compact = false }: { compact?: boolean }) {
+  const [deferred, setDeferred] = useState<BIPEvent | null>(null)
+  const [showHelp, setShowHelp] = useState(false)
+  const [msg, setMsg] = useState('')
+  useEffect(() => {
+    const onBIP = (e: Event) => { e.preventDefault(); setDeferred(e as BIPEvent) }
+    window.addEventListener('beforeinstallprompt', onBIP)
+    return () => window.removeEventListener('beforeinstallprompt', onBIP)
+  }, [])
+  async function install() {
+    setMsg('')
+    if (deferred) {
+      await deferred.prompt()
+      const choice = await deferred.userChoice
+      setDeferred(null)
+      setMsg(choice.outcome === 'accepted' ? '✅ ইন্সটল শুরু হয়েছে — হোম স্ক্রিনে PiCall আইকন দেখুন।' : 'ইন্সটল বাতিল হয়েছে — পরে আবার চেষ্টা করুন।')
+    } else {
+      setShowHelp(s => !s)
+    }
+  }
+  return (
+    <span className={compact ? '' : 'block'}>
+      <button onClick={install} title="অ্যাপ ইন্সটল করুন" className={compact ? 'w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-fb-blue text-white'}>
+        📲 {compact ? '' : 'অ্যাপ ইন্সটল করুন'}
+      </button>
+      {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
+      {showHelp && (
+        <div className="mt-2 text-left bg-blue-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
+          <p className="font-bold">📲 ফোনে PiCall অ্যাপ বসানোর নিয়ম</p>
+          <p><b>Android (Chrome):</b> ব্রাউজারের ⋮ মেনু → “Install app” / “Add to Home screen” চাপুন।</p>
+          <p><b>iPhone (Safari):</b> নিচের Share ⬆️ বোতাম → “Add to Home Screen” চাপুন।</p>
+          <p className="text-gray-500">ইন্সটল হলে PiCall আইকন হোম স্ক্রিনে আসবে, অ্যাপের মতো খুলবে।</p>
+        </div>
+      )}
+    </span>
+  )
 }
 
 export function Btn({ children, onClick, variant = 'primary', disabled, className = '' }: { children: React.ReactNode; onClick?: () => void; variant?: 'primary' | 'ghost' | 'danger' | 'green'; disabled?: boolean; className?: string }) {
