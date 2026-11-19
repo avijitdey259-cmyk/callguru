@@ -1,5 +1,5 @@
 // PiCall service worker — offline-first app shell, network-first API.
-const CACHE = 'picall-shell-v1'
+const CACHE = 'picall-shell-v2'
 const SHELL = [
   '/',
   '/index.html',
