@@ -60,7 +60,7 @@ export async function endLiveRoom(id: string): Promise<void> {
   await liveFetch(`/api/live/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export type LiveGift = { icon: string; name: string; price: number }
+export type LiveGift = { icon: string; name: string; pi: number }
 
 export type LiveSignalHandlers = {
   onOpen?: () => void

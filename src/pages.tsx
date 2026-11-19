@@ -8,9 +8,12 @@ import { Btn, Card } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
-  contactBanCheck, formatBDT, type Expert
+  contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
+  USDT_DEPOSIT_ADDRESS, BINANCE_PAY_ID, MANUAL_TOPUP_METHODS, PI_MIN_WITHDRAW_USDT,
+  USDT_NETWORKS, piWithdrawFee,
+  type Expert
 } from './data'
-import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_COINS, REF_WELCOME_COINS } from './store'
+import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI } from './store'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -20,6 +23,8 @@ export async function shareLink(title: string, text: string, url: string): Promi
   } catch { return 'failed' }
   try { await navigator.clipboard.writeText(`${text} ${url}`); return 'copied' } catch { return 'failed' }
 }
+
+function shortPiAddress(a: string) { return a.length > 10 ? a.slice(0, 4) + '...' + a.slice(-4) : a }
 
 function currentWeekLabel(): string {
   const now = new Date()
@@ -47,7 +52,7 @@ export function RefWelcomeBanner() {
 
 // বন্ধুকে ডাকুন — ব্যক্তিগত ইনভাইট লিংক, কপি/শেয়ার, রেফারেল হিসাব
 export function InviteCard() {
-  const { referralCode, referrals, referralCoinsEarned } = useStore()
+  const { referralCode, referrals, referralPiEarned } = useStore()
   const [msg, setMsg] = useState('')
   const link = `${INVITE_BASE_URL}?ref=${referralCode}`
   async function copy() {
@@ -55,19 +60,19 @@ export function InviteCard() {
     catch { setMsg('লিংক: ' + link) }
   }
   async function share() {
-    const r = await shareLink('CallGuru — লাইভ এক্সপার্ট পরামর্শ', 'CallGuru-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ কয়েন বোনাস!', link)
+    const r = await shareLink('CallGuru — লাইভ এক্সপার্ট পরামর্শ', 'CallGuru-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ π বোনাস!', link)
     setMsg(r === 'shared' ? '✅ শেয়ার হয়েছে!' : r === 'copied' ? '✅ লিংক কপি হয়েছে — বন্ধুকে পাঠান!' : '')
   }
   return (
     <Card>
       <h2 className="font-bold">📣 বন্ধুকে ডাকুন — দুজনেই পাবেন</h2>
-      <p className="text-sm mt-1">আপনার লিংকে বন্ধু এলে বন্ধু পাবে <b>প্রথম কলের প্রথম ১ মিনিট ফ্রি + {REF_WELCOME_COINS} কয়েন</b>। বন্ধু প্রথম টপ-আপ করলে <b>আপনি পাবেন {REF_INVITER_COINS} কয়েন</b>।</p>
+      <p className="text-sm mt-1">আপনার লিংকে বন্ধু এলে বন্ধু পাবে <b>প্রথম কলের প্রথম ১ মিনিট ফ্রি + {REF_WELCOME_PI} π</b>। বন্ধু প্রথম টপ-আপ করলে <b>আপনি পাবেন {REF_INVITER_PI} π</b>।</p>
       <p className="text-sm mt-2 break-all">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code></p>
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={copy}>📋 লিংক কপি করুন</Btn>
         <Btn variant="green" onClick={share}>↗️ শেয়ার করুন</Btn>
       </div>
-      <p className="text-sm mt-2">রেফারেল: <b>{referrals} জন</b> • রেফারেল থেকে আয়: <b>🪙 {referralCoinsEarned} কয়েন</b></p>
+      <p className="text-sm mt-2">রেফারেল: <b>{referrals} জন</b> • রেফারেল থেকে আয়: <b>π {referralPiEarned} Pi</b></p>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
       <p className="text-xs text-gray-400 mt-2">ডেমো নোট: রেফারেল এই ডিভাইসে ট্র্যাক করা হয় — আসল ক্রস-ডিভাইস ট্র্যাকিংয়ের জন্য ব্যাকএন্ড লাগবে।</p>
     </Card>
@@ -76,18 +81,18 @@ export function InviteCard() {
 
 // ডেইলি বোনাস — ৭ দিনের চক্র, একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
 export function DailyBonusCard() {
-  const { streak, dailyClaimedToday, claimDailyBonus, coins } = useStore()
+  const { streak, dailyClaimedToday, claimDailyBonus, piBalance } = useStore()
   const [msg, setMsg] = useState('')
   function claim() {
     const r = claimDailyBonus()
-    if (r) setMsg(`🎉 দিন ${r.day} — ${r.coins} কয়েন পেয়েছেন! মোট কয়েন: ${coins + r.coins}।`)
+    if (r) setMsg(`🎉 দিন ${r.day} — ${r.pi} π পেয়েছেন! মোট Pi: ${formatPi(piBalance + r.pi)}।`)
   }
   const nextDay = ((streak % 7) + 1)
   return (
     <Card className="!bg-amber-50 dark:!bg-amber-900/30">
       <div className="flex justify-between items-center flex-wrap gap-2">
         <h2 className="font-bold">🎁 ডেইলি বোনাস</h2>
-        <span className="text-sm">🔥 স্ট্রিক: <b>{streak} দিন</b> • কয়েন: <b>🪙 {coins}</b></span>
+        <span className="text-sm">🔥 স্ট্রিক: <b>{streak} দিন</b> • Pi: <b>π {piBalance}</b></span>
       </div>
       <div className="flex gap-1.5 mt-3 flex-wrap">
         {DAILY_BONUS_REWARDS.map((c, i) => {
@@ -98,14 +103,14 @@ export function DailyBonusCard() {
           const isNext = day === nextDay && !dailyClaimedToday
           return (
             <span key={day} className={`text-xs px-2 py-1.5 rounded-lg font-bold ${done ? 'bg-green-500 text-white' : isNext ? 'bg-amber-400 text-black ring-2 ring-amber-600' : 'bg-white dark:bg-slate-700'}`}>
-              দিন {day}: {c}🪙
+              দিন {day}: {c} π
             </span>
           )
         })}
       </div>
-      <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — ৭ম দিনে ৫০ কয়েন! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
+      <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — ৭ম দিনে ৫০ π! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
       <Btn variant="green" className="mt-3" disabled={dailyClaimedToday} onClick={claim}>
-        {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (দিন ${nextDay}: ${DAILY_BONUS_REWARDS[nextDay - 1]} কয়েন)`}
+        {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (দিন ${nextDay}: ${DAILY_BONUS_REWARDS[nextDay - 1]} π)`}
       </Btn>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
     </Card>
@@ -114,18 +119,18 @@ export function DailyBonusCard() {
 
 // সপ্তাহের লিডারবোর্ড — লাইভ হোস্ট (গিফট) ও গিফট-দাতা; ডেমো ডেটা + নিজের হিসাব
 export function LeaderboardCard() {
-  const { liveEarnings, giftsSentCoins } = useStore()
+  const { liveEarnings, giftsSentPi } = useStore()
   const hostSeed = [
-    { name: 'তানিয়া', gifts: 320 }, { name: 'সুমাইয়া', gifts: 260 }, { name: 'নুসরাত', gifts: 180 },
-    { name: 'মেহজাবিন', gifts: 150 }, { name: 'রাকিব', gifts: 90 }
+    { name: 'তানিয়া', gifts: 12.5 }, { name: 'সুমাইয়া', gifts: 9.8 }, { name: 'নুসরাত', gifts: 7.2 },
+    { name: 'মেহজাবিন', gifts: 5.5 }, { name: 'রাকিব', gifts: 3.1 }
   ]
   const giverSeed = [
-    { name: 'রাফি আহমেদ', gifts: 240 }, { name: 'সাবরিনা খান', gifts: 180 },
-    { name: 'হাসান মাহমুদ', gifts: 120 }, { name: 'প্রিয়া দাস', gifts: 95 }
+    { name: 'রাফি আহমেদ', gifts: 8.4 }, { name: 'সাবরিনা খান', gifts: 6.2 },
+    { name: 'হাসান মাহমুদ', gifts: 4.5 }, { name: 'প্রিয়া দাস', gifts: 3 }
   ]
   const hosts = [...hostSeed.map(h => ({ ...h, mine: false, demo: true })), ...(liveEarnings > 0 ? [{ name: 'আপনি', gifts: liveEarnings, mine: true, demo: false }] : [])]
     .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
-  const givers = [...giverSeed.map(h => ({ ...h, mine: false, demo: true })), ...(giftsSentCoins > 0 ? [{ name: 'আপনি', gifts: giftsSentCoins, mine: true, demo: false }] : [])]
+  const givers = [...giverSeed.map(h => ({ ...h, mine: false, demo: true })), ...(giftsSentPi > 0 ? [{ name: 'আপনি', gifts: giftsSentPi, mine: true, demo: false }] : [])]
     .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
   return (
     <Card>
@@ -139,7 +144,7 @@ export function LeaderboardCard() {
           {hosts.map((h, i) => (
             <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
               <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>}</span>
-              <span>🎁 {h.gifts} কয়েন</span>
+              <span>🎁 π {h.gifts}</span>
             </p>
           ))}
         </div>
@@ -147,13 +152,13 @@ export function LeaderboardCard() {
           <p className="text-sm font-bold">💝 সেরা গিফট-দাতা</p>
           {givers.map((h, i) => (
             <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
-              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>}</span>
-              <span>🎁 {h.gifts} কয়েন</span>
+              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>} {h.mine && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold">π Pi গিফটার</span>}</span>
+              <span>🎁 π {h.gifts}</span>
             </p>
           ))}
         </div>
       </div>
-      <p className="text-xs text-gray-400 mt-2">লিডারবোর্ডের ডেমো নামগুলো উদাহরণ — আপনার নিজের লাইভ আয় ও পাঠানো গিফট এখানে “আপনি” হিসেবে যোগ হয়।</p>
+      <p className="text-xs text-gray-400 mt-2">লিডারবোর্ডের ডেমো নামগুলো উদাহরণ — আপনার নিজের Pi লাইভ আয় ও পাঠানো Pi গিফট এখানে “আপনি” হিসেবে যোগ হয়।</p>
     </Card>
   )
 }
@@ -218,7 +223,7 @@ export function LoginPage() {
         <label className="text-sm font-medium mt-3 block">ইমেইল</label>
         <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
         <Btn className="w-full mt-4" onClick={() => { if (!name || !email.includes('@')) { setMsg('নাম ও সঠিক ইমেইল দিন।'); return } login(name, email); navigate('/feed') }}>ইমেইল দিয়ে লগইন</Btn>
-        <button className="w-full mt-2 text-sm text-fb-blue" onClick={() => setMsg('OTP ডেমো: 123456 ব্যবহার করুন (আসল SMS গেটওয়ের জন্য অ্যাকাউন্ট লাগবে)।')}>OTP দিয়ে লগইন</button>
+        <button className="w-full mt-2 text-sm text-fb-blue" onClick={() => setMsg('OTP ডেমো: [credential:b55501d0-4594-489b-ac05-88dff96f5934] ব্যবহার করুন (আসল SMS গেটওয়ের জন্য অ্যাকাউন্ট লাগবে)।')}>OTP দিয়ে লগইন</button>
         {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">লগইন করলে আপনি শর্তাবলি ও গোপনীয়তা নীতিতে সম্মত হচ্ছেন। কল রেকর্ডিং শুধু অ্যাডমিন দেখতে পারেন (আপিল/বিরোধের জন্য, ৩০ দিন সংরক্ষণ)।</p>
       </Card>
@@ -337,7 +342,7 @@ export function ExpertCard({ expert }: { expert: Expert }) {
       </div>
       <p className="text-sm mt-2">{expert.about}</p>
       <div className="flex justify-between items-center mt-3">
-        <span className="font-bold text-fb-blue">{formatBDT(expert.rate)}/মিনিট</span>
+        <span className="font-bold text-fb-blue">{formatPi(takaToPi(expert.rate))}/মিনিট</span>
         <div className="flex gap-2">
           <Btn variant="ghost" onClick={() => navigate(`/expert/${expert.id}`)}>প্রোফাইল</Btn>
           <Btn variant="green" onClick={() => navigate(`/call/expert/${expert.id}`)}>📞 কল করুন</Btn>
@@ -361,7 +366,7 @@ export function ExpertProfile() {
           <div><h1 className="text-xl font-bold">{expert.name}</h1><p className="text-gray-500">{expert.title}</p><p className="text-sm">⭐ {expert.rating} • {expert.calls} কল • {expert.online ? 'অনলাইন' : 'অফলাইন'}</p></div>
         </div>
         <p className="mt-3 text-sm">{expert.about}</p>
-        <p className="mt-2 font-bold text-fb-blue text-lg">{formatBDT(expert.rate)} / মিনিট</p>
+        <p className="mt-2 font-bold text-fb-blue text-lg">{formatPi(takaToPi(expert.rate))} / মিনিট</p>
         <p className="text-xs text-gray-500">{FREE_MINUTES_NOTE}</p>
         <div className="flex gap-2 mt-4">
           <Btn variant="green" className="flex-1" onClick={() => navigate(`/call/expert/${expert.id}`)}>📞 এখনই কল করুন</Btn>
@@ -397,14 +402,14 @@ export function CreateService() {
 // ---------- Call (WhatsApp-style, prepaid) ----------
 export function CallPage() {
   const { type, id } = useParams()
-  const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
+  const { piBalance, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
   const isDating = type === 'dating'
   const datingProfile = isDating ? DATING_PROFILES.find(p => p.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'বন্ধু') : undefined
-  const rate = expert ? expert.rate : isDating ? datingRate : FRIEND_RATE // ডেটিং রেট অ্যাডমিন থেকে বদলানো যায় (ডিফল্ট ৳১০); বন্ধুর কল ৳১০ ফ্ল্যাট
+  const rate = expert ? takaToPi(expert.rate) : isDating ? datingRate : FRIEND_RATE // সব কল Pi-তে — এক্সপার্টের টাকার রেট ÷১০০, ডেটিং রেট অ্যাডমিন থেকে (ডিফল্ট π ০.১), বন্ধুর কল π ০.১ ফ্ল্যাট
   const name = expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'ডেটিং')) : decodeURIComponent(friendName || 'বন্ধু')
   // ডেটিং কল সম্পূর্ণ প্রিপেইড — গ্লোবাল প্রথম-১-মিনিট-ফ্রি এখানে প্রযোজ্য নয়, ফ্রি মিনিট খরচও হবে না
   const isFreeAvailable = !isDating && !freeFirstMinuteUsed
@@ -434,10 +439,10 @@ export function CallPage() {
   const paidSeconds = Math.max(0, seconds - freeSeconds)
   const billedMinutes = Math.ceil(paidSeconds / 60)
   const liveCost = billedMinutes * rate
-  const maxPaidMinutes = Math.floor(balance / rate)
+  const maxPaidMinutes = Math.floor(piBalance / rate)
   const maxSeconds = freeSeconds + maxPaidMinutes * 60
   const talkableMinutes = freeSeconds / 60 + maxPaidMinutes
-  const canStart = isFreeAvailable || balance >= rate
+  const canStart = isFreeAvailable || piBalance >= rate
 
   useEffect(() => {
     if (!started || ended) return
@@ -502,8 +507,8 @@ export function CallPage() {
   function endCall(reason: string) {
     if (ended) return
     setEnded(true); setEndReason(reason || 'কল শেষ')
-    const cost = Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate
-    if (cost > 0) deduct(cost)
+    const cost = roundPi(Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate)
+    if (cost > 0) addPi(-cost)
     if (isFreeAvailable && seconds > 0) markFreeMinuteUsed()
     addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: seconds, cost, freeMinute: isFreeAvailable && seconds > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
   }
@@ -527,9 +532,9 @@ export function CallPage() {
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
           <h1 className="text-xl font-bold">কল শেষ হয়েছে</h1>
           <p className="mt-2">{name} • {fmt(seconds)}</p>
-          <p className="mt-1 text-sm">খরচ: {formatBDT(cost)}{isFreeAvailable && seconds > 0 ? ' (প্রথম ১ মিনিট ফ্রি প্রযোজ্য হয়েছে)' : ''}</p>
+          <p className="mt-1 text-sm">খরচ: {formatPi(cost)}{isFreeAvailable && seconds > 0 ? ' (প্রথম ১ মিনিট ফ্রি প্রযোজ্য হয়েছে)' : ''}</p>
           <p className="text-sm text-gray-300">{endReason}</p>
-          <p className="text-sm mt-1">বর্তমান ব্যালেন্স: {formatBDT(balance - cost < 0 ? 0 : balance - cost)}</p>
+          <p className="text-sm mt-1">বর্তমান Pi ব্যালেন্স: {formatPi(piBalance)}</p>
           <div className="flex gap-2 mt-5 justify-center">
             <Btn variant="green" onClick={() => navigate('/call-history')}>কল হিস্ট্রি</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>ফিডে ফিরুন</Btn>
@@ -544,16 +549,16 @@ export function CallPage() {
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full">
           <h1 className="text-xl font-bold">📞 {name}</h1>
-          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isDating ? 'ডেটিং • ' : 'বন্ধু • '}{formatBDT(rate)}/মিনিট</p>
+          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isDating ? 'ডেটিং • ' : 'বন্ধু • '}{formatPi(rate)}/মিনিট</p>
           {isFreeAvailable && <p className="mt-2 text-sm bg-green-600 rounded-lg px-3 py-2">🎉 ১ম মিনিট ফ্রি — আপনার প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি!</p>}
           {isDating && <div className="mt-2 space-y-2">
-            <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 প্রিপেইড ভিডিও কল — {formatBDT(rate)}/মিনিট। শুধু আপনি (কলকারী) দেবেন, যাকে কল করছেন তার টাকা কাটবে না। এই কলে ফ্রি মিনিট প্রযোজ্য নয়।</p>
+            <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 প্রিপেইড ভিডিও কল — {formatPi(rate)}/মিনিট। শুধু আপনি (কলকারী) দেবেন, যাকে কল করছেন তার টাকা কাটবে না। এই কলে ফ্রি মিনিট প্রযোজ্য নয়।</p>
             <p className="text-xs text-gray-300">🔴 এই কলটিও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে।</p>
           </div>}
           <div className="mt-4 space-y-1 text-sm">
-            <p>ব্যালেন্স: <b>{formatBDT(balance)}</b></p>
+            <p>Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
             <p>কথা বলা যাবে: <b>~{talkableMinutes} মিনিট</b>{isFreeAvailable ? ' (১ মিনিট ফ্রি সহ)' : ''}</p>
-            <p>প্রতি মিনিট: <b>{formatBDT(rate)}</b> • ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে।</p>
+            <p>প্রতি মিনিট: <b>{formatPi(rate)}</b> • Pi ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে।</p>
           </div>
           <div className="mt-4">
             <p className="text-sm text-gray-300 mb-2">📷 কোন ক্যামেরা দিয়ে শুরু করবেন?</p>
@@ -563,10 +568,10 @@ export function CallPage() {
             </div>
             <p className="text-xs text-gray-400 mt-1">কল চলাকালীনও নিচের 🔄 বোতামে ক্যামেরা বদলানো যাবে।</p>
           </div>
-          {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া কল করা যাবে না। প্রিপেইড কল — আগে টপ-আপ করুন।</p>}
+          {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ Pi ব্যালেন্স ছাড়া কল করা যাবে না। প্রিপেইড কল — আগে Pi কিনুন।</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ কল শুরু করুন</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>π Pi কিনুন</Btn>
           </div>
           <button className="text-sm text-gray-300 mt-3" onClick={() => navigate(-1)}>← ফিরে যান</button>
         </Card>
@@ -579,14 +584,14 @@ export function CallPage() {
       {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
-        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmt(seconds)} • {liveCost === 0 ? 'ফ্রি' : formatBDT(liveCost)}</span>
+        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmt(seconds)} • {liveCost === 0 ? 'ফ্রি' : formatPi(liveCost)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-0" autoPlay playsInline muted />
         <div className="text-center">
           <span className="w-28 h-28 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
           <p className="text-xl font-bold mt-3">{name}</p>
-          <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '১ম মিনিট ফ্রি' : `${formatBDT(liveCost)}`}</p>
+          <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '১ম মিনিট ফ্রি' : `${formatPi(liveCost)}`}</p>
           {sharing && <p className="text-xs mt-2 bg-blue-600 inline-block px-2 py-1 rounded">🖥️ স্ক্রিন শেয়ার চলছে</p>}
           {camOff && <p className="text-xs mt-2">📷 ক্যামেরা বন্ধ</p>}
         </div>
@@ -628,8 +633,8 @@ export function CallHistory() {
       {calls.map(c => (
         <Card key={c.id}>
           <div className="flex justify-between"><b>{c.name}</b><span className="text-xs text-gray-400">{c.time}</span></div>
-          <p className="text-sm text-gray-500">{c.type} • {formatBDT(c.rate)}/মিনিট • {Math.floor(c.durationSec / 60)} মি {c.durationSec % 60} সে • {c.status}</p>
-          <p className="text-sm font-bold">খরচ: {formatBDT(c.cost)}{c.freeMinute ? ' (১ম মিনিট ফ্রি সহ)' : ''}</p>
+          <p className="text-sm text-gray-500">{c.type} • {formatPi(c.rate)}/মিনিট • {Math.floor(c.durationSec / 60)} মি {c.durationSec % 60} সে • {c.status}</p>
+          <p className="text-sm font-bold">খরচ: {formatPi(c.cost)}{c.freeMinute ? ' (১ম মিনিট ফ্রি সহ)' : ''}</p>
         </Card>
       ))}
     </div>
@@ -638,49 +643,165 @@ export function CallHistory() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { balance, topUp, points, referrals, coins, addCoins, deduct } = useStore()
+  const { balance, topUp, deduct, points, referrals, piBalance, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
   const [msg, setMsg] = useState('')
-  const [coinMsg, setCoinMsg] = useState('')
-  function buyCoins(pack: number) {
-    if (balance < pack) { setCoinMsg('ব্যালেন্স যথেষ্ট নয় — আগে টপ-আপ করুন।'); return }
-    deduct(pack); addCoins(pack); setCoinMsg(`✅ ${pack} কয়েন কেনা হয়েছে। নতুন কয়েন ব্যালেন্স: ${coins + pack}।`)
-  }
+  const [usdtNetwork, setUsdtNetwork] = useState('BEP20')
+  const [buyMsg, setBuyMsg] = useState('')
+  const [depAmount, setDepAmount] = useState('')
+  const [depRef, setDepRef] = useState('')
+  const [depMsg, setDepMsg] = useState('')
+  const [wdAddress, setWdAddress] = useState('')
+  const [wdAmount, setWdAmount] = useState('')
+  const [wdMsg, setWdMsg] = useState('')
+  const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
-  const usdtRate = 120
+  const isUsdt = method === 'USDT'
+  const isBinance = method === 'Binance Pay'
+  const isUsdtAmount = isUsdt || isBinance
+  const isManual = method !== 'Bank'
+  const net = USDT_NETWORKS.find(n => n.id === usdtNetwork) || USDT_NETWORKS[1]
+  const DEMO_NUMBERS: Record<string, string> = { bKash: '01XXXXXXXXX', Nagad: '01XXXXXXXXX', Rocket: '01XXXXXXXXX' }
+  function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
-    if (amount <= 0) { setMsg('সঠিক পরিমাণ দিন।'); return }
-    if ((method === 'bKash' || method === 'Nagad') && !trx.trim()) { setMsg('TrxID দিন — SMS অটো-ভেরিফাই হবে।'); return }
-    topUp(amount, method); setMsg(`✅ ${formatBDT(amount)} টপ-আপ হয়েছে (${method})। নতুন ব্যালেন্স ${formatBDT(balance + amount)}।`)
+    if (isManual) {
+      const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : method, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
+      setMsg(err || `✅ ${method} আবেদন জমা হয়েছে — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।`)
+      if (!err) setTrx('')
+      return
+    }
+    const a = Math.round(Number(amount))
+    if (!Number.isFinite(a) || a <= 0) { setMsg('সঠিক পরিমাণ দিন।'); return }
+    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method})। নতুন ব্যালেন্স ${formatBDT(balance + a)}।`)
   }
+  function buyPiQty(qty: number) {
+    const cost = Math.round(qty * piRateBDT)
+    if (balance < cost) { setBuyMsg(`টাকার ব্যালেন্স যথেষ্ট নয় — ${formatBDT(cost)} দরকার।`); return }
+    if (!deduct(cost)) { setBuyMsg('টাকার ব্যালেন্স যথেষ্ট নয়।'); return }
+    addPi(qty)
+    setBuyMsg(`✅ ${formatPi(qty)} কেনা হয়েছে (ডেমো দর ১ Pi = ${formatBDT(piRateBDT)})।`)
+  }
+  function doDeposit() {
+    const m = Number(depAmount)
+    if (!Number.isFinite(m) || m <= 0) { setDepMsg('সঠিক পরিমাণ দিন।'); return }
+    if (!depRef.trim()) { setDepMsg('Transaction / Memo রেফারেন্স দিন।'); return }
+    depositPi(m, depRef)
+    setDepMsg(`✅ ${formatPi(m)} ডেমো জমা হয়েছে।`)
+    setDepAmount(''); setDepRef('')
+  }
+  function doWithdraw() {
+    const m = Number(wdAmount)
+    const a = wdAddress.trim()
+    if (a.length !== 56 || !a.startsWith('G')) { setWdMsg('ঠিকানা সঠিক নয় — Pi ঠিকানা G দিয়ে শুরু হয় এবং ৫৬ অক্ষরের হয়।'); return }
+    if (!Number.isFinite(m) || m < piMinWithdraw) { setWdMsg(`সর্বনিম্ন তোলা: ১০ USDT সমান Pi (ডেমো দরে ${formatPi(piMinWithdraw)})।`); return }
+    if (m > piBalance) { setWdMsg('Pi ব্যালেন্স যথেষ্ট নয়।'); return }
+    if (!withdrawPi(m, a)) { setWdMsg('তোলা যায়নি — পরিমাণ ও ঠিকানা আবার দেখুন।'); return }
+    setWdMsg('✅ তোলার আবেদন জমা হয়েছে — ⏳ প্রক্রিয়াধীন (ডেমো)।')
+    setWdAddress(''); setWdAmount('')
+  }
+  const wdAmt = Number(wdAmount) || 0
+  const wdFee = wdAmt >= piMinWithdraw ? piWithdrawFee(wdAmt, piWithdrawFeePct) : 0
+  const wdReceive = roundPi(wdAmt - wdFee)
+  const pendingList = pendingTopUps.filter(t => t.status === 'pending')
+  const doneList = pendingTopUps.filter(t => t.status !== 'pending')
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card className="text-center">
         <p className="text-gray-500 text-sm">ওয়ালেট ব্যালেন্স</p>
         <p className="text-4xl font-extrabold text-green-600">{formatBDT(balance)}</p>
+        <p className="text-lg font-bold text-purple-600 mt-1">π Pi ব্যালেন্স: {formatPi(piBalance)}</p>
         <p className="text-sm text-gray-500 mt-1">রিওয়ার্ড পয়েন্ট: {points} • রেফারেল: {referrals} জন</p>
-        <p className="text-xs text-gray-400 mt-1">কল প্রিপেইড — ব্যালেন্স ছাড়া কল করা যাবে না।</p>
+        <p className="text-xs text-gray-400 mt-1">কল ও লাইভ প্রিপেইড — Pi ব্যালেন্স ছাড়া চলবে না।</p>
       </Card>
       <Card>
         <h2 className="font-bold">💰 টপ-আপ করুন</h2>
-        <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>
-        <label className="text-sm block mt-3">পরিমাণ (৳)</label>
+        {!isUsdtAmount && <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>}
+        <label className="text-sm block mt-3">পরিমাণ ({isUsdtAmount ? 'USDT' : '৳'})</label>
         <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={amount} onChange={e => setAmount(Number(e.target.value))} />
+        {isUsdtAmount && <p className="text-sm mt-1">≈ {formatBDT(Math.round((Number(amount) || 0) * usdtRateBDT))} হবে (দর: ১ USDT = {formatBDT(usdtRateBDT)}, অ্যাডমিন নির্ধারিত)।</p>}
         <label className="text-sm block mt-3">পেমেন্ট মাধ্যম</label>
-        <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Bank', 'USDT (TRC20)'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
-        {method === 'USDT (TRC20)' && <p className="text-sm mt-2">রেট: ১ USDT = ৳{usdtRate} • গেটওয়ে ফি ১% • {formatBDT(amount)} পেতে {(amount / usdtRate).toFixed(2)} USDT পাঠান।</p>}
-        {(method === 'bKash' || method === 'Nagad') && <><label className="text-sm block mt-3">TrxID</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder="যেমন: 9HX7..." /><p className="text-xs text-gray-400 mt-1">অফিসিয়াল সেন্ডার (bKash/Nagad/16216) থেকে SMS এলে অটো-অ্যাপ্রুভ হবে। একই TrxID দুবার ব্যবহার করা যাবে না।</p></>}
-        <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>টপ-আপ করুন</Btn>
+        <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Rocket', 'Bank', 'USDT', 'Binance Pay'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
+        {isManual && <div className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
+          <p className="font-bold">ম্যানুয়াল পেমেন্ট — ধাপ:</p>
+          <p>১. নিচের ঠিকানায় {isUsdtAmount ? `${amount || 0} USDT` : `${formatBDT(Number(amount) || 0)}`} পাঠান।</p>
+          <p>২. নিচে {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'} লিখে আবেদন জমা দিন। অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।</p>
+        </div>}
+        {(method === 'bKash' || method === 'Nagad' || method === 'Rocket') && <div className="text-sm mt-3">
+          <p>{method} নম্বর (ডেমো): <b>{DEMO_NUMBERS[method]}</b> <span className="text-xs text-gray-400">ডেমো নম্বর — অ্যাডমিন আসল নম্বর বসাবেন</span></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(DEMO_NUMBERS[method], method)}>📋 নম্বর কপি করুন</Btn>
+        </div>}
+        {isUsdt && <div className="mt-3">
+          <label className="text-sm block">নেটওয়ার্ক বাছুন</label>
+          <div className="flex gap-2 flex-wrap mt-1">{USDT_NETWORKS.map(n => <button key={n.id} onClick={() => setUsdtNetwork(n.id)} className={`px-3 py-2 rounded-lg border text-sm text-left ${usdtNetwork === n.id ? 'bg-fb-blue text-white border-fb-blue' : 'bg-gray-50 dark:bg-slate-800'}`}>
+            <span className="font-bold block">{n.name}{n.cheapest ? ' • সবচেয়ে কম খরচ' : ''}</span>
+            <span className="text-xs opacity-80">{n.feeHint}</span>
+          </button>)}</div>
+          <p className="text-sm mt-2">ঠিকানা ({net.id}, ডেমো): <code className="break-all">{net.address}</code></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(net.address, 'USDT')}>📋 ঠিকানা কপি করুন</Btn>
+          <p className="text-xs text-red-600 mt-2">⚠️ যে নেটওয়ার্ক বাছলেন, সেই নেটওয়ার্কেই পাঠাতে হবে — ভুল নেটওয়ার্কে পাঠালে টাকা হারিয়ে যাবে।</p>
+          <p className="text-xs text-gray-400 mt-1">ফি আনুমানিক, পরিবর্তন হতে পারে।</p>
+        </div>}
+        {isBinance && <div className="text-sm mt-3">
+          <p>Binance Pay ID (ডেমো): <b>{BINANCE_PAY_ID}</b> <span className="text-xs text-gray-400">ডেমো আইডি — অ্যাডমিন আসল আইডি বসাবেন</span></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(BINANCE_PAY_ID, 'Binance Pay')}>📋 আইডি কপি করুন</Btn>
+        </div>}
+        {method === 'Bank' && <p className="text-sm mt-2">ব্যাংক ট্রান্সফার — টপ-আপ তাৎক্ষণিক যোগ হবে।</p>}
+        {copied && <p className="text-xs text-green-600 mt-1">✅ {copied} কপি হয়েছে।</p>}
+        {isManual && <><label className="text-sm block mt-3">{isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'}</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder={isUsdt ? 'যেমন: 0x...' : isBinance ? 'যেমন: BP-...' : 'যেমন: 9HX7...'} /><p className="text-xs text-gray-400 mt-1">একই রেফারেন্স দুবার ব্যবহার করা যাবে না।</p></>}
+        <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>{isManual ? 'আবেদন জমা দিন' : 'টপ-আপ করুন'}</Btn>
         {msg && <p className="text-sm mt-2">{msg}</p>}
+        {pendingList.length > 0 && <div className="mt-4">
+          <p className="text-sm font-bold">⏳ টপ-আপ পর্যালোচনাধীন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হবে।</p>
+          {pendingList.map(t => <p key={t.id} className="text-sm mt-1">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)} • {t.trxId} • {t.date}</p>)}
+        </div>}
+        {doneList.length > 0 && <div className="mt-3">
+          <p className="text-sm font-bold">আগের আবেদন</p>
+          {doneList.map(t => <p key={t.id} className="text-sm mt-1 text-gray-500">{t.method} — {t.currency === 'USDT' ? `${t.amount} USDT` : formatBDT(t.amount)} • {t.status === 'approved' ? '✅ অনুমোদিত' : '❌ বাতিল'} • {t.date}</p>)}
+        </div>}
       </Card>
       <Card>
-        <h2 className="font-bold">🪙 কয়েন কিনুন (লাইভ গিফটের জন্য)</h2>
-        <p className="text-sm mt-1">আপনার কয়েন: <b>{coins}</b> • ১ কয়েন = ৳১ • গিফট শুধু CallGuru কয়েন দিয়েই কেনা যায়।</p>
-        <div className="flex gap-2 flex-wrap mt-3">{[10, 50, 100].map(p => <button key={p} onClick={() => buyCoins(p)} className="px-4 py-2 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">{p} কয়েন — {formatBDT(p)}</button>)}</div>
-        <p className="text-xs text-gray-400 mt-2">ওয়ালেট ব্যালেন্স থেকে কাটবে — ব্যালেন্স কম থাকলে আগে টপ-আপ করুন।</p>
-        {coinMsg && <p className="text-sm mt-2">{coinMsg}</p>}
+        <h2 className="font-bold">π Pi ওয়ালেট</h2>
+        <p className="text-sm mt-1">Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
+        <p className="text-xs text-gray-500 mt-1">দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)} (অ্যাডমিন নির্ধারিত) • ডেমো দর: ৳১০০ = ১ Pi</p>
+        {piWalletAddress
+          ? <p className="text-sm mt-2">আপনার Pi ঠিকানা (ডেমো): <code className="break-all">{piWalletAddress}</code></p>
+          : <Btn variant="ghost" className="mt-2" onClick={connectPiWallet}>π Pi সংযুক্ত করুন (ডেমো)</Btn>}
+        <div className="mt-3">
+          <p className="text-sm font-bold">π Pi কিনুন (টাকার ব্যালেন্স থেকে)</p>
+          <div className="flex gap-2 flex-wrap mt-2">{[1, 5, 10].map(q => <button key={q} onClick={() => buyPiQty(q)} className="px-4 py-2 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">{formatPi(q)} — {formatBDT(Math.round(q * piRateBDT))}</button>)}</div>
+          {buyMsg && <p className="text-sm mt-2">{buyMsg}</p>}
+        </div>
+        <div className="mt-3">
+          <p className="text-sm font-bold">ডেমো Pi যোগ করুন (টেস্টের জন্য)</p>
+          <div className="flex gap-2 flex-wrap mt-2">{[0.1, 0.5, 1].map(a => <button key={a} onClick={() => addDemoPi(a)} className="px-3 py-1.5 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">+{formatPi(a)}</button>)}</div>
+        </div>
+        <div className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">π Pi জমা (Deposit)</p>
+          <p className="text-sm mt-1">CallGuru-র ডেমো Pi ঠিকানা: <code className="break-all">{PI_DEPOSIT_ADDRESS}</code></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(PI_DEPOSIT_ADDRESS, 'Pi জমা ঠিকানা')}>📋 ঠিকানা কপি করুন</Btn>
+          <label className="text-sm block mt-2">পাঠানো Pi-র পরিমাণ</label>
+          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="যেমন: 5" />
+          <label className="text-sm block mt-2">Transaction / Memo রেফারেন্স</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depRef} onChange={e => setDepRef(e.target.value)} placeholder="যেমন: PI-TX-..." />
+          <Btn variant="green" className="w-full mt-3" onClick={doDeposit}>জমা নিশ্চিত করুন</Btn>
+          {depMsg && <p className="text-sm mt-2">{depMsg}</p>}
+          {piDeposits.length > 0 && <div className="mt-2">{piDeposits.map(d => <p key={d.id} className="text-sm text-gray-500">{formatPi(d.amount)} • {d.ref} • {d.date} • {d.status}</p>)}</div>}
+        </div>
+        <div className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">π Pi তোলা (Withdraw)</p>
+          <p className="text-sm mt-1">সর্বনিম্ন তোলা: ১০ USDT সমান Pi (ডেমো দরে {formatPi(piMinWithdraw)}) • দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)}</p>
+          <label className="text-sm block mt-2">আপনার Pi ঠিকানা (G দিয়ে শুরু, ৫৬ অক্ষর)</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAddress} onChange={e => setWdAddress(e.target.value)} placeholder="G..." />
+          <label className="text-sm block mt-2">পরিমাণ (Pi)</label>
+          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAmount} onChange={e => setWdAmount(e.target.value)} placeholder={`সর্বনিম্ন ${formatPi(piMinWithdraw)}`} />
+          {wdAmt >= piMinWithdraw && <p className="text-sm mt-2">তোলার পরিমাণ: {formatPi(wdAmt)} • ফি ({piWithdrawFeePct}%): {formatPi(wdFee)} • আপনি পাবেন: {formatPi(wdReceive)}</p>}
+          <Btn variant="green" className="w-full mt-3" onClick={doWithdraw}>Pi তুলুন</Btn>
+          {wdMsg && <p className="text-sm mt-2">{wdMsg}</p>}
+          {piWithdrawals.length > 0 && <div className="mt-2">{piWithdrawals.map(w => <p key={w.id} className="text-sm text-gray-500">{formatPi(w.amount)} • ফি {formatPi(w.fee)} • পাবেন {formatPi(w.received)} • {shortPiAddress(w.address)} • {w.date} • {w.status}</p>)}</div>}
+        </div>
+        <p className="text-xs text-gray-400 mt-3">ডেমো Pi ওয়ালেট — আসল Pi পেমেন্টের জন্য অফিসিয়াল Pi SDK + Pi অ্যাপের অনুমোদন লাগবে; এখানে কোনো আসল ব্লকচেইন লেনদেন হয় না, সিড/প্রাইভেট কি চাওয়া বা সংরক্ষণ করা হয় না।</p>
       </Card>
       <InviteCard />
       <Card>
@@ -716,7 +837,7 @@ export function FriendsPage() {
         ))}
       </Card>
       <Card>
-        <h2 className="font-bold">আমার বন্ধুরা ({friends.length}) — চ্যাট ফ্রি, কল প্রিপেইড ৳১০/মিনিট</h2>
+        <h2 className="font-bold">আমার বন্ধুরা ({friends.length}) — চ্যাট ফ্রি, কল প্রিপেইড π ০.১/মিনিট</h2>
         {friends.map(f => (
           <div key={f.id} className="flex items-center gap-3 py-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
@@ -1059,7 +1180,7 @@ function DatingKycBlocked() {
 
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
+  const { likesUsed, useLike, premium, setPremium, piBalance, addPi, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
   const navigate = useNavigate()
   // KYC একবার সম্পন্ন হলে আর দেখানো হয় না; সফলতার স্ক্রিনটি দেখানোর জন্য স্থানীয় অবস্থা
   const [kycSuccess, setKycSuccess] = useState(false)
@@ -1083,14 +1204,14 @@ export function DatingPage() {
       <Card>
         <div className="flex justify-between items-center flex-wrap gap-2">
           <h1 className="text-xl font-bold">❤️ ডেটিং ১৮+</h1>
-          <span className="text-sm">আজকের ফ্রি লাইক: {premium ? 'আনলিমিটেড (প্রিমিয়াম)' : `${Math.max(0, 30 - likesUsed)}/৩০`} • কয়েন: {coins}</span>
+          <span className="text-sm">আজকের ফ্রি লাইক: {premium ? 'আনলিমিটেড (প্রিমিয়াম)' : `${Math.max(0, 30 - likesUsed)}/৩০`} • Pi: {formatPi(piBalance)}</span>
         </div>
         <div className="flex gap-2 mt-3 flex-wrap">
           <Btn variant={premium ? 'green' : 'primary'} onClick={() => setPremium(!premium)}>{premium ? '✅ প্রিমিয়াম চালু আছে' : 'প্রিমিয়াম নিন — ৳৯৯/মাস'}</Btn>
-          <Btn variant="ghost" onClick={() => { if (coins >= 10) { addCoins(-10); setBoosted(true) } else alert('কয়েন যথেষ্ট নয় — টপ-আপ করুন।') }}>🚀 Boost (~৳১০)</Btn>
+          <Btn variant="ghost" onClick={() => { if (piBalance >= 0.1) { addPi(-0.1); setBoosted(true) } else alert('Pi ব্যালেন্স যথেষ্ট নয় — Pi কিনুন।') }}>🚀 Boost (~০.১ π)</Btn>
         </div>
         {boosted && <p className="text-sm text-green-600 mt-2">Boost চালু — আপনার প্রোফাইল বেশি দেখাবে।</p>}
-        <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ১৫ কয়েন • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
+        <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ০.১৫ π • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
       </Card>
       {/* ---------- ডেটিং লাইভ ---------- */}
       <Card>
@@ -1098,14 +1219,14 @@ export function DatingPage() {
           <h2 className="text-lg font-bold">🔴 ডেটিং লাইভ</h2>
           <span className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-2 py-1 rounded-full font-bold">LIVE • ১৮+</span>
         </div>
-        <p className="text-sm mt-2">লাইভ দেখতে {formatBDT(liveRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>। কলের রেট থেকে আলাদা — লাইভে টাকা কম কাটে।</p>
+        <p className="text-sm mt-2">লাইভ দেখতে {formatPi(liveRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>। কলের রেট থেকে আলাদা — লাইভে Pi কম কাটে।</p>
         {liveServerOk
           ? <p className="text-xs text-green-600 mt-1">🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার</p>
           : <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — লাইভ সার্ভার সংযুক্ত নয়; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>}
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <Btn variant="green" onClick={() => navigate('/dating-go-live')}>📹 লাইভে যান</Btn>
           <Btn variant="ghost" onClick={refreshLiveRooms}>🔄 লাইভ তালিকা রিফ্রেশ</Btn>
-          <span className="text-sm">আপনার মোট লাইভ আয়: <b className="text-green-600">{formatBDT(liveEarnings)}</b> (৭০% শেয়ার)</span>
+          <span className="text-sm">আপনার মোট লাইভ আয়: <b className="text-green-600">{formatPi(liveEarnings)}</b> (৭০% শেয়ার)</span>
         </div>
         {realRooms && realRooms.length > 0 && (
           <div className="grid sm:grid-cols-3 gap-3 mt-4">
@@ -1118,7 +1239,7 @@ export function DatingPage() {
                   <div><p className="font-bold">{r.hostName}</p><p className="text-xs text-gray-500">👁️ {r.viewers} জন দেখছেন • <span className="text-green-600 font-bold">আসল লাইভ</span></p></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">{r.title}</p>
-                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${r.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(liveRate)}/মিনিট)</Btn>
+                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${r.id}`)}>👁️ দেখুন (প্রিপেইড {formatPi(liveRate)}/মিনিট)</Btn>
                 <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
               </div>
             ))}
@@ -1136,7 +1257,7 @@ export function DatingPage() {
                   <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন • ডেমো</p></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">{p.about}</p>
-                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(liveRate)}/মিনিট)</Btn>
+                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatPi(liveRate)}/মিনিট)</Btn>
                 <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
               </div>
             )
@@ -1148,7 +1269,7 @@ export function DatingPage() {
           <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">চ্যাট শুরু করুন →</Link>
           <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 ভিডিও কল করুন (প্রিপেইড)</Btn>
         </div>
-        <p className="text-xs text-gray-500 mt-2">💳 ভিডিও কল প্রিপেইড — {formatBDT(datingRate)}/মিনিট, শুধু কলকারীর টাকা কাটবে। এই কলও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে।</p>
+        <p className="text-xs text-gray-500 mt-2">💳 ভিডিও কল প্রিপেইড — {formatPi(datingRate)}/মিনিট, শুধু কলকারীর Pi কাটবে। এই কলও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে।</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
         {DATING_PROFILES.map(p => (
@@ -1160,10 +1281,10 @@ export function DatingPage() {
             <p className="text-sm mt-2">{p.about}</p>
             <div className="flex gap-2 mt-3">
               <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('আজকের ৩০টি ফ্রি লাইক শেষ — প্রিমিয়াম নিন।'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ লাইক</Btn>
-              <Btn variant="ghost" onClick={() => { if (coins < 15) { alert('Super Like-এর জন্য ১৫ কয়েন লাগবে।'); return } addCoins(-15); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (১৫ কয়েন)</Btn>
+              <Btn variant="ghost" onClick={() => { if (piBalance < 0.15) { alert('Super Like-এর জন্য ০.১৫ π লাগবে।'); return } addPi(-0.15); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (০.১৫ π)</Btn>
               <Btn variant="ghost" onClick={() => alert('প্রোফাইলটি রিপোর্ট করা হয়েছে — মডারেশন দেখবে।')}>🚩 রিপোর্ট</Btn>
             </div>
-            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatBDT(datingRate)}/মিনিট)</Btn>}
+            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatPi(datingRate)}/মিনিট)</Btn>}
           </Card>
         ))}
       </div>
@@ -1182,18 +1303,18 @@ const LIVE_CREATOR_SHARE = 0.7 // লাইভকারী পাবেন ৭�
 
 function fmtLive(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
-// লাইভ গিফট — শুধু CallGuru কয়েন দিয়ে কেনা যায় (১ কয়েন = ৳১); বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই
+// লাইভ গিফট — শুধু Pi দিয়ে কেনা যায়; বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই
 const LIVE_GIFTS = [
-  { icon: '🌹', name: 'গোলাপ', price: 5 },
-  { icon: '❤️', name: 'হার্ট', price: 10 },
-  { icon: '🎁', name: 'গিফট বক্স', price: 20 },
-  { icon: '💎', name: 'ডায়মন্ড', price: 50 },
+  { icon: '🌹', name: 'গোলাপ', pi: 0.1 },
+  { icon: '❤️', name: 'হার্ট', pi: 0.25 },
+  { icon: '🎁', name: 'গিফট বক্স', pi: 0.5 },
+  { icon: '💎', name: 'ডায়মন্ড', pi: 1 },
 ]
 
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { balance, deduct, liveRate, user, coins, addCoins, kycVerified, recordShare, addGiftsSent } = useStore()
+  const { piBalance, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent } = useStore()
   const navigate = useNavigate()
   const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
@@ -1208,7 +1329,7 @@ export function DatingLivePage() {
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
+  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট π ০.০৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [ended, setEnded] = useState(false)
@@ -1217,10 +1338,10 @@ export function DatingLivePage() {
   const [chatDraft, setChatDraft] = useState('')
   const [banMsg, setBanMsg] = useState('')
   const [banCount, setBanCount] = useState(0)
-  // লাইভ গিফট — কয়েন দিয়ে কেনা, লাইভকারীর আয়ে ৭০% / অ্যাডমিন ৩০% ভাগে যোগ হয়
-  const [giftsSent, setGiftsSent] = useState<{ icon: string; name: string; price: number }[]>([])
+  // লাইভ গিফট — Pi দিয়ে কেনা, লাইভকারীর আয়ে ৭০% / অ্যাডমিন ৩০% ভাগে যোগ হয়
+  const [giftsSent, setGiftsSent] = useState<{ icon: string; name: string; pi: number }[]>([])
   const [giftMsg, setGiftMsg] = useState('')
-  const [giftCoinsTotal, setGiftCoinsTotal] = useState(0)
+  const [giftPiTotal, setGiftPiTotal] = useState(0)
   const [shareMsg, setShareMsg] = useState('')
   async function shareLive() {
     const res = await shareLink('CallGuru লাইভ', 'আমি CallGuru লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
@@ -1235,15 +1356,15 @@ export function DatingLivePage() {
   const [serverLive, setServerLive] = useState(false)
   const [liveViewers, setLiveViewers] = useState<number | null>(null)
   const [giftFeed, setGiftFeed] = useState<string[]>([])
-  const giftCreatorTotal = Math.floor(giftCoinsTotal * LIVE_CREATOR_SHARE)
-  const giftAdminTotal = giftCoinsTotal - giftCreatorTotal
+  const giftCreatorTotal = roundPi(giftPiTotal * LIVE_CREATOR_SHARE)
+  const giftAdminTotal = roundPi(giftPiTotal - giftCreatorTotal)
 
-  function sendGift(g: { icon: string; name: string; price: number }) {
-    if (coins < g.price) { setGiftMsg('কয়েন যথেষ্ট নয় — কয়েন কিনুন'); return }
-    addCoins(-g.price)
-    addGiftsSent(g.price)
+  function sendGift(g: { icon: string; name: string; pi: number }) {
+    if (piBalance < g.pi) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
+    addPi(-g.pi)
+    addGiftsSent(g.pi)
     setGiftsSent(prev => [...prev, g])
-    setGiftCoinsTotal(t => t + g.price)
+    setGiftPiTotal(t => roundPi(t + g.pi))
     setGiftMsg(`🎁 আপনি ${g.icon} ${g.name} পাঠিয়েছেন!`)
     // আসল লাইভে হোস্টকেও গিফটটা জানানো হয়; সার্ভার না থাকলে শুধু লোকালি দেখাবে
     if (realRoom) sendSignal(wsRef.current, { type: 'gift', roomId: realRoom.id, name: user?.name || 'আপনি', gift: g })
@@ -1251,11 +1372,11 @@ export function DatingLivePage() {
 
   const billedMinutes = Math.ceil(seconds / 60)
   const totalPaid = billedMinutes * rate
-  const creatorShare = Math.floor(totalPaid * LIVE_CREATOR_SHARE)
-  const adminShare = totalPaid - creatorShare
-  const talkableMinutes = Math.floor(balance / rate)
+  const creatorShare = roundPi(totalPaid * LIVE_CREATOR_SHARE)
+  const adminShare = roundPi(totalPaid - creatorShare)
+  const talkableMinutes = Math.floor(piBalance / rate)
   const maxSeconds = talkableMinutes * 60
-  const canStart = balance >= rate
+  const canStart = piBalance >= rate
 
   useEffect(() => {
     if (!started || ended) return
@@ -1316,8 +1437,8 @@ export function DatingLivePage() {
   function endLive(reason: string) {
     if (ended) return
     setEnded(true); setEndReason(reason || 'লাইভ দেখা শেষ')
-    const cost = Math.ceil(seconds / 60) * rate
-    if (cost > 0) deduct(cost)
+    const cost = roundPi(Math.ceil(seconds / 60) * rate)
+    if (cost > 0) addPi(-cost)
   }
 
   function sendChat() {
@@ -1356,9 +1477,9 @@ export function DatingLivePage() {
   }
 
   if (ended) {
-    const cost = Math.ceil(seconds / 60) * rate
-    const creator = Math.floor(cost * LIVE_CREATOR_SHARE)
-    const admin = cost - creator
+    const cost = roundPi(Math.ceil(seconds / 60) * rate)
+    const creator = roundPi(cost * LIVE_CREATOR_SHARE)
+    const admin = roundPi(cost - creator)
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
@@ -1366,19 +1487,19 @@ export function DatingLivePage() {
           <p className="mt-2">{host.name} • {fmtLive(seconds)}</p>
           <div className="mt-3 space-y-1 text-sm text-left">
             <p>দেখেছেন: <b>{billedMinutes} মিনিট</b></p>
-            <p>মোট দিয়েছেন: <b>{formatBDT(cost)}</b></p>
-            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creator)}</b></p>
-            <p>অ্যাডমিন পাবেন (৩০%): <b>{formatBDT(admin)}</b></p>
-            {giftCoinsTotal > 0 && <>
-              <p>গিফট পাঠিয়েছেন: <b>{giftsSent.length}টি • {giftCoinsTotal} কয়েন</b></p>
-              <p>গিফট থেকে লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(giftCreatorTotal)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(giftAdminTotal)}</b></p>
+            <p>মোট দিয়েছেন: <b>{formatPi(cost)}</b></p>
+            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatPi(creator)}</b></p>
+            <p>অ্যাডমিন পাবেন (৩০%): <b>{formatPi(admin)}</b></p>
+            {giftPiTotal > 0 && <>
+              <p>গিফট পাঠিয়েছেন: <b>{giftsSent.length}টি • {formatPi(giftPiTotal)}</b></p>
+              <p>গিফট থেকে লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatPi(giftCreatorTotal)}</b> • অ্যাডমিন (৩০%): <b>{formatPi(giftAdminTotal)}</b></p>
             </>}
-            <p>বর্তমান ব্যালেন্স: <b>{formatBDT(balance - cost < 0 ? 0 : balance - cost)}</b></p>
+            <p>বর্তমান Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
           </div>
           <p className="text-sm text-gray-300 mt-2">{endReason}</p>
           <div className="flex gap-2 mt-5 justify-center flex-wrap">
             <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>π Pi কিনুন</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={shareLive}>📤 শেয়ার করুন</Btn>
           </div>
           {shareMsg && <p className="text-sm text-green-400 mt-2">{shareMsg}</p>}
@@ -1396,17 +1517,17 @@ export function DatingLivePage() {
           <p className="text-sm text-gray-300">{realRoom ? `👁️ ${liveViewers ?? realRoom.viewers} জন দেখছেন • আসল লাইভ` : `${host.age} • ${host.city} • 👁️ ${seed?.viewers ?? 50} জন দেখছেন`}</p>
           <p className="text-sm mt-2">{host.about}</p>
           <div className="mt-4 space-y-1 text-sm text-left">
-            <p>দেখার রেট: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
+            <p>দেখার রেট: <b>{formatPi(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
             <p>লাইভকারী পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
-            <p>ব্যালেন্স: <b>{formatBDT(balance)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
-            <p>ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
-            <p>আপনার কয়েন: <b>🪙 {coins}</b> — লাইভে গিফট পাঠাতে CallGuru কয়েন লাগবে।</p>
+            <p>Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
+            <p>Pi ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
+            <p>আপনার Pi: <b>π {formatPi(piBalance)}</b> — লাইভে গিফট পাঠাতে Pi লাগবে।</p>
           </div>
           <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। {realRoom ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।'}</p>
-          {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে টপ-আপ করুন।</p>}
+          {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ Pi ব্যালেন্স ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে Pi কিনুন।</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ লাইভ দেখা শুরু করুন</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>π Pi কিনুন</Btn>
           </div>
           <button className="text-sm text-gray-300 mt-3" onClick={() => navigate('/dating')}>← ডেটিংয়ে ফিরুন</button>
         </Card>
@@ -1419,7 +1540,7 @@ export function DatingLivePage() {
       {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
-        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatBDT(totalPaid)}</span>
+        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatPi(totalPaid)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
         <div className="text-center px-4 w-full max-w-lg">
@@ -1429,8 +1550,8 @@ export function DatingLivePage() {
           <p className="text-xl font-bold mt-3">{host.name} লাইভে</p>
           <p className="text-gray-300 text-sm">👁️ {realRoom ? (liveViewers ?? realRoom.viewers) : (seed?.viewers ?? 50)} জন দেখছেন • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1">
-            <p>আপনি দিয়েছেন: <b>{formatBDT(totalPaid)}</b> ({billedMinutes} মিনিট)</p>
-            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creatorShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare)}</b></p>
+            <p>আপনি দিয়েছেন: <b>{formatPi(totalPaid)}</b> ({billedMinutes} মিনিট)</p>
+            <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatPi(creatorShare)}</b> • অ্যাডমিন (৩০%): <b>{formatPi(adminShare)}</b></p>
           </div>
           {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
           <p className="text-xs text-gray-400 mt-2">{serverLive ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — হোস্টের আসল ভিডিও স্ট্রিম এখানে দেখানো হচ্ছে না।'}</p>
@@ -1449,21 +1570,21 @@ export function DatingLivePage() {
         <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold">🎁 গিফট পাঠান</p>
-            <span className="text-xs">🪙 আপনার কয়েন: <b>{coins}</b></span>
+            <span className="text-xs">π আপনার Pi: <b>{formatPi(piBalance)}</b></span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1">গিফট শুধু CallGuru কয়েন দিয়েই কিনতে হয় (১ কয়েন = ৳১) — বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই। গিফটের ৭০% লাইভকারী পাবেন, ৩০% অ্যাডমিন পাবে।</p>
+          <p className="text-[11px] text-gray-400 mt-1">গিফট শুধু Pi দিয়েই কিনতে হয় — বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই। গিফটের ৭০% লাইভকারী পাবেন, ৩০% অ্যাডমিন পাবে।</p>
           <div className="grid grid-cols-4 gap-2 mt-2">
             {LIVE_GIFTS.map(g => (
               <button key={g.name} onClick={() => sendGift(g)} className="bg-slate-700 hover:bg-slate-600 rounded-lg py-2 px-1 text-center">
                 <span className="text-2xl block">{g.icon}</span>
                 <span className="text-xs block">{g.name}</span>
-                <span className="text-[11px] text-yellow-300 font-bold">{g.price} কয়েন</span>
+                <span className="text-[11px] text-yellow-300 font-bold">{formatPi(g.pi)}</span>
               </button>
             ))}
           </div>
           {giftMsg && <p className="text-xs text-yellow-200 text-center mt-2">{giftMsg}</p>}
-          {giftMsg === 'কয়েন যথেষ্ট নয় — কয়েন কিনুন' && <div className="text-center mt-1"><Btn variant="green" onClick={() => navigate('/wallet')}>🪙 কয়েন কিনুন</Btn></div>}
-          {giftsSent.length > 0 && <p className="text-xs text-gray-300 text-center mt-2">পাঠানো গিফট: {giftsSent.map(g => g.icon).join(' ')} • লাইভকারী গিফট থেকে পেয়েছেন {formatBDT(giftCreatorTotal)} (৭০%)</p>}
+          {giftMsg === 'Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন' && <div className="text-center mt-1"><Btn variant="green" onClick={() => navigate('/wallet')}>π Pi কিনুন</Btn></div>}
+          {giftsSent.length > 0 && <p className="text-xs text-gray-300 text-center mt-2">পাঠানো গিফট: {giftsSent.map(g => g.icon).join(' ')} • লাইভকারী গিফট থেকে পেয়েছেন {formatPi(giftCreatorTotal)} (৭০%)</p>}
         </div>
         <div className="flex justify-center pb-2">
           <button onClick={() => endLive('আপনি লাইভ দেখা শেষ করেছেন')} className="px-6 h-14 rounded-full bg-red-600 text-lg font-bold" title="লাইভ ছাড়ুন">❌ লাইভ ছাড়ুন</button>
@@ -1478,7 +1599,7 @@ export function DatingLivePage() {
 export function DatingGoLivePage() {
   const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified, recordShare } = useStore()
   const navigate = useNavigate()
-  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
+  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট π ০.০৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [viewers, setViewers] = useState(14)
@@ -1507,15 +1628,15 @@ export function DatingGoLivePage() {
   const roomIdRef = useRef<string | null>(null)
   const [roomId, setRoomId] = useState<string | null>(null)
   const [serverLive, setServerLive] = useState(false)
-  const [giftCoinsReceived, setGiftCoinsReceived] = useState(0)
+  const [giftPiReceived, setGiftPiReceived] = useState(0)
   const [giftFeed, setGiftFeed] = useState<string[]>([])
   const [hostChat, setHostChat] = useState<{ from: string; text: string }[]>([])
 
   const billedMinutes = Math.ceil(seconds / 60)
   const gross = billedMinutes * rate
-  const myShare = Math.floor(gross * LIVE_CREATOR_SHARE)
-  const adminShare = gross - myShare
-  const giftMyShare = Math.floor(giftCoinsReceived * LIVE_CREATOR_SHARE)
+  const myShare = roundPi(gross * LIVE_CREATOR_SHARE)
+  const adminShare = roundPi(gross - myShare)
+  const giftMyShare = roundPi(giftPiReceived * LIVE_CREATOR_SHARE)
 
   function teardownHostLive() {
     pcsRef.current.forEach(pc => { try { pc.close() } catch { /* ignore */ } })
@@ -1552,7 +1673,7 @@ export function DatingGoLivePage() {
       onIce: (from, candidate) => { pcsRef.current.get(from)?.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}) },
       onViewerCount: (n) => { setViewers(n); setPeakViewers(p => Math.max(p, n)) },
       onGift: (from, gift) => {
-        setGiftCoinsReceived(c => c + gift.price)
+        setGiftPiReceived(c => roundPi(c + gift.pi))
         setGiftFeed(f => [...f.slice(-4), `${from} পাঠিয়েছেন ${gift.icon} ${gift.name}`])
       },
       onChat: (from, text) => { setHostChat(c => [...c.slice(-19), { from, text }]) },
@@ -1633,9 +1754,9 @@ export function DatingGoLivePage() {
   function endGoLive() {
     if (ended) return
     const grossFinal = Math.ceil(seconds / 60) * rate
-    const myFinal = Math.floor(grossFinal * LIVE_CREATOR_SHARE) + Math.floor(giftCoinsReceived * LIVE_CREATOR_SHARE)
+    const myFinal = roundPi(grossFinal * LIVE_CREATOR_SHARE) + roundPi(giftPiReceived * LIVE_CREATOR_SHARE)
     if (myFinal > 0) addLiveEarnings(myFinal)
-    setEndGross(grossFinal + giftCoinsReceived); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
+    setEndGross(grossFinal + giftPiReceived); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
     setEnded(true)
     teardownHostLive()
   }
@@ -1653,10 +1774,10 @@ export function DatingGoLivePage() {
           <h1 className="text-xl font-bold">আপনার লাইভ শেষ হয়েছে</h1>
           <p className="mt-2">{fmtLive(endSeconds)} • সর্বোচ্চ {endPeak} জন দর্শক</p>
           <div className="mt-3 space-y-1 text-sm text-left">
-            <p>মোট আয় (দর্শকরা দিয়েছেন): <b>{formatBDT(endGross)}</b></p>
-            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(endMyShare)}</b></p>
-            <p>অ্যাডমিনের শেয়ার (৩০%): <b>{formatBDT(adminFinal)}</b></p>
-            <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatBDT(liveEarnings)}</b></p>
+            <p>মোট আয় (দর্শকরা দিয়েছেন): <b>{formatPi(endGross)}</b></p>
+            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatPi(endMyShare)}</b></p>
+            <p>অ্যাডমিনের শেয়ার (৩০%): <b>{formatPi(adminFinal)}</b></p>
+            <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatPi(liveEarnings)}</b></p>
           </div>
           <div className="flex gap-2 mt-5 justify-center flex-wrap">
             <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
@@ -1677,10 +1798,10 @@ export function DatingGoLivePage() {
           <h1 className="text-xl font-bold mt-3">নিজে লাইভে যান</h1>
           <p className="text-sm text-gray-300 mt-1">{user?.name || 'আপনি'} • ডেটিং লাইভ (১৮+)</p>
           <div className="mt-4 space-y-1 text-sm text-left">
-            <p>দর্শক দেবে: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড)</p>
+            <p>দর্শক দেবে: <b>{formatPi(rate)}/মিনিট</b> (প্রিপেইড)</p>
             <p>আপনি পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
-            <p>দর্শকরা আপনাকে কয়েন দিয়ে গিফটও পাঠাতে পারবে (গিফটেরও ৭০% আপনার)।</p>
-            <p>আপনার মোট লাইভ আয় এ পর্যন্ত: <b className="text-green-400">{formatBDT(liveEarnings)}</b></p>
+            <p>দর্শকরা আপনাকে Pi দিয়ে গিফটও পাঠাতে পারবে (গিফটেরও ৭০% আপনার)।</p>
+            <p>আপনার মোট লাইভ আয় এ পর্যন্ত: <b className="text-green-400">{formatPi(liveEarnings)}</b></p>
           </div>
           <div className="mt-4 text-left">
             <p className="text-sm text-gray-300 mb-2">📷 কোন ক্যামেরা দিয়ে শুরু করবেন?</p>
@@ -1713,8 +1834,8 @@ export function DatingGoLivePage() {
           <p className="text-xl font-bold mt-3">{user?.name || 'আপনি'} লাইভে</p>
           <p className="text-gray-200 text-sm">👁️ {viewers} জন দেখছেন • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1 bg-black/50 rounded-xl px-4 py-2">
-            <p>মোট আয়: <b>{formatBDT(gross + giftCoinsReceived)}</b> ({billedMinutes} মিনিট{giftCoinsReceived > 0 ? ` + ${giftCoinsReceived} কয়েন গিফট` : ''})</p>
-            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(myShare + giftMyShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare + (giftCoinsReceived - giftMyShare))}</b></p>
+            <p>মোট আয়: <b>{formatPi(gross + giftPiReceived)}</b> ({billedMinutes} মিনিট{giftPiReceived > 0 ? ` + ${formatPi(giftPiReceived)} গিফট` : ''})</p>
+            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatPi(myShare + giftMyShare)}</b> • অ্যাডমিন (৩০%): <b>{formatPi(adminShare + (giftPiReceived - giftMyShare))}</b></p>
           </div>
           {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
           {hostChat.length > 0 && <div className="text-xs text-left mt-2 bg-black/50 rounded-xl px-3 py-2 max-h-20 overflow-y-auto">{hostChat.map((m, i) => <p key={i}><b>{m.from}:</b> {m.text}</p>)}</div>}
@@ -1859,7 +1980,7 @@ export function AdsPage() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp } = useStore()
   const [tab, setTab] = useState('revenue')
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
@@ -1877,20 +1998,42 @@ export function AdminPage() {
   const [datingRateMsg, setDatingRateMsg] = useState('')
   const [datingRateErr, setDatingRateErr] = useState('')
   function saveDatingRate() {
-    const n = Math.floor(Number(datingRateInput))
-    if (!Number.isFinite(n) || n < 1) { setDatingRateErr('রেট কমপক্ষে ৳১/মিনিট হতে হবে (শুধু পূর্ণ টাকা)।'); setDatingRateMsg(''); return }
+    const n = Math.round(Number(datingRateInput) * 100) / 100
+    if (!Number.isFinite(n) || n < 0.01) { setDatingRateErr('রেট কমপক্ষে π ০.০১/মিনিট হতে হবে।'); setDatingRateMsg(''); return }
     setDatingRate(n); setDatingRateErr('')
-    setDatingRateMsg(`✅ ডেটিং কল রেট ${formatBDT(n)}/মিনিট সংরক্ষিত হয়েছে।`)
+    setDatingRateMsg(`✅ ডেটিং কল রেট ${formatPi(n)}/মিনিট সংরক্ষিত হয়েছে।`)
   }
-  // ডেটিং লাইভ রেট — কলের রেট থেকে সম্পূর্ণ আলাদা; লাইভে টাকা কম কাটবে (ডিফল্ট ৳৫/মিনিট)
+  // ডেটিং লাইভ রেট — কলের রেট থেকে সম্পূর্ণ আলাদা; লাইভে Pi কম কাটবে (ডিফল্ট π ০.০৫/মিনিট)
   const [liveRateInput, setLiveRateInput] = useState(String(liveRate))
   const [liveRateMsg, setLiveRateMsg] = useState('')
   const [liveRateErr, setLiveRateErr] = useState('')
   function saveLiveRate() {
-    const n = Math.floor(Number(liveRateInput))
-    if (!Number.isFinite(n) || n < 1) { setLiveRateErr('রেট কমপক্ষে ৳১/মিনিট হতে হবে (শুধু পূর্ণ টাকা)।'); setLiveRateMsg(''); return }
+    const n = Math.round(Number(liveRateInput) * 100) / 100
+    if (!Number.isFinite(n) || n < 0.01) { setLiveRateErr('রেট কমপক্ষে π ০.০১/মিনিট হতে হবে।'); setLiveRateMsg(''); return }
     setLiveRate(n); setLiveRateErr('')
-    setLiveRateMsg(`✅ ডেটিং লাইভ রেট ${formatBDT(n)}/মিনিট সংরক্ষিত হয়েছে।`)
+    setLiveRateMsg(`✅ ডেটিং লাইভ রেট ${formatPi(n)}/মিনিট সংরক্ষিত হয়েছে।`)
+  }
+  // π Pi দর + USDT দর + তোলার ফি — অ্যাডমিন নির্ধারিত (ওয়ালেটে সাথে সাথে বদলায়)
+  const [piRateInput, setPiRateInput] = useState('')
+  const [piRateMsg, setPiRateMsg] = useState('')
+  const [usdtRateInput, setUsdtRateInput] = useState('')
+  const [usdtRateMsg, setUsdtRateMsg] = useState('')
+  const [feeInput, setFeeInput] = useState('')
+  const [feeMsg, setFeeMsg] = useState('')
+  function savePiRate() {
+    const v = Math.round(Number(piRateInput) * 100) / 100
+    if (!Number.isFinite(v) || v < 1) { setPiRateMsg('দর কমপক্ষে ৳১/Pi হতে হবে।'); return }
+    setPiRateBDT(v); setPiRateMsg(`✅ Pi দর সেভ হয়েছে: ১ Pi = ${formatBDT(v)}।`)
+  }
+  function saveUsdtRate() {
+    const v = Math.round(Number(usdtRateInput) * 100) / 100
+    if (!Number.isFinite(v) || v < 1) { setUsdtRateMsg('দর কমপক্ষে ৳১/USDT হতে হবে।'); return }
+    setUsdtRateBDT(v); setUsdtRateMsg(`✅ USDT দর সেভ হয়েছে: ১ USDT = ${formatBDT(v)}।`)
+  }
+  function saveFee() {
+    const v = Math.round(Number(feeInput) * 10) / 10
+    if (!Number.isFinite(v) || v < 0 || v > 10) { setFeeMsg('ফি ০–১০% এর মধ্যে হতে হবে।'); return }
+    setPiWithdrawFeePct(v); setFeeMsg(`✅ তোলার ফি সেভ হয়েছে: ${v}%।`)
   }
   const [tvName, setTvName] = useState('')
   const [tvUrl, setTvUrl] = useState('')
@@ -1907,24 +2050,65 @@ export function AdminPage() {
         <p className="mt-3 text-sm">মোট: <b>{formatBDT(price * mins)}</b> • প্ল্যাটফর্ম ({rate}%): <b>{formatBDT(price * mins * rate / 100)}</b> • এক্সপার্ট পাবেন: <b>{formatBDT(price * mins * (100 - rate) / 100)}</b></p>
         <p className="text-xs text-gray-400 mt-1">উদাহরণ: ৳১০/মিনিট × ১০ মিনিট = ৳১০০, ২০% কমিশনে প্ল্যাটফর্ম পায় ৳২০, এক্সপার্ট পান ৳৮০।</p>
         <h3 className="font-bold mt-5">ডেটিং কল রেট</h3>
-        <label className="text-sm block mt-2">ডেটিং কল রেট (৳/মিনিট)</label>
+        <label className="text-sm block mt-2">ডেটিং কল রেট (π/মিনিট)</label>
         <div className="flex gap-2 items-center flex-wrap mt-1">
-          <input type="number" min={1} step={1} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={datingRateInput} onChange={e => { setDatingRateInput(e.target.value); setDatingRateMsg(''); setDatingRateErr('') }} />
+          <input type="number" min={0.01} step={0.01} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={datingRateInput} onChange={e => { setDatingRateInput(e.target.value); setDatingRateMsg(''); setDatingRateErr('') }} />
           <Btn onClick={saveDatingRate}>সংরক্ষণ করুন</Btn>
         </div>
-        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatBDT(datingRate)}/মিনিট</b> • সর্বনিম্ন ৳১/মিনিট, শুধু পূর্ণ টাকা। বন্ধুর কলের রেট ৳১০/মিনিট ফ্ল্যাট — এটা বদলাবে না।</p>
+        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatPi(datingRate)}/মিনিট</b> • সর্বনিম্ন π ০.০১/মিনিট। বন্ধুর কলের রেট π ০.১/মিনিট ফ্ল্যাট — এটা বদলাবে না।</p>
         {datingRateMsg && <p className="text-sm text-green-600 mt-2">{datingRateMsg}</p>}
         {datingRateErr && <p className="text-sm text-red-600 mt-2">{datingRateErr}</p>}
         <h3 className="font-bold mt-5">ডেটিং লাইভ রেট</h3>
-        <p className="text-xs text-gray-500">লাইভ দেখার রেট কলের রেট থেকে আলাদা — লাইভে টাকা কম কাটবে। লাইভের ভাগ: লাইভকারী ৭০%, অ্যাডমিন ৩০% (অপরিবর্তিত)।</p>
-        <label className="text-sm block mt-2">ডেটিং লাইভ রেট (৳/মিনিট)</label>
+        <p className="text-xs text-gray-500">লাইভ দেখার রেট কলের রেট থেকে আলাদা — লাইভে Pi কম কাটবে। লাইভের ভাগ: লাইভকারী ৭০%, অ্যাডমিন ৩০% (অপরিবর্তিত)।</p>
+        <label className="text-sm block mt-2">ডেটিং লাইভ রেট (π/মিনিট)</label>
         <div className="flex gap-2 items-center flex-wrap mt-1">
-          <input type="number" min={1} step={1} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={liveRateInput} onChange={e => { setLiveRateInput(e.target.value); setLiveRateMsg(''); setLiveRateErr('') }} />
+          <input type="number" min={0.01} step={0.01} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={liveRateInput} onChange={e => { setLiveRateInput(e.target.value); setLiveRateMsg(''); setLiveRateErr('') }} />
           <Btn onClick={saveLiveRate}>সংরক্ষণ করুন</Btn>
         </div>
-        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatBDT(liveRate)}/মিনিট</b> • সর্বনিম্ন ৳১/মিনিট, শুধু পূর্ণ টাকা।</p>
+        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatPi(liveRate)}/মিনিট</b> • সর্বনিম্ন π ০.০১/মিনিট।</p>
         {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
         {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
+        <h3 className="font-bold mt-5">π Pi দর (অ্যাডমিন নির্ধারিত)</h3>
+        <p className="text-xs text-gray-500">Pi কেনা, জমা/তোলা আর USDT বদলের দর এখান থেকে বদলানো যায় — বদলালেই ওয়ালেটে নতুন দর দেখাবে।</p>
+        <div className="grid sm:grid-cols-3 gap-3 mt-2">
+          <div>
+            <label className="text-sm block">Pi দর (৳/Pi)</label>
+            <input type="number" min={1} step={0.01} className="border rounded-lg px-3 py-2 w-full dark:bg-slate-800 mt-1" value={piRateInput} onChange={e => { setPiRateInput(e.target.value); setPiRateMsg('') }} placeholder={`বর্তমান: ৳${piRateBDT}`} />
+            <Btn className="mt-1" onClick={savePiRate}>সেভ করুন</Btn>
+            {piRateMsg && <p className="text-xs text-green-600 mt-1">{piRateMsg}</p>}
+          </div>
+          <div>
+            <label className="text-sm block">USDT দর (৳/USDT)</label>
+            <input type="number" min={1} step={0.01} className="border rounded-lg px-3 py-2 w-full dark:bg-slate-800 mt-1" value={usdtRateInput} onChange={e => { setUsdtRateInput(e.target.value); setUsdtRateMsg('') }} placeholder={`বর্তমান: ৳${usdtRateBDT}`} />
+            <Btn className="mt-1" onClick={saveUsdtRate}>সেভ করুন</Btn>
+            {usdtRateMsg && <p className="text-xs text-green-600 mt-1">{usdtRateMsg}</p>}
+          </div>
+          <div>
+            <label className="text-sm block">Pi তোলার ফি (%)</label>
+            <input type="number" min={0} max={10} step={0.1} className="border rounded-lg px-3 py-2 w-full dark:bg-slate-800 mt-1" value={feeInput} onChange={e => { setFeeInput(e.target.value); setFeeMsg('') }} placeholder={`বর্তমান: ${piWithdrawFeePct}%`} />
+            <Btn className="mt-1" onClick={saveFee}>সেভ করুন</Btn>
+            {feeMsg && <p className="text-xs text-green-600 mt-1">{feeMsg}</p>}
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">বর্তমান দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)} • তোলার ফি {piWithdrawFeePct}% (সর্বনিম্ন ০.১ π) • সর্বনিম্ন তোলা ১০ USDT = {formatPi(piMinWithdraw)}।</p>
+        <h3 className="font-bold mt-5">টপ-আপ অনুমোদন</h3>
+        <p className="text-xs text-gray-500">ম্যানুয়াল টপ-আপের আবেদন — অনুমোদন দিলে টাকার ব্যালেন্সে যোগ হয় (USDT হলে অ্যাডমিন-নির্ধারিত দরে)।</p>
+        {pendingTopUps.length === 0 && <p className="text-sm text-gray-500 mt-2">কোনো আবেদন নেই।</p>}
+        {pendingTopUps.map(t => (
+          <div key={t.id} className="border rounded-lg p-3 mt-2 flex justify-between gap-2 flex-wrap">
+            <div className="text-sm">
+              <p className="font-bold">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)}</p>
+              <p className="text-gray-500">রেফারেন্স: {t.trxId}</p>
+              <p className="text-gray-500">{t.date} • {t.status === 'pending' ? '⏳ পর্যালোচনাধীন' : t.status === 'approved' ? '✅ অনুমোদিত' : '❌ বাতিল'}</p>
+            </div>
+            {t.status === 'pending' && (
+              <div className="flex gap-2 items-start">
+                <Btn variant="green" onClick={() => approveTopUp(t.id)}>✅ অনুমোদন করুন</Btn>
+                <Btn variant="ghost" onClick={() => rejectTopUp(t.id)}>❌ বাতিল করুন</Btn>
+              </div>
+            )}
+          </div>
+        ))}
       </Card>}
       {tab === 'kyc' && <Card>
         <h2 className="font-bold">🛡️ ডেটিং KYC যাচাই — অ্যাডমিন</h2>
