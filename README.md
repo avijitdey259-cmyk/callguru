@@ -59,7 +59,7 @@ Never commit secrets, tokens or phone numbers to this repo.
 ## Viral growth (all five, built together)
 - **Referral + invite link:** Feed and Wallet have a "বন্ধুকে ডাকুন" card with a personal link `https://callguru-app.netlify.app/?ref=<code>` (copy + native share). A friend arriving via the link gets 10 π welcome bonus once; when that friend makes their first top-up, the inviter earns 20 π (tracked with a pending-referrer record). The existing points/affiliate system is untouched. Demo: referral tracking is per-device (localStorage); real cross-device tracking needs the backend.
 - **Shareable clips:** every reel has a Share button (native share, clipboard fallback) with a per-reel share count; Go Live and live-watch end screens have a "📤 শেয়ার করুন" button. Total shares are tracked in the store and shown on the Reels page.
-- **Daily bonus + streak:** Feed top card. Flat 0.0001 π per day, every day (all 7 days the same, then the cycle restarts). Missing a day resets the streak to Day 1. Claimable once per day.
+- **Daily bonus + streak:** Feed top card. 7-day ladder rising step by step: Day 1: 0.0001, Day 2: 0.00025, Day 3: 0.0004, Day 4: 0.00055, Day 5: 0.0007, Day 6: 0.00085, Day 7: 0.001 π, then the cycle restarts at Day 1. Missing a day resets the streak to Day 1. Claimable once per day.
 - **Live gift leaderboard:** Feed section "🏆 সপ্তাহের লিডারবোর্ড" — top live hosts by gifts and top gift-givers, seeded with clearly-marked demo data, merged with the user's own live earnings / gifts sent on this device. Weekly (current week label).
 - **Free-minute share link:** the invite card advertises "প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ π" for friends arriving via the link; the existing first-call-first-1-minute-free rule is unchanged.
 

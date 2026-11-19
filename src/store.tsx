@@ -15,8 +15,8 @@ export type TopUpRequest = { id: string; method: string; network?: string; amoun
 // Pi জমা/তোলার হিসাব — ডেমো লেনদেন, আসল Pi ব্লকচেইন লেনদেন নয়
 export type PiTx = { id: string; amount: number; ref?: string; address?: string; fee?: number; received?: number; date: string; status: string }
 
-// ভাইরাল গ্রোথ — ডেইলি বোনাস: প্রতিদিন একই ০.০০০১ π (৭ দিনের চক্র, তারপর আবার ১ম দিন থেকে)
-export const DAILY_BONUS_REWARDS = [0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.0001]
+// ভাইরাল গ্রোথ — ডেইলি বোনাস: ৭ দিনে ধাপে ধাপে বাড়ে, ১ম দিন ০.০০০১ π থেকে ৭ম দিন ০.০০১ π, তারপর আবার ১ম দিন থেকে
+export const DAILY_BONUS_REWARDS = [0.0001, 0.00025, 0.0004, 0.00055, 0.0007, 0.00085, 0.001]
 export const REF_WELCOME_PI = 10 // রেফার লিংকে এসে নতুন ব্যবহারকারী পাবেন (π)
 export const REF_INVITER_PI = 20 // রেফার করা বন্ধুর প্রথম টপ-আপে আমন্ত্রণকারী পাবেন (π)
 export const INVITE_BASE_URL = 'https://callguru-app.netlify.app/'
