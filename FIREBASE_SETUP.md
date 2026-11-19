@@ -1,6 +1,8 @@
 # PiCall — আসল Gmail লগইন চালু করা (Firebase Setup)
 
 > সাইটে Gmail ১-ক্লিক লগইন বোতাম তৈরি আছে। Firebase প্রজেক্টের তথ্য না থাকলে বোতাম ডেমো মোডে চলে। নিচের ধাপগুলো করলেই আসল Google লগইন চালু হবে। কোনো টাকা লাগে না — Firebase Spark (ফ্রি) প্ল্যানই যথেষ্ট।
+>
+> **ডিপ্লয়:** সাইটটি এখন GitHub থেকে স্বয়ংক্রিয়ভাবে Firebase Hosting-এ deploy হয় — `main` ব্রাঞ্চে প্রতিটি push-এ (`.github/workflows/firebase-hosting-deploy.yml`)। **Netlify আর ব্যবহার হয় না** (ক্রেডিট শেষ হয়ে ডিপ্লয় বন্ধ হয়ে গিয়েছিল)। লাইভ সাইট: https://picall-76185.web.app
 
 ## ধাপ ১ — Firebase প্রজেক্ট বানান (Step 1 — Create a Firebase project)
 
@@ -16,11 +18,11 @@
    - `apiKey`, `authDomain`, `projectId`, `appId`
    - (যদি থাকে) `storageBucket`, `messagingSenderId`
 
-## ধাপ ৩ — Netlify-তে মানগুলো বসান (Step 3 — Set them as Netlify env vars)
+## ধাপ ৩ — GitHub Secrets-এ মানগুলো বসান (Step 3 — Set them as GitHub secrets)
 
-Netlify ড্যাশবোর্ড → সাইট `callguru-app` → **Site settings → Environment variables** → **Add a variable**:
+GitHub রিপো `avijitdey259-cmyk/callguru` → **Settings → Secrets and variables → Actions → New repository secret** — প্রতিটি নামে একটি করে secret বানান (মান ধাপ ২ থেকে):
 
-| Variable | Value (ধাপ ২ থেকে) |
+| Secret | Value (ধাপ ২ থেকে) |
 |---|---|
 | `VITE_FIREBASE_API_KEY` | `apiKey` |
 | `VITE_FIREBASE_AUTH_DOMAIN` | `authDomain` |
@@ -28,16 +30,19 @@ Netlify ড্যাশবোর্ড → সাইট `callguru-app` → **Sit
 | `VITE_FIREBASE_APP_ID` | `appId` |
 | `VITE_FIREBASE_STORAGE_BUCKET` | `storageBucket` (যদি থাকে) |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | `messagingSenderId` (যদি থাকে) |
+| `WIF_PROVIDER` | Workload Identity Federation provider — `projects/…/locations/global/workloadIdentityPools/github-pool/providers/github-provider` |
+| `WIF_SERVICE_ACCOUNT` | `github-deploy@picall-76185.iam.gserviceaccount.com` (Firebase Hosting Admin) |
 
-তারপর **Deploys → Trigger deploy → Deploy site** চাপুন (env var বদলালে নতুন deploy লাগে)।
+তারপর `main`-এ যেকোনো push-এ GitHub Actions স্বয়ংক্রিয়ভাবে সাইটটি build করে Firebase Hosting-এ deploy করবে (আলাদা করে কিছু চাপতে হয় না)।
 
 ## ধাপ ৪ — যাচাই করুন (Step 4 — Verify)
 
-1. https://callguru-app.netlify.app/login খুলুন — বোতামের নিচে "আসল Gmail লগইন চালু আছে" লেখা থাকবে।
+1. https://picall-76185.web.app/login খুলুন — বোতামের নিচে "আসল Gmail লগইন চালু আছে" লেখা থাকবে।
 2. **Gmail দিয়ে ১-ক্লিক লগইন** চাপুন → Google পপ-আপ আসবে → নিজের Gmail বাছুন → ফিডে ঢুকবেন, আপনার আসল নাম + ইমেইলে।
 
 ## জরুরি কথা (Important)
 
-- এই মানগুলো (বিশেষ করে `apiKey`) কাউকে পাঠাবেন না, চ্যাটে বা কোডে বসাবেন না — শুধু Netlify env var-এ বসান। কোডে কোনো key লেখা নেই।
+- এই মানগুলো (বিশেষ করে `apiKey`) কাউকে পাঠাবেন না, চ্যাটে বা কোডে বসাবেন না — শুধু GitHub Secrets-এ বসান। কোডে কোনো key লেখা নেই।
+- Deploy-এর জন্য কোনো JSON service-account key ব্যবহার হয় না — Workload Identity Federation (OIDC) দিয়ে GitHub Actions সরাসরি Google-এ লগইন করে (keyless), তাই কোনো key ফাইল কোথাও রাখতে হয় না।
 - OTP (SMS) লগইনের জন্য Firebase SMS ব্যবহার করবেন না — বাংলাদেশে প্রতি SMS $0.18 (~৳২২)। OTP-র জন্য লোকাল গেটওয়ে (BulkSMSBD / SSL Wireless, ৳০.২৫–০.৫০/SMS) ব্যবহার হবে, সেটা পরে জোড়া হবে।
 - Firebase Spark ফ্রি: লগইন ৫০,০০০ ইউজার/মাস পর্যন্ত ফ্রি, কার্ড লাগে না।
