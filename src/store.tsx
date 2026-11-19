@@ -25,7 +25,7 @@ export const GIFT_BOX_PI = 1
 export const GIFT_BOX_CONSOLATION = [0.0001, 0.00025, 0.0005, 0.001]
 export const REF_WELCOME_PI = 10 // রেফার লিংকে এসে নতুন ব্যবহারকারী পাবেন (π)
 export const REF_INVITER_PI = 20 // রেফার করা বন্ধুর প্রথম টপ-আপে আমন্ত্রণকারী পাবেন (π)
-export const INVITE_BASE_URL = 'https://callguru-app.netlify.app/'
+export const INVITE_BASE_URL = 'https://picall-76185.web.app/'
 
 function todayStr(): string { return new Date().toLocaleDateString('en-CA') }
 function yesterdayStr(): string { return new Date(Date.now() - 86400000).toLocaleDateString('en-CA') }
