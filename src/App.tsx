@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes, Navigate } from 'react-router-dom'
+import { Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Layout } from './components'
 import { useStore } from './store'
 import {
@@ -8,14 +8,28 @@ import {
   Marketplace, MenuPage, ReelsPage, ServicesPage, WalletPage
 } from './pages'
 
+// অ্যাডমিন নয় এমন ব্যবহারকারী /admin খুললে — কোনো অ্যাডমিন তথ্য (রেট, KYC, টপ-আপ অনুমোদন, ব্যবহারকারী তালিকা) না দেখিয়ে ব্লক করা হয়
+function AdminBlocked() {
+  const navigate = useNavigate()
+  return (
+    <div className="max-w-xl mx-auto py-10 px-4 text-center">
+      <p className="font-bold text-lg">⛔ শুধুমাত্র অ্যাডমিনের জন্য — এই পেজটি শুধু অ্যাডমিন দেখতে পারেন।</p>
+      <button onClick={() => navigate('/feed')} className="mt-4 px-4 py-2 rounded-lg font-medium text-sm bg-fb-blue text-white">ফিডে ফিরুন</button>
+    </div>
+  )
+}
+
 export default function App() {
   // রেফার লিংকে (?ref=কোড) এসে থাকলে ওয়েলকাম বোনাস একবারই মেলে; ফ্রি মিনিটের নিয়ম অপরিবর্তিত থাকে
-  const { claimRefArrival } = useStore()
+  const { claimRefArrival, user, isAdmin } = useStore()
+  const loc = useLocation()
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('ref')
     if (code) claimRefArrival(code)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // লগইন দেওয়াল — লগইন ছাড়া /login বাদে কোনো পেজই দেখা যায় না (ল্যান্ডিং পেজ সহ); লগইন না থাকলে /login-এ পাঠানো হয়
+  if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
   return (
     <Routes>
       <Route element={<Layout />}>
@@ -35,7 +49,7 @@ export default function App() {
         <Route path="/groups" element={<GroupsPage />} />
         <Route path="/reels" element={<ReelsPage />} />
         <Route path="/ads" element={<AdsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin" element={isAdmin ? <AdminPage /> : <AdminBlocked />} />
         <Route path="/menu" element={<MenuPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

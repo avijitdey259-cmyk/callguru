@@ -268,7 +268,7 @@ export function LoginPage() {
         <label className="text-sm font-medium mt-3 block">ইমেইল</label>
         <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
         <Btn className="w-full mt-4" onClick={() => { if (!name || !email.includes('@')) { setMsg('নাম ও সঠিক ইমেইল দিন।'); return } login(name, email); navigate('/feed') }}>ইমেইল দিয়ে লগইন</Btn>
-        <button className="w-full mt-2 text-sm text-fb-blue" onClick={() => setMsg('OTP ডেমো: [credential:b55501d0-4594-489b-ac05-88dff96f5934] ব্যবহার করুন (আসল SMS গেটওয়ের জন্য অ্যাকাউন্ট লাগবে)।')}>OTP দিয়ে লগইন</button>
+        <button className="w-full mt-2 text-sm text-fb-blue" onClick={() => setMsg('OTP ডেমো: [credential:[credential:da5dae17-603a-489e-b327-4d0c0829f7bb]] ব্যবহার করুন (আসল SMS গেটওয়ের জন্য অ্যাকাউন্ট লাগবে)।')}>OTP দিয়ে লগইন</button>
         {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">লগইন করলে আপনি শর্তাবলি ও গোপনীয়তা নীতিতে সম্মত হচ্ছেন। কল রেকর্ডিং শুধু অ্যাডমিন দেখতে পারেন (আপিল/বিরোধের জন্য, ৩০ দিন সংরক্ষণ)।</p>
       </Card>
@@ -2279,7 +2279,7 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, balance, logout } = useStore()
+  const { user, balance, logout, isAdmin } = useStore()
   const navigate = useNavigate()
   const tiles = [
     { to: '/feed', label: 'ফিড', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'মার্কেটপ্লেস', icon: '🛍️', color: '#27AE60' },
@@ -2287,7 +2287,9 @@ export function MenuPage() {
     { to: '/live-tv', label: 'লাইভ টিভি', icon: '📺', color: '#C0392B' }, { to: '/services', label: 'হোম সার্ভিস', icon: '🏠', color: '#16A085' },
     { to: '/reels', label: 'রিলস', icon: '🎬', color: '#E67E22' }, { to: '/wallet', label: 'ওয়ালেট', icon: '💰', color: '#2C3E50' },
     { to: '/call-history', label: 'কল হিস্ট্রি', icon: '📞', color: '#2980B9' }, { to: '/ads', label: 'বিজ্ঞাপন', icon: '📢', color: '#D35400' },
-    { to: '/groups', label: 'গ্রুপ ও পেজ', icon: '👥', color: '#7F8C8D' }, { to: '/admin', label: 'অ্যাডমিন', icon: '🛡️', color: '#34495E' }
+    { to: '/groups', label: 'গ্রুপ ও পেজ', icon: '👥', color: '#7F8C8D' },
+    // অ্যাডমিন টাইল শুধু অ্যাডমিনের মেনুতে দেখায় — সাধারণ ব্যবহারকারীর মেনুতে অ্যাডমিন থাকে না
+    ...(isAdmin ? [{ to: '/admin', label: 'অ্যাডমিন', icon: '🛡️', color: '#34495E' }] : [])
   ]
   return (
     <div className="space-y-4 max-w-2xl mx-auto">

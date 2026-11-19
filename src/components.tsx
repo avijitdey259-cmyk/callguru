@@ -55,13 +55,15 @@ export function BottomNav() {
 }
 
 export function Sidebar() {
-  const { user } = useStore()
+  const { user, isAdmin } = useStore()
   const links = [
     { to: '/feed', label: '📰 ফিড' }, { to: '/friends', label: '👥 বন্ধুরা' },
     { to: '/dating', label: '❤️ ডেটিং ১৮+' }, { to: '/live-tv', label: '📺 লাইভ টিভি' },
     { to: '/services', label: '🏠 হোম সার্ভিস' }, { to: '/groups', label: '👥 গ্রুপ ও পেজ' },
     { to: '/reels', label: '🎬 রিলস' }, { to: '/ads', label: '📢 বিজ্ঞাপন দিন' },
-    { to: '/call-history', label: '📞 কল হিস্ট্রি' }, { to: '/admin', label: '🛡️ অ্যাডমিন' }
+    { to: '/call-history', label: '📞 কল হিস্ট্রি' },
+    // অ্যাডমিন লিংক শুধু অ্যাডমিনের সাইডবারে দেখায় — সাধারণ ব্যবহারকারী কোথাও অ্যাডমিন লিংক দেখেন না
+    ...(isAdmin ? [{ to: '/admin', label: '🛡️ অ্যাডমিন' }] : [])
   ]
   return (
     <aside className="hidden md:block w-60 shrink-0">

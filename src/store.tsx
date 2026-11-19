@@ -26,6 +26,8 @@ export const GIFT_BOX_CONSOLATION = [0.0001, 0.00025, 0.0005, 0.001]
 export const REF_WELCOME_PI = 10 // রেফার লিংকে এসে নতুন ব্যবহারকারী পাবেন (π)
 export const REF_INVITER_PI = 20 // রেফার করা বন্ধুর প্রথম টপ-আপে আমন্ত্রণকারী পাবেন (π)
 export const INVITE_BASE_URL = 'https://picallbd.web.app/'
+// অ্যাপের একমাত্র অ্যাডমিন/মালিক — শুধু এই ইমেইলের ব্যবহারকারীই অ্যাডমিন প্যানেল দেখতে পান
+export const ADMIN_EMAIL = 'avijitdey259@gmail.com'
 
 function todayStr(): string { return new Date().toLocaleDateString('en-CA') }
 function yesterdayStr(): string { return new Date(Date.now() - 86400000).toLocaleDateString('en-CA') }
@@ -33,6 +35,8 @@ function randomCode(): string { return 'cg-' + Math.random().toString(36).slice(
 
 type Store = {
   user: { name: string; email: string } | null
+  // লগইন করা ব্যবহারকারী অ্যাডমিন কি না (ইমেইল অ্যাডমিনের ইমেইলের সঙ্গে মিললে তবেই true)
+  isAdmin: boolean
   login: (name: string, email: string) => void
   logout: () => void
   balance: number
@@ -284,6 +288,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: Store = useMemo(() => ({
     user,
+    isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
     login: (name, email) => setUser({ name, email }),
     logout: () => setUser(null),
     balance,
