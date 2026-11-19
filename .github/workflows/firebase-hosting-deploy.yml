@@ -48,9 +48,9 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
+      # NOTE: FirebaseExtended/action-hosting-deploy requires a
+      # firebaseServiceAccount JSON input, which we deliberately do not
+      # have (keyless WIF setup). firebase-tools instead uses the
+      # Application Default Credentials written by google-github-actions/auth.
       - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          channelId: live
-          projectId: picall-76185
+        run: npx -y firebase-tools deploy --only hosting --project picall-76185
