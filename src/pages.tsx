@@ -245,7 +245,7 @@ export function CreateService() {
 // ---------- Call (WhatsApp-style, prepaid) ----------
 export function CallPage() {
   const { type, id } = useParams()
-  const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate } = useStore()
+  const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -361,6 +361,11 @@ export function CallPage() {
     if (err) { setBanMsg(err + ` (চেষ্টা ${banCount + 1} — অ্যাডমিন লগে সংরক্ষিত)`); setBanCount(c => c + 1); return }
     if (!chatDraft.trim()) return
     setChat(c => [...c, { from: user?.name || 'আপনি', text: chatDraft }]); setChatDraft(''); setBanMsg('')
+  }
+
+  // KYC ছাড়া ডেটিং কল শুরু করা যাবে না — কল শুরু হলে টাকাও কাটবে না
+  if (isDating && !kycVerified) {
+    return <DatingKycBlocked />
   }
 
   if (ended) {
@@ -627,11 +632,170 @@ export function ChatPage() {
   )
 }
 
+// ---------- ডেটিং KYC (একবারই) ----------
+// KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না। সম্পন্ন হলে আর কখনো চাওয়া হয় না।
+// ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে।
+function ageFromDob(dobStr: string): number | null {
+  if (!dobStr) return null
+  const d = new Date(dobStr)
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - d.getFullYear()
+  const m = now.getMonth() - d.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--
+  return age
+}
+
+function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () => void }) {
+  const { completeKyc } = useStore()
+  const [step, setStep] = useState<1 | 2 | 'done'>(1)
+  const [name, setName] = useState('')
+  const [dob, setDob] = useState('')
+  const [idType, setIdType] = useState('')
+  const [idNumber, setIdNumber] = useState('')
+  const [err, setErr] = useState('')
+  const [captured, setCaptured] = useState<string | null>(null)
+  const [camError, setCamError] = useState('')
+  const [camKey, setCamKey] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function startCamera() {
+    setCamError('')
+    navigator.mediaDevices?.getUserMedia?.({ video: { facingMode: 'user' }, audio: false }).then(s => {
+      streamRef.current = s
+      if (videoRef.current) videoRef.current.srcObject = s
+    }).catch(() => setCamError('ক্যামেরা চালু করা যায়নি — নিচে ছবি আপলোড করে সেলফি দিন।'))
+  }
+  useEffect(() => {
+    if (step !== 2 || captured) return
+    startCamera()
+    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, camKey])
+
+  function captureSelfie() {
+    const v = videoRef.current
+    if (!v || !v.videoWidth) { setCamError('ক্যামেরা থেকে ছবি নেওয়া যায়নি — আবার চেষ্টা করুন বা ছবি আপলোড করুন।'); return }
+    const c = document.createElement('canvas')
+    c.width = v.videoWidth; c.height = v.videoHeight
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(v, 0, 0)
+    setCaptured(c.toDataURL('image/jpeg', 0.8))
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => setCaptured(String(r.result))
+    r.readAsDataURL(f)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }
+  function submitIdentity() {
+    const age = ageFromDob(dob)
+    if (!name.trim() || !dob || !idType || !idNumber.trim()) { setErr('সব ঘর পূরণ করুন।'); return }
+    if (age === null) { setErr('জন্ম তারিখ সঠিকভাবে দিন।'); return }
+    if (age < 18) { setErr('ডেটিংয়ের জন্য বয়স কমপক্ষে ১৮ বছর হতে হবে।'); return }
+    if (idNumber.trim().length < 4) { setErr('সঠিক আইডি নম্বর দিন।'); return }
+    setErr('')
+    setStep(2)
+  }
+  function submitKyc() {
+    if (!captured) return
+    // পুরো আইডি নম্বর কখনো সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা
+    completeKyc({ name: name.trim(), dob, idType, idLast4: idNumber.trim().slice(-4) })
+    setStep('done')
+    onComplete()
+  }
+
+  if (step === 'done') {
+    return (
+      <div className="max-w-md mx-auto"><Card className="text-center">
+        <h1 className="text-xl font-bold">✅ KYC সম্পন্ন হয়েছে</h1>
+        <p className="text-sm text-gray-500 mt-2">{name} • যাচাইয়ের তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
+        <p className="text-sm text-green-600 mt-2 font-medium">আর কখনো KYC করতে হবে না — একবারই যথেষ্ট।</p>
+        <Btn className="mt-4 w-full" onClick={onEnter}>❤️ ডেটিংয়ে যান</Btn>
+      </Card></div>
+    )
+  }
+
+  return (
+    <div className="max-w-md mx-auto"><Card>
+      <h1 className="text-xl font-bold text-center">🛡️ ডেটিং KYC — একবারই করতে হবে</h1>
+      <p className="text-sm text-gray-500 mt-2 text-center">ডেটিংয়ের কিছু দেখতে হলে প্রথমে লাইভ KYC করতে হবে। KYC ছাড়া ডেটিংয়ের প্রোফাইল, লাইভ বা কল — কিছুই দেখা যাবে না।</p>
+      <div className="flex gap-2 mt-4 justify-center text-sm">
+        <span className={`px-3 py-1 rounded-full font-bold ${step === 1 ? 'bg-fb-blue text-white' : 'bg-gray-200 dark:bg-slate-700'}`}>১. পরিচয়</span>
+        <span className={`px-3 py-1 rounded-full font-bold ${step === 2 ? 'bg-fb-blue text-white' : 'bg-gray-200 dark:bg-slate-700'}`}>২. লাইভ সেলফি</span>
+      </div>
+      {step === 1 && (
+        <div className="mt-4">
+          <label className="text-sm font-medium">পুরো নাম</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={name} onChange={e => setName(e.target.value)} placeholder="আপনার পুরো নাম" />
+          <label className="text-sm font-medium mt-3 block">জন্ম তারিখ</label>
+          <input type="date" max={new Date().toISOString().slice(0, 10)} className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={dob} onChange={e => setDob(e.target.value)} />
+          {dob && ageFromDob(dob) !== null && <p className="text-xs text-gray-400 mt-1">বয়স: {ageFromDob(dob)} বছর</p>}
+          <label className="text-sm font-medium mt-3 block">আইডির ধরন</label>
+          <select className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idType} onChange={e => setIdType(e.target.value)}>
+            <option value="">— বেছে নিন —</option>
+            <option value="NID">জাতীয় পরিচয়পত্র (NID)</option>
+            <option value="পাসপোর্ট">পাসপোর্ট</option>
+            <option value="জন্ম নিবন্ধন">জন্ম নিবন্ধন</option>
+          </select>
+          <label className="text-sm font-medium mt-3 block">আইডি নম্বর</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder="আইডি নম্বর লিখুন" />
+          <p className="text-xs text-gray-400 mt-1">🔒 পুরো আইডি নম্বর সংরক্ষণ করা হয় না — শুধু শেষ ৪ সংখ্যা রাখা হয়।</p>
+          {err && <p className="text-sm text-red-500 mt-2">{err}</p>}
+          <Btn className="w-full mt-4" onClick={submitIdentity}>পরের ধাপ →</Btn>
+          <p className="text-xs text-gray-400 mt-3 text-center">ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে।</p>
+        </div>
+      )}
+      {step === 2 && (
+        <div className="mt-4 text-center">
+          <p className="text-sm font-medium">📸 লাইভ সেলফি তুলুন</p>
+          <p className="text-xs text-gray-400 mt-1">সামনের ক্যামেরায় আপনার লাইভ ছবি তুলুন। সেলফিটি শুধু এই স্ক্রিনেই যাচাই করা হবে — কোথাও সংরক্ষণ বা আপলোড করা হবে না।</p>
+          {!captured && <video ref={videoRef} className="w-full aspect-[3/4] bg-black rounded-xl mt-3 object-cover" autoPlay playsInline muted />}
+          {captured && <img src={captured} alt="লাইভ সেলফি" className="w-full aspect-[3/4] object-cover rounded-xl mt-3" />}
+          {camError && <p className="text-sm text-red-500 mt-2">{camError}</p>}
+          <div className="flex gap-2 mt-3">
+            {!captured && <Btn variant="green" className="flex-1" onClick={captureSelfie}>📸 ছবি তুলুন</Btn>}
+            {captured && <Btn variant="ghost" className="flex-1" onClick={() => { setCaptured(null); setCamKey(k => k + 1) }}>🔄 আবার তুলুন</Btn>}
+            <Btn variant="ghost" onClick={() => fileRef.current?.click()}>📁 ছবি আপলোড</Btn>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={onFile} />
+          <p className="text-xs text-gray-400 mt-2">ক্যামেরা না থাকলে ছবি আপলোড করেও সেলফি দেওয়া যাবে (লাইভ ক্যামেরাই ভালো)।</p>
+          <Btn className="w-full mt-4" disabled={!captured} onClick={submitKyc}>✅ KYC সম্পন্ন করুন</Btn>
+          <button className="text-sm text-gray-400 mt-3" onClick={() => setStep(1)}>← আগের ধাপে ফিরুন</button>
+        </div>
+      )}
+    </Card></div>
+  )
+}
+
+// KYC না থাকলে ডেটিংয়ের ভেতরের রুটগুলোতে (সরাসরি লিংকেও) এই স্ক্রিন দেখাবে
+function DatingKycBlocked() {
+  const navigate = useNavigate()
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+      <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+        <h1 className="text-xl font-bold">🔒 KYC ছাড়া ডেটিং ব্যবহার করা যাবে না</h1>
+        <p className="text-sm text-gray-300 mt-2">ডেটিংয়ের জন্য প্রথমে একবার KYC (লাইভ পরিচয় যাচাই) করতে হবে। KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না।</p>
+        <Btn className="mt-4" onClick={() => navigate('/dating')}>KYC করুন</Btn>
+      </Card>
+    </div>
+  )
+}
+
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveRate, liveEarnings } = useStore()
+  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
   const navigate = useNavigate()
-  const [adult, setAdult] = useState(false)
+  // KYC একবার সম্পন্ন হলে আর দেখানো হয় না; সফলতার স্ক্রিনটি দেখানোর জন্য স্থানীয় অবস্থা
+  const [kycSuccess, setKycSuccess] = useState(false)
   const [matched, setMatched] = useState<string | null>(null)
   const [matchedId, setMatchedId] = useState<string | null>(null)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({})
@@ -643,15 +807,9 @@ export function DatingPage() {
     fetchLiveRooms().then(r => { if (r) { setRealRooms(r); setLiveServerOk(true) } else { setLiveServerOk(false) } })
   }
   useEffect(() => { refreshLiveRooms() }, [])
-  if (!adult) {
-    return (
-      <div className="max-w-md mx-auto"><Card className="text-center">
-        <h1 className="text-xl font-bold">❤️ ডেটিং — শুধু ১৮+ দের জন্য</h1>
-        <p className="text-sm text-gray-500 mt-2">ভেরিফায়েড প্রোফাইল, ম্যাচ → চ্যাট/ভিডিও কল, রিপোর্ট/ব্লক সুবিধা। অশ্লীল কনটেন্ট কঠোরভাবে নিষিদ্ধ।</p>
-        <label className="flex items-center gap-2 justify-center mt-4 text-sm"><input type="checkbox" checked={adult} onChange={e => setAdult(e.target.checked)} /> আমি নিশ্চিত করছি আমার বয়স ১৮ বছর বা তার বেশি।</label>
-        <Btn className="mt-4" disabled={!adult} onClick={() => setAdult(true)}>ডেটিং শুরু করুন</Btn>
-      </Card></div>
-    )
+  // KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না — প্রোফাইল, লাইভ, ম্যাচ, কল — সব বন্ধ
+  if (!kycVerified || kycSuccess) {
+    return <KycPage onComplete={() => setKycSuccess(true)} onEnter={() => setKycSuccess(false)} />
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -768,7 +926,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { balance, deduct, liveRate, user, coins, addCoins } = useStore()
+  const { balance, deduct, liveRate, user, coins, addCoins, kycVerified } = useStore()
   const navigate = useNavigate()
   const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
@@ -896,6 +1054,11 @@ export function DatingLivePage() {
     const text = chatDraft
     setChat(c => [...c, { from: user?.name || 'আপনি', text }]); setChatDraft(''); setBanMsg('')
     if (realRoom) sendSignal(wsRef.current, { type: 'chat', roomId: realRoom.id, name: user?.name || 'আপনি', text })
+  }
+
+  // KYC ছাড়া সরাসরি লিংকেও ডেটিং লাইভ দেখা যাবে না
+  if (!kycVerified) {
+    return <DatingKycBlocked />
   }
 
   if (!roomLookupDone) {
@@ -1038,7 +1201,7 @@ export function DatingLivePage() {
 
 // নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
 export function DatingGoLivePage() {
-  const { user, liveRate, liveEarnings, addLiveEarnings } = useStore()
+  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified } = useStore()
   const navigate = useNavigate()
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
   const [started, setStarted] = useState(false)
@@ -1195,6 +1358,11 @@ export function DatingGoLivePage() {
     setEndGross(grossFinal + giftCoinsReceived); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
     setEnded(true)
     teardownHostLive()
+  }
+
+  // KYC ছাড়া সরাসরি লিংকেও লাইভে যাওয়া যাবে না
+  if (!kycVerified) {
+    return <DatingKycBlocked />
   }
 
   if (ended) {
@@ -1389,7 +1557,7 @@ export function AdsPage() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycVerified, kycInfo } = useStore()
   const [tab, setTab] = useState('revenue')
   const [rate, setRate] = useState(20)
   const [mins, setMins] = useState(10)
@@ -1447,7 +1615,7 @@ export function AdminPage() {
         {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
         {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
       </Card>}
-      {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p></Card>}
+      {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p><p className="text-sm mt-2">ডেটিং KYC: {kycVerified ? `✅ সম্পন্ন হয়েছে (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('bn-BD') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, আইডির শেষ ৪: ${kycInfo?.idLast4 ?? ''})` : '⏳ এখনো হয়নি'}</p></Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">কল রেকর্ডিং — শুধু অ্যাডমিন</h2><p className="text-sm mt-2">রেকর্ডিং শুধু আপিল/বিরোধ নিষ্পত্তির জন্য অ্যাডমিন দেখতে পারেন। সাধারণ ব্যবহারকারীর কোনো রেকর্ড বোতাম নেই। সংরক্ষণ: ৩০ দিন (Cloudflare R2 ফ্রি টিয়ার)। সার্ভারে সংরক্ষিত হয়, ব্যবহারকারীর ফোনে নয়।</p><p className="text-sm mt-1">ডেমোতে কোনো আসল রেকর্ডিং নেই।</p></Card>}
       {tab === 'livetv' && <Card><h2 className="font-bold">লাইভ টিভি চ্যানেল যোগ করুন</h2>
         <label className="text-sm block mt-3">চ্যানেলের নাম</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvName} onChange={e => setTvName(e.target.value)} />
