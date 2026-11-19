@@ -22,6 +22,7 @@
 //   small audience (roughly 5-8 viewers); a big audience needs an SFU later.
 import express from 'express'
 import http from 'http'
+import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
 
 const app = express()
@@ -57,6 +58,86 @@ app.post('/api/call/start', (req, res) => {
   const rate = expert?.rate ?? 10
   const canStart = !freeFirstMinuteUsed || balance >= rate
   res.json({ ok: canStart, rate, freeFirstMinute: !freeFirstMinuteUsed, maxMinutes: freeFirstMinuteUsed ? Math.floor((balance || 0) / rate) : 1 + Math.floor((balance || 0) / rate) })
+})
+
+// ---------- Email OTP (6-digit, via SMTP from env vars only) ----------
+// In-memory only: a restart clears pending codes. Codes are never logged.
+// SMTP is configured ONLY through environment variables (Railway Variables):
+//   SMTP_HOST (default smtp.gmail.com), SMTP_PORT (default 587),
+//   SMTP_USER, SMTP_PASS, SMTP_FROM (defaults to SMTP_USER).
+// Without SMTP_USER/SMTP_PASS, /api/otp/send answers {ok:false, error:'not_configured'}
+// and never generates or leaks a code.
+const otpStore = new Map() // email -> { code, expiresAt, attempts }
+const otpSendLog = new Map() // email -> { count, windowStart }
+const OTP_TTL_MS = 10 * 60 * 1000
+const OTP_MAX_SENDS_PER_HOUR = 5
+const OTP_MAX_ATTEMPTS = 5
+
+let mailerPromise = null
+function getMailer() {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return Promise.resolve(null)
+  if (!mailerPromise) {
+    mailerPromise = import('nodemailer').then(m => {
+      const nodemailer = m.default || m
+      return nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: Number(process.env.SMTP_PORT || 587) === 465,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      })
+    }).catch(() => null)
+  }
+  return mailerPromise
+}
+
+function validEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())
+}
+
+app.post('/api/otp/send', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+  if (!validEmail(email)) return res.status(400).json({ ok: false, error: 'invalid_email' })
+  const mailer = await getMailer()
+  if (!mailer) return res.status(503).json({ ok: false, error: 'not_configured' })
+  const now = Date.now()
+  const log = otpSendLog.get(email)
+  if (log && now - log.windowStart < 60 * 60 * 1000) {
+    if (log.count >= OTP_MAX_SENDS_PER_HOUR) return res.status(429).json({ ok: false, error: 'rate_limited' })
+    log.count += 1
+  } else {
+    otpSendLog.set(email, { count: 1, windowStart: now })
+  }
+  const code = String(crypto.randomInt(100000, 1000000))
+  otpStore.set(email, { code, expiresAt: now + OTP_TTL_MS, attempts: 0 })
+  try {
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: email,
+      subject: 'PiCall লগইন কোড',
+      text: `আপনার PiCall লগইন কোড: ${code}\nকোডটি ১০ মিনিটের জন্য বৈধ। কাউকে এই কোড দেবেন না।`,
+    })
+    res.json({ ok: true })
+  } catch {
+    otpStore.delete(email)
+    res.status(502).json({ ok: false, error: 'send_failed' })
+  }
+})
+
+app.post('/api/otp/verify', (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : ''
+  if (!validEmail(email) || !/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, error: 'invalid_code' })
+  const rec = otpStore.get(email)
+  if (!rec) return res.status(400).json({ ok: false, error: 'invalid_code' })
+  if (Date.now() > rec.expiresAt) { otpStore.delete(email); return res.status(400).json({ ok: false, error: 'expired' }) }
+  if (rec.attempts >= OTP_MAX_ATTEMPTS) { otpStore.delete(email); return res.status(400).json({ ok: false, error: 'too_many_attempts' }) }
+  if (rec.code !== code) {
+    rec.attempts += 1
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) { otpStore.delete(email); return res.status(400).json({ ok: false, error: 'too_many_attempts' }) }
+    return res.status(400).json({ ok: false, error: 'invalid_code' })
+  }
+  otpStore.delete(email)
+  res.json({ ok: true })
 })
 
 // ---------- Live rooms (in-memory; a restart clears them) ----------

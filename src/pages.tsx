@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
-import { useExperts } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { Btn, Card, InstallButton } from './components'
 import {
@@ -14,7 +14,7 @@ import {
   type Expert
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
-import { isFirebaseConfigured, signInWithGoogle } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -233,42 +233,160 @@ export function LoginPage() {
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  const googleLogin = async () => {
-    // Firebase config থাকলে আসল Google Sign-In, না থাকলে ডেমো মোড
-    if (isFirebaseConfigured) {
-      setBusy(true)
-      setMsg('')
-      try {
-        const u = await signInWithGoogle()
+  // ইমেইল লিংক: লিংক পাঠানো হয়েছে কি না
+  const [linkSent, setLinkSent] = useState(false)
+  // ইমেইল OTP: কোড পাঠানো হয়েছে কি না + কোড ইনপুট
+  const [otpSent, setOtpSent] = useState(false)
+  const [otp, setOtp] = useState('')
+  // লিংক দিয়ে ফিরে এসে সংরক্ষিত ইমেইল না পেলে ইমেইল চাওয়া হয়
+  const [linkEmailNeeded, setLinkEmailNeeded] = useState(false)
+  const [completingLink, setCompletingLink] = useState(false)
+
+  const displayName = (mail: string) => name.trim() || mail.split('@')[0] || 'PiCall ব্যবহারকারী'
+
+  // ইমেইল লিংকে ট্যাপ করে ফিরে এলে লগইন সম্পূর্ণ করা হয় (যাচাই ছাড়া কেউ ঢুকতে পারে না)
+  useEffect(() => {
+    if (!isEmailLinkSignIn()) return
+    let stored: string | null = null
+    try { stored = localStorage.getItem('callguru:emailForSignIn') } catch { stored = null }
+    if (stored) {
+      setCompletingLink(true)
+      completeEmailLink(stored).then(u => {
         if (u) { login(u.name, u.email); navigate('/feed'); return }
-        setMsg('Google লগইন সম্পূর্ণ হয়নি — আবার চেষ্টা করুন।')
-      } catch {
-        setMsg('Google লগইন হয়নি — পপ-আপ বন্ধ হয়েছে বা নেটওয়ার্ক সমস্যা। আবার চেষ্টা করুন।')
-      } finally {
-        setBusy(false)
+        setMsg('লিংকটি মেয়াদোত্তীর্ণ বা ভুল — আবার লিংক পাঠান।')
+      }).catch(() => setMsg('লিংকটি মেয়াদোত্তীর্ণ বা ভুল — আবার লিংক পাঠান।'))
+        .finally(() => setCompletingLink(false))
+    } else {
+      setLinkEmailNeeded(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const finishLinkWithEmail = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('সঠিক ইমেইল দিন।'); return }
+    setBusy(true); setMsg('')
+    try {
+      const u = await completeEmailLink(mail)
+      if (u) { login(displayName(u.email), u.email); navigate('/feed'); return }
+      setMsg('লিংকটি মেয়াদোত্তীর্ণ বা ভুল — আবার লিংক পাঠান।')
+    } catch {
+      setMsg('লিংকটি মেয়াদোত্তীর্ণ বা ভুল — আবার লিংক পাঠান।')
+    } finally { setBusy(false) }
+  }
+
+  const googleLogin = async () => {
+    // আসল Google Sign-In — Firebase সেটআপ না থাকলে ভুল বার্তা, ডেমো লগইন কখনো নয়
+    if (!isFirebaseConfigured) {
+      setMsg('লগইন সেটআপ হয়নি — অ্যাডমিনের সঙ্গে যোগাযোগ করুন।')
+      return
+    }
+    setBusy(true)
+    setMsg('')
+    try {
+      const u = await signInWithGoogle()
+      if (u) { login(u.name, u.email); navigate('/feed'); return }
+      setMsg('Google লগইন সম্পূর্ণ হয়নি — আবার চেষ্টা করুন।')
+    } catch {
+      setMsg('Google লগইন হয়নি — পপ-আপ বন্ধ হয়েছে বা নেটওয়ার্ক সমস্যা। আবার চেষ্টা করুন।')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sendLink = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('সঠিক ইমেইল দিন।'); return }
+    if (!isFirebaseConfigured) {
+      setMsg('ইমেইল লিংক লগইন সেটআপ হয়নি — অ্যাডমিনের সঙ্গে যোগাযোগ করুন।')
+      return
+    }
+    setBusy(true); setMsg('')
+    try {
+      await sendEmailLink(mail)
+      setLinkSent(true)
+      setMsg('ইমেইল চেক করুন — লিংকে ট্যাপ করলেই লগইন হবে।')
+    } catch {
+      setMsg('লিংক পাঠানো যায়নি — ইমেইলটি ঠিক আছে কি না দেখে আবার চেষ্টা করুন।')
+    } finally { setBusy(false) }
+  }
+
+  const sendOtp = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('সঠিক ইমেইল দিন।'); return }
+    setBusy(true); setMsg('')
+    const r = await sendEmailOtp(mail)
+    setBusy(false)
+    if (!r || !r.ok) {
+      if (r && r.error === 'not_configured') {
+        setMsg('ইমেইল OTP এখনো চালু হয়নি — অ্যাডমিন সেটআপ করছেন।')
+      } else if (r && r.error === 'rate_limited') {
+        setMsg('অনেকবার চেষ্টা করা হয়েছে — একটু পরে আবার চেষ্টা করুন।')
+      } else if (r && r.error === 'invalid_email') {
+        setMsg('সঠিক ইমেইল দিন।')
+      } else {
+        setMsg('ইমেইল OTP এখনো চালু হয়নি — অ্যাডমিন সেটআপ করছেন।')
       }
       return
     }
-    login('Avijit Dey', 'avijitdey259@gmail.com'); navigate('/feed')
+    setOtpSent(true)
+    setMsg('৬ সংখ্যার কোড ইমেইলে পাঠানো হয়েছে — ১০ মিনিটের জন্য বৈধ।')
   }
+
+  const verifyOtp = async () => {
+    const code = otp.trim()
+    if (!/^\d{6}$/.test(code)) { setMsg('৬ সংখ্যার কোড দিন।'); return }
+    const mail = email.trim().toLowerCase()
+    setBusy(true); setMsg('')
+    const r = await verifyEmailOtp(mail, code)
+    setBusy(false)
+    if (r && r.ok) {
+      login(displayName(mail), mail)
+      navigate('/feed')
+      return
+    }
+    if (r && r.error === 'expired') setMsg('কোডের মেয়াদ শেষ — আবার OTP পাঠান।')
+    else if (r && r.error === 'too_many_attempts') setMsg('অনেকবার ভুল কোড দেওয়া হয়েছে — আবার OTP পাঠান।')
+    else if (r && r.error === 'not_configured') setMsg('ইমেইল OTP এখনো চালু হয়নি — অ্যাডমিন সেটআপ করছেন।')
+    else setMsg('কোডটি ভুল — আবার দেখে দিন।')
+  }
+
   return (
     <div className="max-w-md mx-auto">
       <Card>
         <h1 className="text-2xl font-bold text-center">PiCall-তে স্বাগতম</h1>
-        <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল/পাসওয়ার্ড</p>
-        <button disabled={busy} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
+        <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল লিংক • ইমেইল OTP</p>
+        <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
           <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
           {busy ? 'লগইন হচ্ছে…' : 'Gmail দিয়ে ১-ক্লিক লগইন'}
         </button>
-        {isFirebaseConfigured
-          ? <p className="text-xs text-center text-gray-400 mt-1">আসল Gmail লগইন চালু আছে — Google অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
-          : <p className="text-xs text-center text-gray-400 mt-1">ডেমো মোড — আসল Gmail লগইনের জন্য Firebase প্রজেক্টের তথ্য লাগবে।</p>}
+        <p className="text-xs text-center text-gray-400 mt-1">আসল Gmail লগইন চালু আছে — Google অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
         <div className="my-4 border-t" />
-        <label className="text-sm font-medium">নাম</label>
+        {completingLink && <p className="text-sm text-center text-gray-600 dark:text-gray-300">লিংক যাচাই করা হচ্ছে…</p>}
+        {linkEmailNeeded && (
+          <div className="mb-4">
+            <p className="text-sm text-center mb-2">লগইন সম্পূর্ণ করতে আপনার ইমেইলটি দিন — লিংকটি যে ইমেইলে পাঠানো হয়েছিল, সেই ইমেইল হতে হবে।</p>
+            <input className="w-full border rounded-lg px-3 py-2 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+            <Btn className="w-full mt-2" disabled={busy} onClick={finishLinkWithEmail}>লগইন সম্পূর্ণ করুন</Btn>
+          </div>
+        )}
+        <label className="text-sm font-medium">নাম <span className="text-gray-400 font-normal">(যাচাইয়ের পর দেখানো হবে)</span></label>
         <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={name} onChange={e => setName(e.target.value)} placeholder="আপনার নাম" />
         <label className="text-sm font-medium mt-3 block">ইমেইল</label>
-        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
-        <Btn className="w-full mt-4" onClick={() => { if (!name || !email.includes('@')) { setMsg('নাম ও সঠিক ইমেইল দিন।'); return } login(name, email); navigate('/feed') }}>ইমেইল দিয়ে লগইন</Btn>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+        <Btn className="w-full mt-4" disabled={busy} onClick={sendLink}>ইমেইলে লগইন লিংক পাঠান</Btn>
+        {linkSent && <p className="text-sm text-center mt-2 text-green-700 dark:text-green-400">ইমেইল চেক করুন — লিংকে ট্যাপ করলেই লগইন হবে।</p>}
+        <div className="my-4 border-t" />
+        <p className="text-sm font-medium text-center">অথবা ইমেইল OTP দিয়ে লগইন করুন</p>
+        <Btn variant="ghost" className="w-full mt-2" disabled={busy} onClick={sendOtp}>{otpSent ? 'আবার OTP পাঠান' : 'OTP পাঠান'}</Btn>
+        {otpSent && (
+          <div className="mt-3">
+            <label className="text-sm font-medium">৬ সংখ্যার কোড</label>
+            <input className="w-full border rounded-lg px-3 py-2 mt-1 text-center tracking-[0.5em] dark:bg-slate-800 dark:border-slate-600" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            <p className="text-xs text-center text-gray-400 mt-1">কোড ১০ মিনিটের জন্য বৈধ।</p>
+            <Btn className="w-full mt-2" disabled={busy} onClick={verifyOtp}>কোড যাচাই করে লগইন করুন</Btn>
+          </div>
+        )}
         {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">লগইন করলে আপনি শর্তাবলি ও গোপনীয়তা নীতিতে সম্মত হচ্ছেন। কল রেকর্ডিং শুধু অ্যাডমিন দেখতে পারেন (আপিল/বিরোধের জন্য, ৩০ দিন সংরক্ষণ)।</p>
       </Card>

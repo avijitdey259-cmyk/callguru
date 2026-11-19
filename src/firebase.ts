@@ -3,7 +3,11 @@
 // কোনো key এখানে hard-code করা নেই, কোনো project ID বানানো নেই।
 // কোনো একটা value না থাকলে isFirebaseConfigured false হয় আর লগইন পেজ ডেমো মোডে চলে।
 import { initializeApp, type FirebaseApp } from 'firebase/app'
-import { getAuth, GoogleAuthProvider, signInWithPopup, type Auth } from 'firebase/auth'
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup,
+  sendSignInLinkToEmail, signInWithEmailLink, isSignInWithEmailLink,
+  type Auth,
+} from 'firebase/auth'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
@@ -31,7 +35,8 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 // আসল Google Sign-In — popup থেকে ফেরত আসা আসল নাম + ইমেইল দেয়।
-// Config না থাকলে null ফেরায় (কলার তখন ডেমো মোডে যাবে)।
+// Config না থাকলে null ফেরায় — কলারকে তখন ভুল করে ডেমো লগইন করা যাবে না,
+// স্পষ্ট ভুল বার্তা দেখাতে হবে।
 export async function signInWithGoogle(): Promise<{ name: string; email: string } | null> {
   const a = getFirebaseAuth()
   if (!a) return null
@@ -42,5 +47,54 @@ export async function signInWithGoogle(): Promise<{ name: string; email: string 
   return {
     name: user.displayName || user.email.split('@')[0] || 'Gmail ব্যবহারকারী',
     email: user.email,
+  }
+}
+
+// ---------- ইমেইল লিংক লগইন (পাসওয়ার্ড ছাড়া, Firebase passwordless) ----------
+// লিংকে ট্যাপ করলেই লগইন — কোনো পাসওয়ার্ড লাগে না, কোনো ডেমো লগইন নেই।
+const EMAIL_FOR_SIGN_IN_KEY = 'callguru:emailForSignIn'
+
+function readStoredEmailForSignIn(): string | null {
+  try { return localStorage.getItem(EMAIL_FOR_SIGN_IN_KEY) } catch { return null }
+}
+
+/** এই পেজের URL-টাই কি Firebase ইমেইল-লিংক সাইন-ইন লিংক? */
+export function isEmailLinkSignIn(): boolean {
+  const a = getFirebaseAuth()
+  if (!a) return false
+  try { return isSignInWithEmailLink(a, window.location.href) } catch { return false }
+}
+
+/** ইমেইলে লগইন লিংক পাঠান — লিংক পাঠানোর সময় ইমেইলটি সংরক্ষণ করা হয়,
+ *  যাতে লিংকে ফিরে এলে আর ইমেইল চাইতে না হয়। Config না থাকলে throw করে। */
+export async function sendEmailLink(email: string): Promise<void> {
+  const a = getFirebaseAuth()
+  if (!a) throw new Error('firebase_not_configured')
+  await sendSignInLinkToEmail(a, email, {
+    url: 'https://picallbd.web.app/login',
+    handleCodeInApp: true,
+  })
+  try { localStorage.setItem(EMAIL_FOR_SIGN_IN_KEY, email) } catch { /* ignore */ }
+}
+
+/** লিংক থেকে লগইন সম্পূর্ণ করা — সফল হলে আসল নাম + যাচাই করা ইমেইল দেয়।
+ *  সংরক্ষিত ইমেইল না থাকলে কলারকে ইমেইল দিতে হবে (email আর্গুমেন্টে)।
+ *  লিংক মেয়াদোত্তীর্ণ/ভুল হলে null ফেরায়। সফল হলে সংরক্ষিত ইমেইল মুছে দেওয়া হয়। */
+export async function completeEmailLink(emailArg?: string): Promise<{ name: string; email: string } | null> {
+  const a = getFirebaseAuth()
+  if (!a) return null
+  const email = (emailArg || '').trim().toLowerCase() || readStoredEmailForSignIn()
+  if (!email) return null
+  try {
+    const result = await signInWithEmailLink(a, email, window.location.href)
+    const user = result.user
+    if (!user.email) return null
+    try { localStorage.removeItem(EMAIL_FOR_SIGN_IN_KEY) } catch { /* ignore */ }
+    return {
+      name: user.displayName || user.email.split('@')[0] || 'ইমেইল ব্যবহারকারী',
+      email: user.email,
+    }
+  } catch {
+    return null
   }
 }

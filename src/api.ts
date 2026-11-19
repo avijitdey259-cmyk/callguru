@@ -10,12 +10,14 @@
 //   GET  /api/live        -> [{ id, hostName, title, viewers, startedAt }]
 //   POST /api/live        -> create a live room { hostName, title }
 //   DELETE /api/live/:id  -> end a live room
+//   POST /api/otp/send    -> { ok:true } or { ok:false, error:'not_configured'|'rate_limited'|'invalid_email' }
+//   POST /api/otp/verify  -> { ok:true } or { ok:false, error:'invalid_code'|'expired'|'too_many_attempts' }
 //   WebSocket (same host/port): live signalling — join/offer/answer/ice/gift/
 //   chat/leave, viewer-count + host-left broadcasts (see src/live.ts).
 import { useEffect, useState } from 'react'
 import { EXPERTS, type Expert } from './data'
 
-export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) || '').trim().replace(/\/+$/, '')
+export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) || 'https://callguru-production.up.railway.app').trim().replace(/\/+$/, '')
 export const API_TIMEOUT_MS = 5000
 
 export type ApiExpert = { id: string; name: string; rate: number; online: boolean }
@@ -117,4 +119,39 @@ export async function checkCallStart(expertId: string, balance: number, freeFirs
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expertId, balance, freeFirstMinuteUsed })
   })
+}
+
+// ---------- ইমেইল OTP (৬ সংখ্যার কোড, Railway ব্যাকএন্ড) ----------
+// fetchJson ভুল উত্তরে null দেয় — কিন্তু OTP-তে ভুলের কারণ (not_configured /
+// rate_limited / invalid_code) জানা দরকার, তাই এখানে body-সহ পড়া হয়।
+export type OtpResult = { ok: boolean; error?: string }
+
+async function postOtp(path: string, body: Record<string, string>): Promise<OtpResult | null> {
+  if (!API_BASE) return null
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: ctrl.signal,
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (data && data.ok) return { ok: true }
+    return { ok: false, error: (data && typeof data.error === 'string' && data.error) || 'failed' }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** POST /api/otp/send — ৬ সংখ্যার কোড ইমেইলে পাঠান। ব্যাকএন্ডে SMTP না থাকলে
+ *  { ok:false, error:'not_configured' } আসে; ব্যাকএন্ড না পেলে null। */
+export function sendEmailOtp(email: string): Promise<OtpResult | null> {
+  return postOtp('/api/otp/send', { email })
+}
+
+/** POST /api/otp/verify — কোড মিললে { ok:true }, ভুল/মেয়াদোত্তীর্ণ হলে error। */
+export function verifyEmailOtp(email: string, code: string): Promise<OtpResult | null> {
+  return postOtp('/api/otp/verify', { email, code })
 }
