@@ -114,7 +114,7 @@ export function DailyBonusCard() {
         })}
       </div>
       <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — দিনে দিনে বাড়বে, ৭ম দিনে ০.০০১ π! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
-      {/* ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে লটারি: ৩০০০ জনে ১ জন ১ π, বাকিরা ছোট পুরস্কার */}
+      {/* ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে লটারি: সর্বোচ্চ ১ π, বাকিরা ছোট পুরস্কার */}
       <div className="mt-3 border-t border-amber-200 dark:border-amber-800 pt-3">
         <div className="flex justify-between items-center flex-wrap gap-2">
           <h3 className="font-bold text-sm">🎁 ৩০ দিনের গিফট বক্স — সর্বোচ্চ ১ π</h3>
@@ -123,7 +123,7 @@ export function DailyBonusCard() {
         <div className="w-full bg-white dark:bg-slate-700 rounded-full h-2.5 mt-2 overflow-hidden">
           <div className="bg-amber-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (giftBoxDays / 30) * 100)}%` }} />
         </div>
-        <p className="text-xs text-gray-500 mt-2">টানা ৩০ দিন ডেইলি বোনাস নিলে উপরে গিফট বক্স পাবেন। ৩০০০ জনে ১ জন ১ π পাবে — বাকিরা ছোট পুরস্কার পাবে। একদিন মিস করলে ৩০ দিনের হিসাবও আবার ১ম দিন থেকে শুরু হবে।</p>
+        <p className="text-xs text-gray-500 mt-2">টানা ৩০ দিন ডেইলি বোনাস নিলে উপরে গিফট বক্স পাবেন। একদিন মিস করলে ৩০ দিনের হিসাবও আবার ১ম দিন থেকে শুরু হবে।</p>
         {canClaimGiftBox ? (
           <Btn variant="green" className="mt-2" onClick={claimBox}>🎁 গিফট বক্স খুলুন</Btn>
         ) : giftBoxClaimed ? (

@@ -17,7 +17,7 @@ export type PiTx = { id: string; amount: number; ref?: string; address?: string;
 
 // ভাইরাল গ্রোথ — ডেইলি বোনাস: ৭ দিনে ধাপে ধাপে বাড়ে, ১ম দিন ০.০০০১ π থেকে ৭ম দিন ০.০০১ π, তারপর আবার ১ম দিন থেকে
 export const DAILY_BONUS_REWARDS = [0.0001, 0.00025, 0.0004, 0.00055, 0.0007, 0.00085, 0.001]
-// ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে ডেইলি বোনাসের উপরে গিফট বক্স; লটারি — ৩০০০ জনে ১ জন ১ π পাবে, বাকিরা ছোট পুরস্কার
+// ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে ডেইলি বোনাসের উপরে গিফট বক্স; লটারি — সর্বোচ্চ ১ π, বাকিরা ছোট পুরস্কার
 export const GIFT_BOX_DAYS = 30
 export const GIFT_BOX_PI = 1
 export const GIFT_BOX_CONSOLATION = [0.0001, 0.00025, 0.0005, 0.001]
@@ -350,7 +350,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     canClaimGiftBox,
     claimGiftBox: () => {
       if (!canClaimGiftBox) return null
-      // লটারি — ৩০০০ জনে ১ জন ১ π পাবে; বাকিরা ভিতরের ছোট পুরস্কারগুলোর একটা পাবে (দাবির মুহূর্তে Math.random() দিয়ে ড্র)
+      // লটারি — সর্বোচ্চ ১ π; বাকিরা ভিতরের ছোট পুরস্কারগুলোর একটা পাবে (দাবির মুহূর্তে Math.random() দিয়ে ড্র)
       const jackpot = Math.random() < 1 / 3000
       const prize = jackpot ? GIFT_BOX_PI : GIFT_BOX_CONSOLATION[Math.floor(Math.random() * GIFT_BOX_CONSOLATION.length)]
       setGiftBoxClaimedCycle(giftBoxCycle)
