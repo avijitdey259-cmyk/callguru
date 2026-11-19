@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { Btn, Card, InstallButton } from './components'
 import {
@@ -850,7 +850,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { topUp, points, referrals, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
+  const { topUp, points, referrals, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -872,6 +872,11 @@ export function WalletPage() {
   // টপ-আপের অটো Pi রূপান্তর — ফর্মেই দেখা যায় কত Pi পাওয়া যাবে (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর)
   const previewPi = topUpPi(Number(amount) || 0, isUsdtAmount ? 'USDT' : 'BDT', piRateBDT, usdtRateBDT)
   const DEMO_NUMBERS: Record<string, string> = { bKash: '01XXXXXXXXX', Nagad: '01XXXXXXXXX', Rocket: '01XXXXXXXXX' }
+  // অ্যাডমিন সেটিংসে আসল নম্বর/ঠিকানা বসানো থাকলে সেটাই দেখাবে; না থাকলে ডেমো
+  const savedPayNumber = method === 'bKash' ? adminSettings.payments.bkash : method === 'Nagad' ? adminSettings.payments.nagad : method === 'Rocket' ? adminSettings.payments.rocket : ''
+  const savedUsdtAddress = usdtNetwork === 'BEP20' ? adminSettings.payments.usdtBep20 : adminSettings.payments.usdtErc20
+  const savedBinanceId = adminSettings.payments.binancePayId
+  const savedPiAddress = adminSettings.payments.piDepositAddress
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
     if (isManual) {
@@ -932,8 +937,11 @@ export function WalletPage() {
           <p>২. নিচে {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'} লিখে আবেদন জমা দিন। অ্যাডমিন অনুমোদন দিলে Pi যোগ হবে।</p>
         </div>}
         {(method === 'bKash' || method === 'Nagad' || method === 'Rocket') && <div className="text-sm mt-3">
-          <p>{method} নম্বর (ডেমো): <b>{DEMO_NUMBERS[method]}</b> <span className="text-xs text-gray-400">ডেমো নম্বর — অ্যাডমিন আসল নম্বর বসাবেন</span></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(DEMO_NUMBERS[method], method)}>📋 নম্বর কপি করুন</Btn>
+          {savedPayNumber
+            ? <><p>{method} নম্বর: <b>{savedPayNumber}</b></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPayNumber, method)}>📋 নম্বর কপি করুন</Btn></>
+            : <><p>{method} নম্বর (ডেমো): <b>{DEMO_NUMBERS[method]}</b> <span className="text-xs text-gray-400">ডেমো নম্বর — অ্যাডমিন আসল নম্বর বসাবেন</span></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(DEMO_NUMBERS[method], method)}>📋 নম্বর কপি করুন</Btn></>}
         </div>}
         {isUsdt && <div className="mt-3">
           <label className="text-sm block">নেটওয়ার্ক বাছুন</label>
@@ -941,14 +949,17 @@ export function WalletPage() {
             <span className="font-bold block">{n.name}{n.cheapest ? ' • সবচেয়ে কম খরচ' : ''}</span>
             <span className="text-xs opacity-80">{n.feeHint}</span>
           </button>)}</div>
-          <p className="text-sm mt-2">ঠিকানা ({net.id}, ডেমো): <code className="break-all">{net.address}</code></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(net.address, 'USDT')}>📋 ঠিকানা কপি করুন</Btn>
+          <p className="text-sm mt-2">ঠিকানা ({net.id}{savedUsdtAddress ? '' : ', ডেমো'}): <code className="break-all">{savedUsdtAddress || net.address}</code></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedUsdtAddress || net.address, 'USDT')}>📋 ঠিকানা কপি করুন</Btn>
           <p className="text-xs text-red-600 mt-2">⚠️ যে নেটওয়ার্ক বাছলেন, সেই নেটওয়ার্কেই পাঠাতে হবে — ভুল নেটওয়ার্কে পাঠালে টাকা হারিয়ে যাবে।</p>
           <p className="text-xs text-gray-400 mt-1">ফি আনুমানিক, পরিবর্তন হতে পারে।</p>
         </div>}
         {isBinance && <div className="text-sm mt-3">
-          <p>Binance Pay ID (ডেমো): <b>{BINANCE_PAY_ID}</b> <span className="text-xs text-gray-400">ডেমো আইডি — অ্যাডমিন আসল আইডি বসাবেন</span></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(BINANCE_PAY_ID, 'Binance Pay')}>📋 আইডি কপি করুন</Btn>
+          {savedBinanceId
+            ? <><p>Binance Pay ID: <b>{savedBinanceId}</b></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedBinanceId, 'Binance Pay')}>📋 আইডি কপি করুন</Btn></>
+            : <><p>Binance Pay ID (ডেমো): <b>{BINANCE_PAY_ID}</b> <span className="text-xs text-gray-400">ডেমো আইডি — অ্যাডমিন আসল আইডি বসাবেন</span></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(BINANCE_PAY_ID, 'Binance Pay')}>📋 আইডি কপি করুন</Btn></>}
         </div>}
         {method === 'Bank' && <p className="text-sm mt-2">ব্যাংক ট্রান্সফার — টপ-আপ তাৎক্ষণিক যোগ হবে।</p>}
         {copied && <p className="text-xs text-green-600 mt-1">✅ {copied} কপি হয়েছে।</p>}
@@ -977,8 +988,8 @@ export function WalletPage() {
         </div>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi জমা (Deposit)</p>
-          <p className="text-sm mt-1">PiCall-র ডেমো Pi ঠিকানা: <code className="break-all">{PI_DEPOSIT_ADDRESS}</code></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(PI_DEPOSIT_ADDRESS, 'Pi জমা ঠিকানা')}>📋 ঠিকানা কপি করুন</Btn>
+          <p className="text-sm mt-1">{savedPiAddress ? 'PiCall-র Pi ঠিকানা:' : 'PiCall-র ডেমো Pi ঠিকানা:'} <code className="break-all">{savedPiAddress || PI_DEPOSIT_ADDRESS}</code></p>
+          <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiAddress || PI_DEPOSIT_ADDRESS, 'Pi জমা ঠিকানা')}>📋 ঠিকানা কপি করুন</Btn>
           <label className="text-sm block mt-2">পাঠানো Pi-র পরিমাণ</label>
           <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="যেমন: 5" />
           <label className="text-sm block mt-2">Transaction / Memo রেফারেন্স</label>
@@ -2178,8 +2189,152 @@ export function AdsPage() {
   )
 }
 
+// ---------- অ্যাডমিন সেটিংস ----------
+// আসল তথ্য (SMS গেটওয়ে, ইমেইল SMTP, পেমেন্টের নম্বর/ঠিকানা) অ্যাডমিন প্যানেল থেকেই
+// বসানো যায় — কোথাও hard-code করা নেই। গোপন মান (API key, App Password) password
+// ইনপুটে থাকে, পুরো দেখানো হয় না, খতিয়ানে/শেয়ারে লেখা হয় না।
+function AdminSettingsTab() {
+  const { adminSettings, setAdminSettings } = useStore()
+  const [sms, setSms] = useState(adminSettings.sms)
+  const [smtp, setSmtp] = useState(adminSettings.smtp)
+  const [pay, setPay] = useState(adminSettings.payments)
+  const [smsMsg, setSmsMsg] = useState('')
+  const [smtpMsg, setSmtpMsg] = useState('')
+  const [payMsg, setPayMsg] = useState('')
+  const [serverStatus, setServerStatus] = useState<{ smtpConfigured: boolean; smsConfigured: boolean } | null>(null)
+  useEffect(() => { getAdminSettingsStatus().then(s => { if (s) setServerStatus(s) }) }, [])
+
+  function saveSms() {
+    setAdminSettings({ ...adminSettings, sms })
+    setSmsMsg('✅ SMS গেটওয়ের তথ্য সংরক্ষিত হয়েছে।')
+  }
+  function clearSms() {
+    const cleared = { provider: 'BulkSMSBD', apiKey: '', senderId: '' }
+    setSms(cleared)
+    setAdminSettings({ ...adminSettings, sms: cleared })
+    setSmsMsg('SMS গেটওয়ের তথ্য মুছে ফেলা হয়েছে।')
+  }
+  async function saveSmtp() {
+    const user = smtp.user.trim()
+    const pass = smtp.pass
+    if (!user || !pass) { setSmtpMsg('Gmail ঠিকানা ও App Password — দুটোই দিন।'); return }
+    const cleaned = { host: smtp.host.trim() || 'smtp.gmail.com', port: Number(smtp.port) || 587, user, pass, from: smtp.from.trim() }
+    setSmtp(cleaned)
+    setAdminSettings({ ...adminSettings, smtp: cleaned })
+    setSmtpMsg('সংরক্ষণ করা হচ্ছে…')
+    const ok = await saveAdminSmtp(cleaned)
+    const st = await getAdminSettingsStatus()
+    if (st) setServerStatus(st)
+    setSmtpMsg(ok
+      ? '✅ SMTP সংরক্ষিত হয়েছে — সার্ভারেও পাঠানো হয়েছে, OTP মেইল এখন এই SMTP দিয়ে যাবে।'
+      : '✅ SMTP এই ডিভাইসে সংরক্ষিত হয়েছে — সার্ভারে পৌঁছায়নি (ব্যাকএন্ড না পেলে), পরে আবার সেভ করুন।')
+  }
+  async function clearSmtp() {
+    const cleared = { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' }
+    setSmtp(cleared)
+    setAdminSettings({ ...adminSettings, smtp: cleared })
+    await saveAdminSmtp(cleared)
+    const st = await getAdminSettingsStatus()
+    if (st) setServerStatus(st)
+    setSmtpMsg('SMTP তথ্য মুছে ফেলা হয়েছে।')
+  }
+  function savePay() {
+    const cleaned = {
+      bkash: pay.bkash.trim(), nagad: pay.nagad.trim(), rocket: pay.rocket.trim(),
+      usdtBep20: pay.usdtBep20.trim(), usdtErc20: pay.usdtErc20.trim(),
+      binancePayId: pay.binancePayId.trim(), piDepositAddress: pay.piDepositAddress.trim(),
+    }
+    setPay(cleaned)
+    setAdminSettings({ ...adminSettings, payments: cleaned })
+    setPayMsg('✅ পেমেন্টের বিবরণ সংরক্ষিত হয়েছে — ওয়ালেটের টপ-আপ ও Pi জমা কার্ডে এখন আসল নম্বর/ঠিকানা দেখাবে।')
+  }
+  function clearPay() {
+    const cleared = { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '' }
+    setPay(cleared)
+    setAdminSettings({ ...adminSettings, payments: cleared })
+    setPayMsg('পেমেন্টের বিবরণ মুছে ফেলা হয়েছে — ওয়ালেটে আবার ডেমো দেখাবে।')
+  }
+  const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
+  return (
+    <Card>
+      <h2 className="font-bold">⚙️ সেটিংস — আসল তথ্য এখানে বসান</h2>
+      <p className="text-xs text-gray-500 mt-1">এখানে বসানো নম্বর/ঠিকানা/চাবিই অ্যাপে ব্যবহার হবে — চ্যাটে বা কোডে পাঠাতে হবে না। গোপন মান (API key, App Password) কখনো পুরো দেখানো হয় না।</p>
+
+      <h3 className="font-bold mt-5">📩 SMS গেটওয়ে</h3>
+      <label className="text-sm block mt-2">প্রোভাইডার</label>
+      <select className={inputCls} value={sms.provider} onChange={e => { setSms({ ...sms, provider: e.target.value }); setSmsMsg('') }}>
+        <option value="BulkSMSBD">BulkSMSBD</option>
+        <option value="SSL Wireless">SSL Wireless</option>
+      </select>
+      <label className="text-sm block mt-2">API Key</label>
+      <input type="password" className={inputCls} value={sms.apiKey} onChange={e => { setSms({ ...sms, apiKey: e.target.value }); setSmsMsg('') }} placeholder="গেটওয়ের API Key" autoComplete="off" />
+      {sms.apiKey && <p className="text-xs text-green-600 mt-1">✅ API Key সংরক্ষিত আছে</p>}
+      <label className="text-sm block mt-2">Sender ID</label>
+      <input className={inputCls} value={sms.senderId} onChange={e => { setSms({ ...sms, senderId: e.target.value }); setSmsMsg('') }} placeholder="যেমন: PiCall" />
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={saveSms}>সংরক্ষণ করুন</Btn>
+        <Btn variant="ghost" onClick={clearSms}>মুছে ফেলুন</Btn>
+      </div>
+      {smsMsg && <p className="text-sm text-green-600 mt-2">{smsMsg}</p>}
+      <p className="text-xs text-amber-600 mt-2">SMS পাঠানো এখনো চালু হয়নি — গেটওয়ে অ্যাকাউন্টের তথ্য এখানে সংরক্ষিত থাকবে।</p>
+
+      <h3 className="font-bold mt-6 pt-4 border-t">✉️ ইমেইল SMTP (OTP মেইলের জন্য)</h3>
+      <p className="text-xs text-gray-500 mt-1">সার্ভার অবস্থা: {serverStatus ? (serverStatus.smtpConfigured ? 'SMTP চালু ✅ — OTP মেইল যাবে' : 'SMTP বন্ধ — OTP মেইল যাবে না') : 'জানা যায়নি (ব্যাকএন্ডে পৌঁছানো যায়নি)'}</p>
+      <label className="text-sm block mt-2">SMTP Host</label>
+      <input className={inputCls} value={smtp.host} onChange={e => { setSmtp({ ...smtp, host: e.target.value }); setSmtpMsg('') }} placeholder="smtp.gmail.com" />
+      <label className="text-sm block mt-2">SMTP Port</label>
+      <input type="number" className={inputCls} value={smtp.port} onChange={e => { setSmtp({ ...smtp, port: Number(e.target.value) }); setSmtpMsg('') }} placeholder="587" />
+      <label className="text-sm block mt-2">Gmail ঠিকানা</label>
+      <input className={inputCls} value={smtp.user} onChange={e => { setSmtp({ ...smtp, user: e.target.value }); setSmtpMsg('') }} placeholder="you@gmail.com" inputMode="email" />
+      <label className="text-sm block mt-2">App Password</label>
+      <input type="password" className={inputCls} value={smtp.pass} onChange={e => { setSmtp({ ...smtp, pass: e.target.value }); setSmtpMsg('') }} placeholder="Gmail App Password (১৬ অক্ষর)" autoComplete="off" />
+      {smtp.pass && <p className="text-xs text-green-600 mt-1">✅ App Password সংরক্ষিত আছে</p>}
+      <label className="text-sm block mt-2">প্রেরকের ইমেইল ঠিকানা (From)</label>
+      <input className={inputCls} value={smtp.from} onChange={e => { setSmtp({ ...smtp, from: e.target.value }); setSmtpMsg('') }} placeholder="যেমন: noreply@আপনার-ডোমেইন.com" inputMode="email" />
+      <p className="text-xs text-gray-400 mt-1">খালি থাকলে Gmail ঠিকানাই প্রেরক হবে। পরে নিজের ডোমেইন কিনলে এখানে noreply@ডোমেইন বসাবেন — তখন সেই ডোমেইনের SMTP-ও এখানেই বসাতে হবে।</p>
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={saveSmtp}>সংরক্ষণ করুন</Btn>
+        <Btn variant="ghost" onClick={clearSmtp}>মুছে ফেলুন</Btn>
+      </div>
+      {smtpMsg && <p className="text-sm text-green-600 mt-2">{smtpMsg}</p>}
+      <p className="text-xs text-amber-600 mt-2">সার্ভারের কপি Railway রিস্টার্টে মুছে যাবে — তখন আবার সেভ করতে হবে। স্থায়ী উপায়: Railway-তে SMTP_* env var বসানো।</p>
+
+      <h3 className="font-bold mt-6 pt-4 border-t">💰 পেমেন্টের আসল বিবরণ</h3>
+      <p className="text-xs text-gray-500 mt-1">এখানে বসানো নম্বর/ঠিকানাই ওয়ালেটের টপ-আপ ও Pi জমা কার্ডে দেখাবে। খালি থাকলে আগের ডেমো দেখাবে।</p>
+      <label className="text-sm block mt-2">bKash নম্বর</label>
+      <input className={inputCls} value={pay.bkash} onChange={e => { setPay({ ...pay, bkash: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
+      <label className="text-sm block mt-2">Nagad নম্বর</label>
+      <input className={inputCls} value={pay.nagad} onChange={e => { setPay({ ...pay, nagad: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
+      <label className="text-sm block mt-2">Rocket নম্বর</label>
+      <input className={inputCls} value={pay.rocket} onChange={e => { setPay({ ...pay, rocket: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
+      <label className="text-sm block mt-2">USDT BEP20 ঠিকানা</label>
+      <input className={inputCls} value={pay.usdtBep20} onChange={e => { setPay({ ...pay, usdtBep20: e.target.value }); setPayMsg('') }} placeholder="0x..." />
+      <label className="text-sm block mt-2">USDT ERC20 ঠিকানা</label>
+      <input className={inputCls} value={pay.usdtErc20} onChange={e => { setPay({ ...pay, usdtErc20: e.target.value }); setPayMsg('') }} placeholder="0x..." />
+      <label className="text-sm block mt-2">Binance Pay ID</label>
+      <input className={inputCls} value={pay.binancePayId} onChange={e => { setPay({ ...pay, binancePayId: e.target.value }); setPayMsg('') }} placeholder="Binance Pay ID" />
+      <label className="text-sm block mt-2">Pi জমার ঠিকানা</label>
+      <input className={inputCls} value={pay.piDepositAddress} onChange={e => { setPay({ ...pay, piDepositAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={savePay}>সংরক্ষণ করুন</Btn>
+        <Btn variant="ghost" onClick={clearPay}>মুছে ফেলুন</Btn>
+      </div>
+      {payMsg && <p className="text-sm text-green-600 mt-2">{payMsg}</p>}
+    </Card>
+  )
+}
+
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings } = useStore()
+  // টপ-আপ আবেদনের গন্তব্য — গ্রাহককে যে নম্বর/ঠিকানা দেখানো হয়েছিল (অ্যাডমিন সেটিংসে বসানো থাকলে আসলটা)
+  function topUpDestination(t: { method: string; network?: string }): string {
+    if (t.method === 'bKash') return adminSettings.payments.bkash
+    if (t.method === 'Nagad') return adminSettings.payments.nagad
+    if (t.method === 'Rocket') return adminSettings.payments.rocket
+    if (t.method.startsWith('USDT')) return t.network === 'ERC20' ? adminSettings.payments.usdtErc20 : adminSettings.payments.usdtBep20
+    if (t.method === 'Binance Pay') return adminSettings.payments.binancePayId
+    return ''
+  }
   const [tab, setTab] = useState('revenue')
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
@@ -2240,7 +2395,7 @@ export function AdminPage() {
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold">🛡️ অ্যাডমিন প্যানেল</h1>
-      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'recordings', 'livetv', 'moderation'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC যাচাই' : t}</button>)}</div>
+      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'recordings', 'livetv', 'moderation', 'settings'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC যাচাই' : t === 'settings' ? '⚙️ সেটিংস' : t}</button>)}</div>
       {tab === 'revenue' && <Card>
         <h2 className="font-bold">রেভিনিউ ও ফি ক্যালকুলেটর</h2>
         <label className="text-sm block mt-3">কমিশন %</label><input type="number" className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={rate} onChange={e => setRate(Number(e.target.value))} />
@@ -2299,6 +2454,7 @@ export function AdminPage() {
               <p className="font-bold">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)}</p>
               <p className="text-green-600 font-bold">→ {formatPi(topUpPi(t.amount, t.currency, piRateBDT, usdtRateBDT))} Pi যোগ হবে</p>
               <p className="text-gray-500">রেফারেন্স: {t.trxId}</p>
+              {topUpDestination(t) && <p className="text-gray-500">গন্তব্য (গ্রাহককে দেওয়া): {topUpDestination(t)}</p>}
               <p className="text-gray-500">{t.date} • {t.status === 'pending' ? '⏳ পর্যালোচনাধীন' : t.status === 'approved' ? '✅ অনুমোদিত' : '❌ বাতিল'}</p>
             </div>
             {t.status === 'pending' && (
@@ -2385,6 +2541,7 @@ export function AdminPage() {
         <p className="text-xs text-gray-400 mt-2">শুধু অফিসিয়াল HLS স্ট্রিম ও অফিসিয়াল সোর্স লিংক ব্যবহার করুন।</p>
       </Card>}
       {tab === 'moderation' && <Card><h2 className="font-bold">মডারেশন লগ</h2><p className="text-sm mt-2">যোগাযোগ-তথ্য শেয়ার করার চেষ্টা (মাস্কড) এখানে লগ হয়; বারবার চেষ্টা করলে সতর্কবার্তা বাড়ে। ডেমোতে: ৩টি চেষ্টা লগ হয়েছে, ০টি অ্যাকাউন্ট সাসপেন্ড।</p><p className="text-sm mt-1">রিপোর্ট করা ডেটিং প্রোফাইল: ২টি (পর্যালোচনাধীন)।</p></Card>}
+      {tab === 'settings' && <AdminSettingsTab />}
     </div>
   )
 }

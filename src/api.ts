@@ -155,3 +155,31 @@ export function sendEmailOtp(email: string): Promise<OtpResult | null> {
 export function verifyEmailOtp(email: string, code: string): Promise<OtpResult | null> {
   return postOtp('/api/otp/verify', { email, code })
 }
+
+// ---------- অ্যাডমিন সেটিংস (সার্ভার-সাইড কপি) ----------
+// SMTP সেটিংস সার্ভারেও পাঠানো হয়, যাতে /api/otp/send মেইল পাঠাতে পারে —
+// ব্রাউজারের localStorage সার্ভার পড়তে পারে না। সার্ভারের কপি শুধু মেমোরিতে
+// থাকে (Railway রিস্টার্টে মুছে যায়); স্থায়ী উপায় SMTP_* env var।
+export type AdminSmtpPayload = { host: string; port: number; user: string; pass: string; from: string }
+
+export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
+  if (!API_BASE) return false
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smtp }), signal: ctrl.signal,
+    })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** GET /api/admin/settings — শুধু অবস্থা (চালু/বন্ধ) ফেরে, কোনো গোপন মান নয়। */
+export function getAdminSettingsStatus(): Promise<{ smtpConfigured: boolean; smsConfigured: boolean } | null> {
+  return fetchJson('/api/admin/settings')
+}

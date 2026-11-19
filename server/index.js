@@ -74,17 +74,36 @@ const OTP_MAX_SENDS_PER_HOUR = 5
 const OTP_MAX_ATTEMPTS = 5
 
 let mailerPromise = null
+let mailerCfgKey = ''
+// কার্যকর SMTP কনফিগ — env var (SMTP_*) থাকলে সেটাই আগে; না থাকলে অ্যাডমিন
+// প্যানেল থেকে পাঠানো সেটিংস (POST /api/admin/settings, শুধু মেমোরিতে)।
+function getSmtpConfig() {
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return { host: process.env.SMTP_HOST || 'smtp.gmail.com', port: Number(process.env.SMTP_PORT || 587), user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.SMTP_FROM || process.env.SMTP_USER }
+  }
+  const s = adminSettings.smtp
+  if (s && s.user && s.pass) {
+    return { host: s.host || 'smtp.gmail.com', port: s.port || 587, user: s.user, pass: s.pass, from: s.from || s.user }
+  }
+  return null
+}
 function getMailer() {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return Promise.resolve(null)
-  if (!mailerPromise) {
+  const cfg = getSmtpConfig()
+  if (!cfg) return Promise.resolve(null)
+  const key = `${cfg.host}|${cfg.port}|${cfg.user}`
+  if (!mailerPromise || mailerCfgKey !== key) {
+    mailerCfgKey = key
     mailerPromise = import('nodemailer').then(m => {
       const nodemailer = m.default || m
-      return nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: Number(process.env.SMTP_PORT || 587) === 465,
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      })
+      return {
+        transport: nodemailer.createTransport({
+          host: cfg.host,
+          port: cfg.port,
+          secure: cfg.port === 465,
+          auth: { user: cfg.user, pass: cfg.pass },
+        }),
+        from: cfg.from || cfg.user,
+      }
     }).catch(() => null)
   }
   return mailerPromise
@@ -110,8 +129,8 @@ app.post('/api/otp/send', async (req, res) => {
   const code = String(crypto.randomInt(100000, 1000000))
   otpStore.set(email, { code, expiresAt: now + OTP_TTL_MS, attempts: 0 })
   try {
-    await mailer.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    await mailer.transport.sendMail({
+      from: mailer.from,
       to: email,
       subject: 'PiCall লগইন কোড',
       text: `আপনার PiCall লগইন কোড: ${code}\nকোডটি ১০ মিনিটের জন্য বৈধ। কাউকে এই কোড দেবেন না।`,
@@ -138,6 +157,47 @@ app.post('/api/otp/verify', (req, res) => {
   }
   otpStore.delete(email)
   res.json({ ok: true })
+})
+
+// ---------- Admin settings (in-memory only; Railway restart clears them) ----------
+// অ্যাডমিন প্যানেলের সেটিংসের সার্ভার-সাইড কপি — শুধু /api/otp/send-এর SMTP-র জন্য।
+// GET কখনো গোপন মান ফেরায় না, শুধু চালু/বন্ধ অবস্থা। স্থায়ী উপায়: Railway-তে SMTP_* env var।
+const adminSettings = { smtp: null, sms: null } // smtp: {host,port,user,pass,from} | null; sms: {provider, apiKey, senderId} | null
+
+app.get('/api/admin/settings', (_req, res) => {
+  res.json({
+    smtpConfigured: Boolean(adminSettings.smtp && adminSettings.smtp.user && adminSettings.smtp.pass),
+    smsConfigured: Boolean(adminSettings.sms && adminSettings.sms.apiKey),
+  })
+})
+
+app.post('/api/admin/settings', (req, res) => {
+  const body = req.body || {}
+  if (body.smtp && typeof body.smtp === 'object') {
+    const s = body.smtp
+    if (typeof s.user === 'string' && typeof s.pass === 'string') {
+      adminSettings.smtp = {
+        host: typeof s.host === 'string' && s.host.trim() ? s.host.trim() : 'smtp.gmail.com',
+        port: Number(s.port) || 587,
+        user: s.user.trim(),
+        pass: s.pass,
+        from: typeof s.from === 'string' ? s.from.trim() : '',
+      }
+    }
+  }
+  if (body.sms && typeof body.sms === 'object') {
+    const s = body.sms
+    adminSettings.sms = {
+      provider: typeof s.provider === 'string' ? s.provider : 'BulkSMSBD',
+      apiKey: typeof s.apiKey === 'string' ? s.apiKey : '',
+      senderId: typeof s.senderId === 'string' ? s.senderId : '',
+    }
+  }
+  res.json({
+    ok: true,
+    smtpConfigured: Boolean(adminSettings.smtp && adminSettings.smtp.user && adminSettings.smtp.pass),
+    smsConfigured: Boolean(adminSettings.sms && adminSettings.sms.apiKey),
+  })
 })
 
 // ---------- Live rooms (in-memory; a restart clears them) ----------

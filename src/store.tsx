@@ -29,6 +29,19 @@ export const INVITE_BASE_URL = 'https://picallbd.web.app/'
 // অ্যাপের একমাত্র অ্যাডমিন/মালিক — শুধু এই ইমেইলের ব্যবহারকারীই অ্যাডমিন প্যানেল দেখতে পান
 export const ADMIN_EMAIL = 'avijitdey259@gmail.com'
 // টপ-আপ অটো Pi রূপান্তর — টাকা হলে ÷ Pi দর, USDT হলে × USDT দর ÷ Pi দর (অ্যাডমিন-নির্ধারিত দরে)
+// অ্যাডমিন সেটিংস — আসল তথ্য (SMS গেটওয়ে, ইমেইল SMTP, পেমেন্টের নম্বর/ঠিকানা) অ্যাডমিন
+// প্যানেল থেকেই বসানো যায়; কোথাও hard-code করা নেই। গোপন মান (API key, App Password)
+// কখনো পুরো দেখানো হয় না, খতিয়ানে/শেয়ারে লেখা হয় না।
+export type SmsSettings = { provider: string; apiKey: string; senderId: string }
+export type SmtpSettings = { host: string; port: number; user: string; pass: string; from: string }
+export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string }
+export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings }
+export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
+  sms: { provider: 'BulkSMSBD', apiKey: '', senderId: '' },
+  smtp: { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' },
+  payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '' },
+}
+
 export function topUpPi(amount: number, currency: 'BDT' | 'USDT', piRateBDT: number, usdtRateBDT: number): number {
   const m = Number(amount)
   if (!Number.isFinite(m) || m <= 0) return 0
@@ -131,6 +144,10 @@ type Store = {
   submitManualTopUp: (method: string, amount: number, trxId: string, currency?: 'BDT' | 'USDT', network?: string) => string | null
   approveTopUp: (id: string) => void
   rejectTopUp: (id: string) => void
+  // অ্যাডমিন সেটিংস (SMS গেটওয়ে, SMTP, পেমেন্টের আসল নম্বর/ঠিকানা) — localStorage-এ থাকে,
+  // শুধু অ্যাডমিনই দেখেন/বদলান (রুট গেট করা আছে)
+  adminSettings: AdminSettings
+  setAdminSettings: (s: AdminSettings) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -283,6 +300,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ম্যানুয়াল টপ-আপের আবেদন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হয়
   const [pendingTopUps, setPendingTopUps] = useState<TopUpRequest[]>(() => load('pendingTopUps', []))
   useEffect(() => save('pendingTopUps', pendingTopUps), [pendingTopUps])
+  // অ্যাডমিন সেটিংস — পুরোনো সংরক্ষণে কোনো ঘর না থাকলে ডিফল্ট বসে
+  const [adminSettings, setAdminSettingsState] = useState<AdminSettings>(() => {
+    const v = load<AdminSettings | null>('adminSettings', null)
+    if (!v) return DEFAULT_ADMIN_SETTINGS
+    return {
+      sms: { ...DEFAULT_ADMIN_SETTINGS.sms, ...(v.sms || {}) },
+      smtp: { ...DEFAULT_ADMIN_SETTINGS.smtp, ...(v.smtp || {}) },
+      payments: { ...DEFAULT_ADMIN_SETTINGS.payments, ...(v.payments || {}) },
+    }
+  })
+  useEffect(() => save('adminSettings', adminSettings), [adminSettings])
 
   // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
   const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
@@ -514,8 +542,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     rejectTopUp: (id) => {
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'rejected' } : x))
-    }
-  }), [user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps])
+    },
+    adminSettings,
+    setAdminSettings: (s) => setAdminSettingsState(s),
+  }), [user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
