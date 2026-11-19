@@ -33,6 +33,8 @@ type Store = {
   dark: boolean
   toggleDark: () => void
   expertRate: (id: string) => number
+  datingRate: number
+  setDatingRate: (v: number) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -61,6 +63,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [points, setPoints] = useState<number>(() => load('points', 0))
   const [referrals, setReferrals] = useState<number>(() => load('referrals', 0))
   const [dark, setDark] = useState<boolean>(() => load('dark', false))
+  const [datingRate, setDatingRateState] = useState<number>(() => load('datingRate', 10))
 
   useEffect(() => save('user', user), [user])
   useEffect(() => save('balance', balance), [balance])
@@ -74,6 +77,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('points', points), [points])
   useEffect(() => save('referrals', referrals), [referrals])
   useEffect(() => { save('dark', dark); document.documentElement.classList.toggle('dark', dark) }, [dark])
+  useEffect(() => save('datingRate', datingRate), [datingRate])
 
   const value: Store = useMemo(() => ({
     user,
@@ -113,8 +117,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     referrals,
     dark,
     toggleDark: () => setDark(d => !d),
-    expertRate: (id) => EXPERTS.find(e => e.id === id)?.rate ?? 10
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark])
+    expertRate: (id) => EXPERTS.find(e => e.id === id)?.rate ?? 10,
+    datingRate,
+    setDatingRate: (v) => { const n = Math.floor(Number(v)); if (Number.isFinite(n) && n >= 1) setDatingRateState(n) }
+  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

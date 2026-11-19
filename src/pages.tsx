@@ -244,14 +244,14 @@ export function CreateService() {
 // ---------- Call (WhatsApp-style, prepaid) ----------
 export function CallPage() {
   const { type, id } = useParams()
-  const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user } = useStore()
+  const { balance, deduct, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
   const isDating = type === 'dating'
   const datingProfile = isDating ? DATING_PROFILES.find(p => p.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'বন্ধু') : undefined
-  const rate = expert ? expert.rate : FRIEND_RATE // ডেটিং কলও ৳১০/মিনিট ফ্ল্যাট (FRIEND_RATE)
+  const rate = expert ? expert.rate : isDating ? datingRate : FRIEND_RATE // ডেটিং রেট অ্যাডমিন থেকে বদলানো যায় (ডিফল্ট ৳১০); বন্ধুর কল ৳১০ ফ্ল্যাট
   const name = expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'ডেটিং')) : decodeURIComponent(friendName || 'বন্ধু')
   // ডেটিং কল সম্পূর্ণ প্রিপেইড — গ্লোবাল প্রথম-১-মিনিট-ফ্রি এখানে প্রযোজ্য নয়, ফ্রি মিনিট খরচও হবে না
   const isFreeAvailable = !isDating && !freeFirstMinuteUsed
@@ -389,7 +389,7 @@ export function CallPage() {
           <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isDating ? 'ডেটিং • ' : 'বন্ধু • '}{formatBDT(rate)}/মিনিট</p>
           {isFreeAvailable && <p className="mt-2 text-sm bg-green-600 rounded-lg px-3 py-2">🎉 ১ম মিনিট ফ্রি — আপনার প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি!</p>}
           {isDating && <div className="mt-2 space-y-2">
-            <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 প্রিপেইড ভিডিও কল — ৳১০/মিনিট। শুধু আপনি (কলকারী) দেবেন, যাকে কল করছেন তার টাকা কাটবে না। এই কলে ফ্রি মিনিট প্রযোজ্য নয়।</p>
+            <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 প্রিপেইড ভিডিও কল — {formatBDT(rate)}/মিনিট। শুধু আপনি (কলকারী) দেবেন, যাকে কল করছেন তার টাকা কাটবে না। এই কলে ফ্রি মিনিট প্রযোজ্য নয়।</p>
             <p className="text-xs text-gray-300">🔴 এই কলটিও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে।</p>
           </div>}
           <div className="mt-4 space-y-1 text-sm">
@@ -616,7 +616,7 @@ export function ChatPage() {
 
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, coins, addCoins } = useStore()
+  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate } = useStore()
   const navigate = useNavigate()
   const [adult, setAdult] = useState(false)
   const [matched, setMatched] = useState<string | null>(null)
@@ -652,7 +652,7 @@ export function DatingPage() {
           <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">চ্যাট শুরু করুন →</Link>
           <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 ভিডিও কল করুন (প্রিপেইড)</Btn>
         </div>
-        <p className="text-xs text-gray-500 mt-2">💳 ভিডিও কল প্রিপেইড — ৳১০/মিনিট, শুধু কলকারীর টাকা কাটবে। এই কলও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে।</p>
+        <p className="text-xs text-gray-500 mt-2">💳 ভিডিও কল প্রিপেইড — {formatBDT(datingRate)}/মিনিট, শুধু কলকারীর টাকা কাটবে। এই কলও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে।</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
         {DATING_PROFILES.map(p => (
@@ -667,7 +667,7 @@ export function DatingPage() {
               <Btn variant="ghost" onClick={() => { if (coins < 15) { alert('Super Like-এর জন্য ১৫ কয়েন লাগবে।'); return } addCoins(-15); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (১৫ কয়েন)</Btn>
               <Btn variant="ghost" onClick={() => alert('প্রোফাইলটি রিপোর্ট করা হয়েছে — মডারেশন দেখবে।')}>🚩 রিপোর্ট</Btn>
             </div>
-            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড ৳১০/মিনিট)</Btn>}
+            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatBDT(datingRate)}/মিনিট)</Btn>}
           </Card>
         ))}
       </div>
@@ -780,10 +780,20 @@ export function AdsPage() {
 }
 
 export function AdminPage() {
+  const { datingRate, setDatingRate } = useStore()
   const [tab, setTab] = useState('revenue')
   const [rate, setRate] = useState(20)
   const [mins, setMins] = useState(10)
   const [price, setPrice] = useState(10)
+  const [datingRateInput, setDatingRateInput] = useState(String(datingRate))
+  const [datingRateMsg, setDatingRateMsg] = useState('')
+  const [datingRateErr, setDatingRateErr] = useState('')
+  function saveDatingRate() {
+    const n = Math.floor(Number(datingRateInput))
+    if (!Number.isFinite(n) || n < 1) { setDatingRateErr('রেট কমপক্ষে ৳১/মিনিট হতে হবে (শুধু পূর্ণ টাকা)।'); setDatingRateMsg(''); return }
+    setDatingRate(n); setDatingRateErr('')
+    setDatingRateMsg(`✅ ডেটিং কল রেট ${formatBDT(n)}/মিনিট সংরক্ষিত হয়েছে।`)
+  }
   const [tvName, setTvName] = useState('')
   const [tvUrl, setTvUrl] = useState('')
   const [tvAdded, setTvAdded] = useState(false)
@@ -798,6 +808,15 @@ export function AdminPage() {
         <label className="text-sm block mt-2">মিনিট</label><input type="number" className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={mins} onChange={e => setMins(Number(e.target.value))} />
         <p className="mt-3 text-sm">মোট: <b>{formatBDT(price * mins)}</b> • প্ল্যাটফর্ম ({rate}%): <b>{formatBDT(price * mins * rate / 100)}</b> • এক্সপার্ট পাবেন: <b>{formatBDT(price * mins * (100 - rate) / 100)}</b></p>
         <p className="text-xs text-gray-400 mt-1">উদাহরণ: ৳১০/মিনিট × ১০ মিনিট = ৳১০০, ২০% কমিশনে প্ল্যাটফর্ম পায় ৳২০, এক্সপার্ট পান ৳৮০।</p>
+        <h3 className="font-bold mt-5">ডেটিং কল রেট</h3>
+        <label className="text-sm block mt-2">ডেটিং কল রেট (৳/মিনিট)</label>
+        <div className="flex gap-2 items-center flex-wrap mt-1">
+          <input type="number" min={1} step={1} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={datingRateInput} onChange={e => { setDatingRateInput(e.target.value); setDatingRateMsg(''); setDatingRateErr('') }} />
+          <Btn onClick={saveDatingRate}>সংরক্ষণ করুন</Btn>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatBDT(datingRate)}/মিনিট</b> • সর্বনিম্ন ৳১/মিনিট, শুধু পূর্ণ টাকা। বন্ধুর কলের রেট ৳১০/মিনিট ফ্ল্যাট — এটা বদলাবে না।</p>
+        {datingRateMsg && <p className="text-sm text-green-600 mt-2">{datingRateMsg}</p>}
+        {datingRateErr && <p className="text-sm text-red-600 mt-2">{datingRateErr}</p>}
       </Card>}
       {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p></Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">কল রেকর্ডিং — শুধু অ্যাডমিন</h2><p className="text-sm mt-2">রেকর্ডিং শুধু আপিল/বিরোধ নিষ্পত্তির জন্য অ্যাডমিন দেখতে পারেন। সাধারণ ব্যবহারকারীর কোনো রেকর্ড বোতাম নেই। সংরক্ষণ: ৩০ দিন (Cloudflare R2 ফ্রি টিয়ার)। সার্ভারে সংরক্ষিত হয়, ব্যবহারকারীর ফোনে নয়।</p><p className="text-sm mt-1">ডেমোতে কোনো আসল রেকর্ডিং নেই।</p></Card>}
