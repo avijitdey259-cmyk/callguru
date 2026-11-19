@@ -35,6 +35,8 @@ type Store = {
   expertRate: (id: string) => number
   datingRate: number
   setDatingRate: (v: number) => void
+  liveRate: number
+  setLiveRate: (v: number) => void
   liveEarnings: number
   addLiveEarnings: (n: number) => void
 }
@@ -66,6 +68,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [referrals, setReferrals] = useState<number>(() => load('referrals', 0))
   const [dark, setDark] = useState<boolean>(() => load('dark', false))
   const [datingRate, setDatingRateState] = useState<number>(() => load('datingRate', 10))
+  // ডেটিং লাইভ দেখার রেট — কলের রেট থেকে আলাদা, লাইভে টাকা কম কাটবে (ডিফল্ট ৳৫/মিনিট)
+  const [liveRate, setLiveRateState] = useState<number>(() => load('liveRate', 5))
   // হোস্টের মোট লাইভ আয় (নিজের লাইভ থেকে ৭০% শেয়ার জমা হয়) — স্থায়ীভাবে সংরক্ষিত
   const [liveEarnings, setLiveEarnings] = useState<number>(() => load('liveEarnings', 0))
 
@@ -82,6 +86,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('referrals', referrals), [referrals])
   useEffect(() => { save('dark', dark); document.documentElement.classList.toggle('dark', dark) }, [dark])
   useEffect(() => save('datingRate', datingRate), [datingRate])
+  useEffect(() => save('liveRate', liveRate), [liveRate])
   useEffect(() => save('liveEarnings', liveEarnings), [liveEarnings])
 
   const value: Store = useMemo(() => ({
@@ -125,9 +130,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     expertRate: (id) => EXPERTS.find(e => e.id === id)?.rate ?? 10,
     datingRate,
     setDatingRate: (v) => { const n = Math.floor(Number(v)); if (Number.isFinite(n) && n >= 1) setDatingRateState(n) },
+    liveRate,
+    setLiveRate: (v) => { const n = Math.floor(Number(v)); if (Number.isFinite(n) && n >= 1) setLiveRateState(n) },
     liveEarnings,
     addLiveEarnings: (n) => { const m = Math.floor(Number(n)); if (Number.isFinite(m) && m > 0) setLiveEarnings(e => e + m) }
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveEarnings])
+  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveRate, liveEarnings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

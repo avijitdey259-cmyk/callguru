@@ -480,11 +480,16 @@ export function CallHistory() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { balance, topUp, points, referrals } = useStore()
+  const { balance, topUp, points, referrals, coins, addCoins, deduct } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
   const [msg, setMsg] = useState('')
+  const [coinMsg, setCoinMsg] = useState('')
+  function buyCoins(pack: number) {
+    if (balance < pack) { setCoinMsg('ব্যালেন্স যথেষ্ট নয় — আগে টপ-আপ করুন।'); return }
+    deduct(pack); addCoins(pack); setCoinMsg(`✅ ${pack} কয়েন কেনা হয়েছে। নতুন কয়েন ব্যালেন্স: ${coins + pack}।`)
+  }
   const [affiliateOn, setAffiliateOn] = useState(false)
   const usdtRate = 120
   function doTopUp() {
@@ -511,6 +516,13 @@ export function WalletPage() {
         {(method === 'bKash' || method === 'Nagad') && <><label className="text-sm block mt-3">TrxID</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder="যেমন: 9HX7..." /><p className="text-xs text-gray-400 mt-1">অফিসিয়াল সেন্ডার (bKash/Nagad/16216) থেকে SMS এলে অটো-অ্যাপ্রুভ হবে। একই TrxID দুবার ব্যবহার করা যাবে না।</p></>}
         <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>টপ-আপ করুন</Btn>
         {msg && <p className="text-sm mt-2">{msg}</p>}
+      </Card>
+      <Card>
+        <h2 className="font-bold">🪙 কয়েন কিনুন (লাইভ গিফটের জন্য)</h2>
+        <p className="text-sm mt-1">আপনার কয়েন: <b>{coins}</b> • ১ কয়েন = ৳১ • গিফট শুধু CallGuru কয়েন দিয়েই কেনা যায়।</p>
+        <div className="flex gap-2 flex-wrap mt-3">{[10, 50, 100].map(p => <button key={p} onClick={() => buyCoins(p)} className="px-4 py-2 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">{p} কয়েন — {formatBDT(p)}</button>)}</div>
+        <p className="text-xs text-gray-400 mt-2">ওয়ালেট ব্যালেন্স থেকে কাটবে — ব্যালেন্স কম থাকলে আগে টপ-আপ করুন।</p>
+        {coinMsg && <p className="text-sm mt-2">{coinMsg}</p>}
       </Card>
       <Card>
         <h2 className="font-bold">🔗 অ্যাফিলিয়েট ও রেফারেল</h2>
@@ -616,7 +628,7 @@ export function ChatPage() {
 
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveEarnings } = useStore()
+  const { likesUsed, useLike, premium, setPremium, coins, addCoins, datingRate, liveRate, liveEarnings } = useStore()
   const navigate = useNavigate()
   const [adult, setAdult] = useState(false)
   const [matched, setMatched] = useState<string | null>(null)
@@ -653,7 +665,7 @@ export function DatingPage() {
           <h2 className="text-lg font-bold">🔴 ডেটিং লাইভ</h2>
           <span className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-2 py-1 rounded-full font-bold">LIVE • ১৮+</span>
         </div>
-        <p className="text-sm mt-2">লাইভ দেখতে {formatBDT(datingRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>।</p>
+        <p className="text-sm mt-2">লাইভ দেখতে {formatBDT(liveRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>। কলের রেট থেকে আলাদা — লাইভে টাকা কম কাটে।</p>
         <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <Btn variant="green" onClick={() => navigate('/dating-go-live')}>📹 লাইভে যান</Btn>
@@ -671,7 +683,7 @@ export function DatingPage() {
                   <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন</p></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">{p.about}</p>
-                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(datingRate)}/মিনিট)</Btn>
+                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(liveRate)}/মিনিট)</Btn>
                 <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
               </div>
             )
@@ -717,14 +729,22 @@ const LIVE_CREATOR_SHARE = 0.7 // লাইভকারী পাবেন ৭�
 
 function fmtLive(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
+// লাইভ গিফট — শুধু CallGuru কয়েন দিয়ে কেনা যায় (১ কয়েন = ৳১); বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই
+const LIVE_GIFTS = [
+  { icon: '🌹', name: 'গোলাপ', price: 5 },
+  { icon: '❤️', name: 'হার্ট', price: 10 },
+  { icon: '🎁', name: 'গিফট বক্স', price: 20 },
+  { icon: '💎', name: 'ডায়মন্ড', price: 50 },
+]
+
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { balance, deduct, datingRate, user } = useStore()
+  const { balance, deduct, liveRate, user, coins, addCoins } = useStore()
   const navigate = useNavigate()
   const host = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
-  const rate = datingRate
+  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [ended, setEnded] = useState(false)
@@ -733,6 +753,20 @@ export function DatingLivePage() {
   const [chatDraft, setChatDraft] = useState('')
   const [banMsg, setBanMsg] = useState('')
   const [banCount, setBanCount] = useState(0)
+  // লাইভ গিফট — কয়েন দিয়ে কেনা, লাইভকারীর আয়ে ৭০% / অ্যাডমিন ৩০% ভাগে যোগ হয়
+  const [giftsSent, setGiftsSent] = useState<{ icon: string; name: string; price: number }[]>([])
+  const [giftMsg, setGiftMsg] = useState('')
+  const [giftCoinsTotal, setGiftCoinsTotal] = useState(0)
+  const giftCreatorTotal = Math.floor(giftCoinsTotal * LIVE_CREATOR_SHARE)
+  const giftAdminTotal = giftCoinsTotal - giftCreatorTotal
+
+  function sendGift(g: { icon: string; name: string; price: number }) {
+    if (coins < g.price) { setGiftMsg('কয়েন যথেষ্ট নয় — কয়েন কিনুন'); return }
+    addCoins(-g.price)
+    setGiftsSent(prev => [...prev, g])
+    setGiftCoinsTotal(t => t + g.price)
+    setGiftMsg(`🎁 আপনি ${g.icon} ${g.name} পাঠিয়েছেন!`)
+  }
 
   const billedMinutes = Math.ceil(seconds / 60)
   const totalPaid = billedMinutes * rate
@@ -792,6 +826,10 @@ export function DatingLivePage() {
             <p>মোট দিয়েছেন: <b>{formatBDT(cost)}</b></p>
             <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creator)}</b></p>
             <p>অ্যাডমিন পাবেন (৩০%): <b>{formatBDT(admin)}</b></p>
+            {giftCoinsTotal > 0 && <>
+              <p>গিফট পাঠিয়েছেন: <b>{giftsSent.length}টি • {giftCoinsTotal} কয়েন</b></p>
+              <p>গিফট থেকে লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(giftCreatorTotal)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(giftAdminTotal)}</b></p>
+            </>}
             <p>বর্তমান ব্যালেন্স: <b>{formatBDT(balance - cost < 0 ? 0 : balance - cost)}</b></p>
           </div>
           <p className="text-sm text-gray-300 mt-2">{endReason}</p>
@@ -817,6 +855,7 @@ export function DatingLivePage() {
             <p>লাইভকারী পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
             <p>ব্যালেন্স: <b>{formatBDT(balance)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
             <p>ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
+            <p>আপনার কয়েন: <b>🪙 {coins}</b> — লাইভে গিফট পাঠাতে CallGuru কয়েন লাগবে।</p>
           </div>
           <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।</p>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে টপ-আপ করুন।</p>}
@@ -860,6 +899,25 @@ export function DatingLivePage() {
           <input className="flex-1 rounded-full px-3 py-2 text-sm text-black" placeholder="লাইভে মেসেজ লিখুন…" value={chatDraft} onChange={e => setChatDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} />
           <Btn onClick={sendChat}>পাঠান</Btn>
         </div>
+        <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3">
+          <div className="flex justify-between items-center">
+            <p className="text-sm font-bold">🎁 গিফট পাঠান</p>
+            <span className="text-xs">🪙 আপনার কয়েন: <b>{coins}</b></span>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1">গিফট শুধু CallGuru কয়েন দিয়েই কিনতে হয় (১ কয়েন = ৳১) — বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই। গিফটের ৭০% লাইভকারী পাবেন, ৩০% অ্যাডমিন পাবে।</p>
+          <div className="grid grid-cols-4 gap-2 mt-2">
+            {LIVE_GIFTS.map(g => (
+              <button key={g.name} onClick={() => sendGift(g)} className="bg-slate-700 hover:bg-slate-600 rounded-lg py-2 px-1 text-center">
+                <span className="text-2xl block">{g.icon}</span>
+                <span className="text-xs block">{g.name}</span>
+                <span className="text-[11px] text-yellow-300 font-bold">{g.price} কয়েন</span>
+              </button>
+            ))}
+          </div>
+          {giftMsg && <p className="text-xs text-yellow-200 text-center mt-2">{giftMsg}</p>}
+          {giftMsg === 'কয়েন যথেষ্ট নয় — কয়েন কিনুন' && <div className="text-center mt-1"><Btn variant="green" onClick={() => navigate('/wallet')}>🪙 কয়েন কিনুন</Btn></div>}
+          {giftsSent.length > 0 && <p className="text-xs text-gray-300 text-center mt-2">পাঠানো গিফট: {giftsSent.map(g => g.icon).join(' ')} • লাইভকারী গিফট থেকে পেয়েছেন {formatBDT(giftCreatorTotal)} (৭০%)</p>}
+        </div>
         <div className="flex justify-center pb-2">
           <button onClick={() => endLive('আপনি লাইভ দেখা শেষ করেছেন')} className="px-6 h-14 rounded-full bg-red-600 text-lg font-bold" title="লাইভ ছাড়ুন">❌ লাইভ ছাড়ুন</button>
         </div>
@@ -871,9 +929,9 @@ export function DatingLivePage() {
 
 // নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
 export function DatingGoLivePage() {
-  const { user, datingRate, liveEarnings, addLiveEarnings } = useStore()
+  const { user, liveRate, liveEarnings, addLiveEarnings } = useStore()
   const navigate = useNavigate()
-  const rate = datingRate
+  const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [viewers, setViewers] = useState(14)
@@ -999,6 +1057,7 @@ export function DatingGoLivePage() {
           <div className="mt-4 space-y-1 text-sm text-left">
             <p>দর্শক দেবে: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড)</p>
             <p>আপনি পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
+            <p>দর্শকরা আপনাকে কয়েন দিয়ে গিফটও পাঠাতে পারবে (গিফটেরও ৭০% আপনার)।</p>
             <p>আপনার মোট লাইভ আয় এ পর্যন্ত: <b className="text-green-400">{formatBDT(liveEarnings)}</b></p>
           </div>
           <div className="mt-4 text-left">
@@ -1156,7 +1215,7 @@ export function AdsPage() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate } = useStore()
   const [tab, setTab] = useState('revenue')
   const [rate, setRate] = useState(20)
   const [mins, setMins] = useState(10)
@@ -1169,6 +1228,16 @@ export function AdminPage() {
     if (!Number.isFinite(n) || n < 1) { setDatingRateErr('রেট কমপক্ষে ৳১/মিনিট হতে হবে (শুধু পূর্ণ টাকা)।'); setDatingRateMsg(''); return }
     setDatingRate(n); setDatingRateErr('')
     setDatingRateMsg(`✅ ডেটিং কল রেট ${formatBDT(n)}/মিনিট সংরক্ষিত হয়েছে।`)
+  }
+  // ডেটিং লাইভ রেট — কলের রেট থেকে সম্পূর্ণ আলাদা; লাইভে টাকা কম কাটবে (ডিফল্ট ৳৫/মিনিট)
+  const [liveRateInput, setLiveRateInput] = useState(String(liveRate))
+  const [liveRateMsg, setLiveRateMsg] = useState('')
+  const [liveRateErr, setLiveRateErr] = useState('')
+  function saveLiveRate() {
+    const n = Math.floor(Number(liveRateInput))
+    if (!Number.isFinite(n) || n < 1) { setLiveRateErr('রেট কমপক্ষে ৳১/মিনিট হতে হবে (শুধু পূর্ণ টাকা)।'); setLiveRateMsg(''); return }
+    setLiveRate(n); setLiveRateErr('')
+    setLiveRateMsg(`✅ ডেটিং লাইভ রেট ${formatBDT(n)}/মিনিট সংরক্ষিত হয়েছে।`)
   }
   const [tvName, setTvName] = useState('')
   const [tvUrl, setTvUrl] = useState('')
@@ -1193,6 +1262,16 @@ export function AdminPage() {
         <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatBDT(datingRate)}/মিনিট</b> • সর্বনিম্ন ৳১/মিনিট, শুধু পূর্ণ টাকা। বন্ধুর কলের রেট ৳১০/মিনিট ফ্ল্যাট — এটা বদলাবে না।</p>
         {datingRateMsg && <p className="text-sm text-green-600 mt-2">{datingRateMsg}</p>}
         {datingRateErr && <p className="text-sm text-red-600 mt-2">{datingRateErr}</p>}
+        <h3 className="font-bold mt-5">ডেটিং লাইভ রেট</h3>
+        <p className="text-xs text-gray-500">লাইভ দেখার রেট কলের রেট থেকে আলাদা — লাইভে টাকা কম কাটবে। লাইভের ভাগ: লাইভকারী ৭০%, অ্যাডমিন ৩০% (অপরিবর্তিত)।</p>
+        <label className="text-sm block mt-2">ডেটিং লাইভ রেট (৳/মিনিট)</label>
+        <div className="flex gap-2 items-center flex-wrap mt-1">
+          <input type="number" min={1} step={1} className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={liveRateInput} onChange={e => { setLiveRateInput(e.target.value); setLiveRateMsg(''); setLiveRateErr('') }} />
+          <Btn onClick={saveLiveRate}>সংরক্ষণ করুন</Btn>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">বর্তমানে সংরক্ষিত: <b>{formatBDT(liveRate)}/মিনিট</b> • সর্বনিম্ন ৳১/মিনিট, শুধু পূর্ণ টাকা।</p>
+        {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
+        {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
       </Card>}
       {tab === 'users' && <Card><h2 className="font-bold">ব্যবহারকারী</h2><p className="text-sm mt-2">মোট ব্যবহারকারী (ডেমো): ১,২৪০ • এক্সপার্ট: ৮৬ • ক্রিয়েটর: ১২০ • ১৮+ ভেরিফায়েড ডেটিং প্রোফাইল: ৩৪০</p></Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">কল রেকর্ডিং — শুধু অ্যাডমিন</h2><p className="text-sm mt-2">রেকর্ডিং শুধু আপিল/বিরোধ নিষ্পত্তির জন্য অ্যাডমিন দেখতে পারেন। সাধারণ ব্যবহারকারীর কোনো রেকর্ড বোতাম নেই। সংরক্ষণ: ৩০ দিন (Cloudflare R2 ফ্রি টিয়ার)। সার্ভারে সংরক্ষিত হয়, ব্যবহারকারীর ফোনে নয়।</p><p className="text-sm mt-1">ডেমোতে কোনো আসল রেকর্ডিং নেই।</p></Card>}
