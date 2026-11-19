@@ -61,7 +61,7 @@ export function InviteCard() {
     catch { setMsg('লিংক: ' + link) }
   }
   async function share() {
-    const r = await shareLink('PiCall — লাইভ এক্সপার্ট পরামর্শ', 'PiCall-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ π বোনাস!', link)
+    const r = await shareLink('PiCall — লাইভ এক্সপার্ট পরামর্শ', 'PiCall-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১ π বোনাস!', link)
     setMsg(r === 'shared' ? '✅ শেয়ার হয়েছে!' : r === 'copied' ? '✅ লিংক কপি হয়েছে — বন্ধুকে পাঠান!' : '')
   }
   return (
@@ -74,6 +74,7 @@ export function InviteCard() {
         <Btn variant="green" onClick={share}>↗️ শেয়ার করুন</Btn>
       </div>
       <p className="text-sm mt-2">রেফারেল: <b>{referrals} জন</b> • রেফারেল থেকে আয়: <b>π {referralPiEarned} Pi</b></p>
+      <p className="text-xs text-amber-600 mt-1">রেফারেল Pi বোনাস Pi — তোলা যাবে না, শুধু কল/লাইভ গিফটে ব্যবহার করা যাবে।</p>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
       <p className="text-xs text-gray-400 mt-2">ডেমো নোট: রেফারেল এই ডিভাইসে ট্র্যাক করা হয় — আসল ক্রস-ডিভাইস ট্র্যাকিংয়ের জন্য ব্যাকএন্ড লাগবে।</p>
     </Card>
@@ -82,15 +83,15 @@ export function InviteCard() {
 
 // ডেইলি বোনাস — ৭ দিনের চক্র, একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
 export function DailyBonusCard() {
-  const { streak, dailyClaimedToday, claimDailyBonus, piBalance, giftBoxDays, giftBoxClaimed, canClaimGiftBox, claimGiftBox } = useStore()
+  const { streak, dailyClaimedToday, claimDailyBonus, totalPi, giftBoxDays, giftBoxClaimed, canClaimGiftBox, claimGiftBox } = useStore()
   const [msg, setMsg] = useState('')
   function claim() {
     const r = claimDailyBonus()
-    if (r) setMsg(`🎉 দিন ${r.day} — ${r.pi} π পেয়েছেন! মোট Pi: ${formatPi(piBalance + r.pi)}।`)
+    if (r) setMsg(`🎉 দিন ${r.day} — ${r.pi} π পেয়েছেন! মোট Pi: ${formatPi(totalPi + r.pi)}।`)
   }
   function claimBox() {
     const r = claimGiftBox()
-    if (r) setMsg(r.jackpot ? `🎉 অভিনন্দন! আপনি ১ π জিতেছেন! মোট Pi: ${formatPi(piBalance + r.pi)}।` : `🎁 আপনি ${r.pi} π পেয়েছেন — আবার চেষ্টা করুন! মোট Pi: ${formatPi(piBalance + r.pi)}।`)
+    if (r) setMsg(r.jackpot ? `🎉 অভিনন্দন! আপনি ১ π জিতেছেন! মোট Pi: ${formatPi(totalPi + r.pi)}।` : `🎁 আপনি ${r.pi} π পেয়েছেন — আবার চেষ্টা করুন! মোট Pi: ${formatPi(totalPi + r.pi)}।`)
   }
   const nextDay = ((streak % 7) + 1)
   const boxRemaining = 30 - giftBoxDays
@@ -98,7 +99,7 @@ export function DailyBonusCard() {
     <Card className="!bg-amber-50 dark:!bg-amber-900/30">
       <div className="flex justify-between items-center flex-wrap gap-2">
         <h2 className="font-bold">🎁 ডেইলি বোনাস</h2>
-        <span className="text-sm">🔥 স্ট্রিক: <b>{streak} দিন</b> • Pi: <b>π {piBalance}</b></span>
+        <span className="text-sm">🔥 স্ট্রিক: <b>{streak} দিন</b> • Pi: <b>π {totalPi}</b></span>
       </div>
       <div className="flex gap-1.5 mt-3 flex-wrap">
         {DAILY_BONUS_REWARDS.map((c, i) => {
@@ -446,7 +447,7 @@ export function CreateService() {
 // ---------- Call (WhatsApp-style, prepaid) ----------
 export function CallPage() {
   const { type, id } = useParams()
-  const { piBalance, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -483,10 +484,10 @@ export function CallPage() {
   const paidSeconds = Math.max(0, seconds - freeSeconds)
   const billedMinutes = Math.ceil(paidSeconds / 60)
   const liveCost = billedMinutes * rate
-  const maxPaidMinutes = Math.floor(piBalance / rate)
+  const maxPaidMinutes = Math.floor(totalPi / rate)
   const maxSeconds = freeSeconds + maxPaidMinutes * 60
   const talkableMinutes = freeSeconds / 60 + maxPaidMinutes
-  const canStart = isFreeAvailable || piBalance >= rate
+  const canStart = isFreeAvailable || totalPi >= rate
 
   useEffect(() => {
     if (!started || ended) return
@@ -578,7 +579,7 @@ export function CallPage() {
           <p className="mt-2">{name} • {fmt(seconds)}</p>
           <p className="mt-1 text-sm">খরচ: {formatPi(cost)}{isFreeAvailable && seconds > 0 ? ' (প্রথম ১ মিনিট ফ্রি প্রযোজ্য হয়েছে)' : ''}</p>
           <p className="text-sm text-gray-300">{endReason}</p>
-          <p className="text-sm mt-1">বর্তমান Pi ব্যালেন্স: {formatPi(piBalance)}</p>
+          <p className="text-sm mt-1">বর্তমান Pi ব্যালেন্স: {formatPi(totalPi)}</p>
           <div className="flex gap-2 mt-5 justify-center">
             <Btn variant="green" onClick={() => navigate('/call-history')}>কল হিস্ট্রি</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>ফিডে ফিরুন</Btn>
@@ -600,7 +601,7 @@ export function CallPage() {
             <p className="text-xs text-gray-300">🔴 এই কলটিও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে।</p>
           </div>}
           <div className="mt-4 space-y-1 text-sm">
-            <p>Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
+            <p>Pi ব্যালেন্স: <b>{formatPi(totalPi)}</b></p>
             <p>কথা বলা যাবে: <b>~{talkableMinutes} মিনিট</b>{isFreeAvailable ? ' (১ মিনিট ফ্রি সহ)' : ''}</p>
             <p>প্রতি মিনিট: <b>{formatPi(rate)}</b> • Pi ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে।</p>
           </div>
@@ -689,13 +690,13 @@ export function CallHistory() {
 // ওয়ালেটে Pi-র পুরো হিসাব — খতিয়ান (piLedger) থেকে যোগফল; চলমান ব্যালেন্স বর্তমান ব্যালেন্স থেকে পেছনে গুনে বের করা হয়,
 // তাই খতিয়ানের সব লাইনের যোগফল সবসময় বর্তমান ব্যালেন্সের সঙ্গে মেলে।
 function PiReportCard() {
-  const { piLedger, piBalance } = useStore()
+  const { piLedger, piBalance, bonusPi, totalPi } = useStore()
   const sum = (types: string[]) => roundPi(piLedger.filter(r => types.includes(r.type)).reduce((s, r) => s + r.amount, 0))
   const totalDeposit = sum(['জমা'])
   const totalWithdraw = roundPi(-sum(['তোলা']))
   const totalIncome = sum(['ডেইলি বোনাস', 'রেফারেল', 'লাইভ আয়', 'গিফট বক্স'])
   const totalExpense = roundPi(-sum(['কল খরচ', 'লাইভ দেখা', 'গিফট দেওয়া', 'বুস্ট', 'সুপার লাইক']))
-  let run = piBalance
+  let run = totalPi
   const rows = piLedger.map(r => { const after = run; run = roundPi(run - r.amount); return { ...r, after } })
   return (
     <Card>
@@ -706,7 +707,8 @@ function PiReportCard() {
         <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট আয় (বোনাস+রেফারেল+লাইভ+গিফট বক্স)</p><p className="font-bold text-green-600">{formatPi(totalIncome)}</p></div>
         <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">মোট খরচ (কল+লাইভ+গিফট)</p><p className="font-bold text-red-600">{formatPi(totalExpense)}</p></div>
       </div>
-      <p className="text-center mt-3">বর্তমান Pi ব্যালেন্স: <b className="text-purple-600">{formatPi(piBalance)}</b></p>
+      <p className="text-center mt-3">বর্তমান Pi ব্যালেন্স: <b className="text-purple-600">{formatPi(totalPi)}</b></p>
+      <p className="text-center text-sm mt-1">তোলা যায়: <b>{formatPi(piBalance)}</b> • বোনাস Pi: <b>{formatPi(bonusPi)}</b> <span className="text-gray-500">(শুধু কল/লাইভ গিফটে ব্যবহারযোগ্য, তোলা যাবে না)</span></p>
       <p className="text-xs text-gray-400 mt-1">Pi কেনা ও ডেমো Pi আয়-খরচের বাইরে — খতিয়ানে আলাদা লাইনে আছে।</p>
       {rows.length === 0
         ? <p className="text-sm text-gray-500 mt-3">এখনো কোনো লেনদেন নেই।</p>
@@ -730,7 +732,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { topUp, points, referrals, piBalance, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
+  const { topUp, points, referrals, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -762,7 +764,7 @@ export function WalletPage() {
     }
     const a = Math.round(Number(amount))
     if (!Number.isFinite(a) || a <= 0) { setMsg('সঠিক পরিমাণ দিন।'); return }
-    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method}) — ${formatPi(previewPi)} Pi যোগ হয়েছে। নতুন Pi ব্যালেন্স ${formatPi(piBalance + previewPi)}।`)
+    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method}) — ${formatPi(previewPi)} Pi যোগ হয়েছে। নতুন Pi ব্যালেন্স ${formatPi(totalPi + previewPi)}।`)
   }
   function doDeposit() {
     const m = Number(depAmount)
@@ -777,7 +779,8 @@ export function WalletPage() {
     const a = wdAddress.trim()
     if (a.length !== 56 || !a.startsWith('G')) { setWdMsg('ঠিকানা সঠিক নয় — Pi ঠিকানা G দিয়ে শুরু হয় এবং ৫৬ অক্ষরের হয়।'); return }
     if (!Number.isFinite(m) || m < piMinWithdraw) { setWdMsg(`সর্বনিম্ন তোলা: ১০ USDT সমান Pi (ডেমো দরে ${formatPi(piMinWithdraw)})।`); return }
-    if (m > piBalance) { setWdMsg('Pi ব্যালেন্স যথেষ্ট নয়।'); return }
+    if (m > totalPi) { setWdMsg('Pi ব্যালেন্স যথেষ্ট নয়।'); return }
+    if (m > piBalance) { setWdMsg('বোনাস Pi তোলা যাবে না — শুধু কল/লাইভ গিফটে ব্যবহার করা যাবে।'); return }
     if (!withdrawPi(m, a)) { setWdMsg('তোলা যায়নি — পরিমাণ ও ঠিকানা আবার দেখুন।'); return }
     setWdMsg('✅ তোলার আবেদন জমা হয়েছে — ⏳ প্রক্রিয়াধীন (ডেমো)।')
     setWdAddress(''); setWdAmount('')
@@ -791,7 +794,9 @@ export function WalletPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card className="text-center">
         <p className="text-gray-500 text-sm">ওয়ালেট ব্যালেন্স</p>
-        <p className="text-4xl font-extrabold text-purple-600">π {formatPi(piBalance)}</p>
+        <p className="text-4xl font-extrabold text-purple-600">π {formatPi(totalPi)}</p>
+        <p className="text-sm text-gray-500 mt-1">তোলা যায়: <b>{formatPi(piBalance)}</b> • বোনাস Pi: <b>{formatPi(bonusPi)}</b></p>
+        <p className="text-xs text-amber-600 mt-1">বোনাস Pi তোলা যাবে না — শুধু কল/লাইভ গিফটে ব্যবহার করা যাবে।</p>
         <p className="text-sm text-gray-500 mt-1">রিওয়ার্ড পয়েন্ট: {points} • রেফারেল: {referrals} জন</p>
         <p className="text-xs text-gray-400 mt-1">কল ও লাইভ প্রিপেইড — Pi ব্যালেন্স ছাড়া চলবে না। টাকা বা USDT যা-ই ঢোকান, অটো Pi হয়ে যাবে।</p>
       </Card>
@@ -843,7 +848,7 @@ export function WalletPage() {
       </Card>
       <Card>
         <h2 className="font-bold">π Pi ওয়ালেট</h2>
-        <p className="text-sm mt-1">Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
+        <p className="text-sm mt-1">মোট Pi: <b>{formatPi(totalPi)}</b> (তোলা যায়: {formatPi(piBalance)} • বোনাস: {formatPi(bonusPi)})</p>
         <p className="text-xs text-gray-500 mt-1">দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)} (অ্যাডমিন নির্ধারিত) • ডেমো দর: ৳১০০ = ১ Pi</p>
         {piWalletAddress
           ? <p className="text-sm mt-2">আপনার Pi ঠিকানা (ডেমো): <code className="break-all">{piWalletAddress}</code></p>
@@ -866,7 +871,7 @@ export function WalletPage() {
         </div>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi তোলা (Withdraw)</p>
-          <p className="text-sm mt-1">সর্বনিম্ন তোলা: ১০ USDT সমান Pi (ডেমো দরে {formatPi(piMinWithdraw)}) • দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)}</p>
+          <p className="text-sm mt-1">তোলা যায়: <b>{formatPi(piBalance)}</b> • সর্বনিম্ন তোলা: ১০ USDT সমান Pi (ডেমো দরে {formatPi(piMinWithdraw)}) • দর: ১ Pi = {formatBDT(piRateBDT)} • ১ USDT = {formatBDT(usdtRateBDT)}</p>
           <label className="text-sm block mt-2">আপনার Pi ঠিকানা (G দিয়ে শুরু, ৫৬ অক্ষর)</label>
           <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAddress} onChange={e => setWdAddress(e.target.value)} placeholder="G..." />
           <label className="text-sm block mt-2">পরিমাণ (Pi)</label>
@@ -1256,7 +1261,7 @@ function DatingKycBlocked() {
 
 // ---------- Dating 18+ ----------
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, piBalance, addPi, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
+  const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
   const navigate = useNavigate()
   // KYC একবার সম্পন্ন হলে আর দেখানো হয় না; সফলতার স্ক্রিনটি দেখানোর জন্য স্থানীয় অবস্থা
   const [kycSuccess, setKycSuccess] = useState(false)
@@ -1280,11 +1285,11 @@ export function DatingPage() {
       <Card>
         <div className="flex justify-between items-center flex-wrap gap-2">
           <h1 className="text-xl font-bold">❤️ ডেটিং ১৮+</h1>
-          <span className="text-sm">আজকের ফ্রি লাইক: {premium ? 'আনলিমিটেড (প্রিমিয়াম)' : `${Math.max(0, 30 - likesUsed)}/৩০`} • Pi: {formatPi(piBalance)}</span>
+          <span className="text-sm">আজকের ফ্রি লাইক: {premium ? 'আনলিমিটেড (প্রিমিয়াম)' : `${Math.max(0, 30 - likesUsed)}/৩০`} • Pi: {formatPi(totalPi)}</span>
         </div>
         <div className="flex gap-2 mt-3 flex-wrap">
           <Btn variant={premium ? 'green' : 'primary'} onClick={() => setPremium(!premium)}>{premium ? '✅ প্রিমিয়াম চালু আছে' : 'প্রিমিয়াম নিন — ৳৯৯/মাস'}</Btn>
-          <Btn variant="ghost" onClick={() => { if (piBalance >= 0.1) { addPi(-0.1, 'বুস্ট', 'প্রোফাইল Boost'); setBoosted(true) } else alert('Pi ব্যালেন্স যথেষ্ট নয় — Pi কিনুন।') }}>🚀 Boost (~০.১ π)</Btn>
+          <Btn variant="ghost" onClick={() => { if (totalPi >= 0.1) { addPi(-0.1, 'বুস্ট', 'প্রোফাইল Boost'); setBoosted(true) } else alert('Pi ব্যালেন্স যথেষ্ট নয় — Pi কিনুন।') }}>🚀 Boost (~০.১ π)</Btn>
         </div>
         {boosted && <p className="text-sm text-green-600 mt-2">Boost চালু — আপনার প্রোফাইল বেশি দেখাবে।</p>}
         <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ০.১৫ π • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
@@ -1357,7 +1362,7 @@ export function DatingPage() {
             <p className="text-sm mt-2">{p.about}</p>
             <div className="flex gap-2 mt-3">
               <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('আজকের ৩০টি ফ্রি লাইক শেষ — প্রিমিয়াম নিন।'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ লাইক</Btn>
-              <Btn variant="ghost" onClick={() => { if (piBalance < 0.15) { alert('Super Like-এর জন্য ০.১৫ π লাগবে।'); return } addPi(-0.15, 'সুপার লাইক', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (০.১৫ π)</Btn>
+              <Btn variant="ghost" onClick={() => { if (totalPi < 0.15) { alert('Super Like-এর জন্য ০.১৫ π লাগবে।'); return } addPi(-0.15, 'সুপার লাইক', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (০.১৫ π)</Btn>
               <Btn variant="ghost" onClick={() => alert('প্রোফাইলটি রিপোর্ট করা হয়েছে — মডারেশন দেখবে।')}>🚩 রিপোর্ট</Btn>
             </div>
             {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড {formatPi(datingRate)}/মিনিট)</Btn>}
@@ -1390,7 +1395,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { piBalance, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent } = useStore()
+  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent } = useStore()
   const navigate = useNavigate()
   const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
@@ -1436,7 +1441,7 @@ export function DatingLivePage() {
   const giftAdminTotal = roundPi(giftPiTotal - giftCreatorTotal)
 
   function sendGift(g: { icon: string; name: string; pi: number }) {
-    if (piBalance < g.pi) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
+    if (totalPi < g.pi) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
     addPi(-g.pi, 'গিফট দেওয়া', `লাইভ গিফট — ${g.icon} ${g.name}`)
     addGiftsSent(g.pi)
     setGiftsSent(prev => [...prev, g])
@@ -1450,9 +1455,9 @@ export function DatingLivePage() {
   const totalPaid = billedMinutes * rate
   const creatorShare = roundPi(totalPaid * LIVE_CREATOR_SHARE)
   const adminShare = roundPi(totalPaid - creatorShare)
-  const talkableMinutes = Math.floor(piBalance / rate)
+  const talkableMinutes = Math.floor(totalPi / rate)
   const maxSeconds = talkableMinutes * 60
-  const canStart = piBalance >= rate
+  const canStart = totalPi >= rate
 
   useEffect(() => {
     if (!started || ended) return
@@ -1570,7 +1575,7 @@ export function DatingLivePage() {
               <p>গিফট পাঠিয়েছেন: <b>{giftsSent.length}টি • {formatPi(giftPiTotal)}</b></p>
               <p>গিফট থেকে লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatPi(giftCreatorTotal)}</b> • অ্যাডমিন (৩০%): <b>{formatPi(giftAdminTotal)}</b></p>
             </>}
-            <p>বর্তমান Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b></p>
+            <p>বর্তমান Pi ব্যালেন্স: <b>{formatPi(totalPi)}</b></p>
           </div>
           <p className="text-sm text-gray-300 mt-2">{endReason}</p>
           <div className="flex gap-2 mt-5 justify-center flex-wrap">
@@ -1595,9 +1600,9 @@ export function DatingLivePage() {
           <div className="mt-4 space-y-1 text-sm text-left">
             <p>দেখার রেট: <b>{formatPi(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
             <p>লাইভকারী পাবেন <b>৭০%</b> • অ্যাডমিন পাবেন <b>৩০%</b></p>
-            <p>Pi ব্যালেন্স: <b>{formatPi(piBalance)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
+            <p>Pi ব্যালেন্স: <b>{formatPi(totalPi)}</b> • দেখা যাবে: <b>~{talkableMinutes} মিনিট</b></p>
             <p>Pi ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
-            <p>আপনার Pi: <b>π {formatPi(piBalance)}</b> — লাইভে গিফট পাঠাতে Pi লাগবে।</p>
+            <p>আপনার Pi: <b>π {formatPi(totalPi)}</b> — লাইভে গিফট পাঠাতে Pi লাগবে।</p>
           </div>
           <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। {realRoom ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।'}</p>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ Pi ব্যালেন্স ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে Pi কিনুন।</p>}
@@ -1646,7 +1651,7 @@ export function DatingLivePage() {
         <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold">🎁 গিফট পাঠান</p>
-            <span className="text-xs">π আপনার Pi: <b>{formatPi(piBalance)}</b></span>
+            <span className="text-xs">π আপনার Pi: <b>{formatPi(totalPi)}</b></span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">গিফট শুধু Pi দিয়েই কিনতে হয় — বাইরে থেকে গিফট কেনা যায় না, ফ্রি গিফট নেই। গিফটের ৭০% লাইভকারী পাবেন, ৩০% অ্যাডমিন পাবে।</p>
           <div className="grid grid-cols-4 gap-2 mt-2">
@@ -2267,7 +2272,7 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, piBalance, logout, isAdmin } = useStore()
+  const { user, totalPi, logout, isAdmin } = useStore()
   const navigate = useNavigate()
   const tiles = [
     { to: '/feed', label: 'ফিড', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'মার্কেটপ্লেস', icon: '🛍️', color: '#27AE60' },
@@ -2285,7 +2290,7 @@ export function MenuPage() {
         <div className="flex items-center gap-3">
           <span className="w-16 h-16 rounded-full bg-fb-blue text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
           <div><p className="font-bold text-lg">{user ? user.name : 'অতিথি ব্যবহারকারী'}</p><p className="text-sm text-gray-500">{user?.email || 'লগইন করুন'}</p></div>
-          <button onClick={() => navigate('/wallet')} className="ml-auto bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(piBalance)}</button>
+          <button onClick={() => navigate('/wallet')} className="ml-auto bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
         </div>
         {user ? <Btn variant="ghost" className="mt-3" onClick={() => { logout(); navigate('/') }}>লগআউট</Btn>
           : <Btn className="mt-3" onClick={() => navigate('/login')}>লগইন করুন</Btn>}

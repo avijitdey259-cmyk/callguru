@@ -12,7 +12,7 @@ const NAV = [
 ]
 
 export function TopBar() {
-  const { user, piBalance, dark, toggleDark } = useStore()
+  const { user, totalPi, dark, toggleDark } = useStore()
   const navigate = useNavigate()
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-fb-card shadow-sm">
@@ -28,7 +28,7 @@ export function TopBar() {
           ))}
         </div>
         <div className="flex-1 md:hidden" />
-        <button onClick={() => navigate('/wallet')} className="hidden sm:flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-sm font-bold px-3 py-1.5 rounded-full" title="Pi ব্যালেন্স">π {formatPi(piBalance)}</button>
+        <button onClick={() => navigate('/wallet')} className="hidden sm:flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-sm font-bold px-3 py-1.5 rounded-full" title="Pi ব্যালেন্স">π {formatPi(totalPi)}</button>
         <button onClick={toggleDark} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center" title="Dark mode">{dark ? '☀️' : '🌙'}</button>
         <button onClick={() => navigate('/chat')} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center" title="মেসেঞ্জার">💬</button>
         <InstallButton compact />
@@ -39,7 +39,7 @@ export function TopBar() {
 }
 
 export function BottomNav() {
-  const { piBalance } = useStore()
+  const { totalPi } = useStore()
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-fb-card border-t border-gray-200 dark:border-slate-700 shadow-[0_-2px_10px_rgba(0,0,0,0.08)]">
       <div className="grid grid-cols-5">
@@ -49,7 +49,7 @@ export function BottomNav() {
           </NavLink>
         ))}
       </div>
-      <div className="text-center text-[10px] text-gray-400 pb-1">Pi ব্যালেন্স: {formatPi(piBalance)} • চ্যাট ফ্রি, কল প্রিপেইড</div>
+      <div className="text-center text-[10px] text-gray-400 pb-1">Pi ব্যালেন্স: {formatPi(totalPi)} • চ্যাট ফ্রি, কল প্রিপেইড</div>
     </nav>
   )
 }
