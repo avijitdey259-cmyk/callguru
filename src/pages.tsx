@@ -9,7 +9,7 @@ import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
-  USDT_DEPOSIT_ADDRESS, BINANCE_PAY_ID, MANUAL_TOPUP_METHODS, PI_MIN_WITHDRAW_USDT,
+  BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
   USDT_NETWORKS, piWithdrawFee,
   type Expert
 } from './data'
@@ -189,7 +189,7 @@ export function Landing() {
         <h2 className="font-bold text-lg mb-2">কীভাবে কাজ করে</h2>
         <ol className="list-decimal ml-5 text-sm space-y-1">
           <li>Gmail দিয়ে ১-ক্লিক লগইন করুন।</li>
-          <li>ওয়ালেটে টপ-আপ করুন — bKash / Nagad / ব্যাংক / USDT (TRC20)।</li>
+          <li>ওয়ালেটে টপ-আপ করুন — bKash / Nagad / Rocket / ব্যাংক / USDT / Binance Pay।</li>
           <li>এক্সপার্ট বেছে কল করুন। প্রথম কলের প্রথম ১ মিনিট ফ্রি।</li>
           <li>ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে — কোনো ঋণ নয়।</li>
         </ol>

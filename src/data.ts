@@ -120,13 +120,11 @@ export const PI_MIN_WITHDRAW_USDT = 10 // Pi তুলতে কমপক্ষ�
 export const piMinWithdraw = (piRateBDT: number, usdtRateBDT: number) => roundPi((PI_MIN_WITHDRAW_USDT * usdtRateBDT) / piRateBDT) // ডিফল্ট দরে ১২ π
 export const piWithdrawFee = (amount: number, feePct: number) => Math.max(0.1, roundPi((amount * feePct) / 100)) // ফি: feePct%, সর্বনিম্ন ০.১ π
 // ম্যানুয়াল টপ-আপের ডেমো ঠিকানা/আইডি — আসল ঠিকানা নয়, ডেমো; অ্যাডমিন আসলগুলো বসাবেন
-export const USDT_DEPOSIT_ADDRESS = 'TFVVQdJvNbq3VjgcRfKy88m5yN7wp1vidN'
 export const BINANCE_PAY_ID = 'CALLGURU-DEMO-0000'
-export const MANUAL_TOPUP_METHODS = ['bKash', 'Nagad', 'Rocket', 'USDT (TRC20)', 'Binance Pay']
-// USDT নেটওয়ার্ক — তিনটিই ম্যানুয়াল; প্রতিটির আলাদা ডেমো ঠিকানা (ফি আনুমানিক, পরিবর্তন হতে পারে)
+export const MANUAL_TOPUP_METHODS = ['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay']
+// USDT নেটওয়ার্ক — দুটিই ম্যানুয়াল (TRC20 নেই); প্রতিটির আলাদা ডেমো ঠিকানা (ফি আনুমানিক, পরিবর্তন হতে পারে)
 export const USDT_NETWORKS = [
-  { id: 'TRC20', name: 'TRC20 (Tron)', address: USDT_DEPOSIT_ADDRESS, feeHint: 'ফি আনুমানিক ~১.৫–২ USDT', cheapest: false },
   { id: 'BEP20', name: 'BEP20 (BNB Smart Chain)', address: '0xd40cca85f0f54f30445a3577e18a0a5abcca95bf', feeHint: 'ফি আনুমানিক ~০.০১ USDT (Binance থেকে) — সবচেয়ে কম খরচ', cheapest: true },
-  { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'ফি আনুমানিক ~০.৫–০.৬ USDT', cheapest: false },
+  { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'ফি আনুমানিক ~০.৬ USDT', cheapest: false },
 ]
 export const PI_DEPOSIT_ADDRESS = 'G6NBQ4XDRDLSB7VTNDAOO6DKUYADIUNNQF34OTCOWBFG5L2ZD7REPL65'
