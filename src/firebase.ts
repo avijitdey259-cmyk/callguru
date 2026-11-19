@@ -1,5 +1,5 @@
 // Firebase — আসল ১-ক্লিক Gmail (Google) লগইন।
-// Config শুধু environment variable থেকে আসে (Netlify-তে VITE_FIREBASE_* হিসেবে বসাতে হয়)।
+// Config শুধু environment variable থেকে আসে (GitHub Actions-এ VITE_FIREBASE_* secrets হিসেবে বসাতে হয়)।
 // কোনো key এখানে hard-code করা নেই, কোনো project ID বানানো নেই।
 // কোনো একটা value না থাকলে isFirebaseConfigured false হয় আর লগইন পেজ ডেমো মোডে চলে।
 import { initializeApp, type FirebaseApp } from 'firebase/app'
