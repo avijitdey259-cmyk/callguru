@@ -32,9 +32,10 @@ export default function App() {
   if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
   return (
     <Routes>
+      {/* লগইন পেজ Layout-এর বাইরে — লগইন ছাড়া অ্যাপের কিছুই (টপ নেভ, সাইডবার, ডান কলাম) দেখা যায় না, শুধু লগইন কার্ড */}
+      <Route path="/login" element={<LoginPage />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<LoginPage />} />
         <Route path="/feed" element={<Feed />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/expert/:id" element={<ExpertProfile />} />
