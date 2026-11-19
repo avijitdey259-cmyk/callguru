@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { Route, Routes, Navigate } from 'react-router-dom'
 import { Layout } from './components'
+import { useStore } from './store'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, Landing, LiveTV, LoginPage,
@@ -7,6 +9,13 @@ import {
 } from './pages'
 
 export default function App() {
+  // রেফার লিংকে (?ref=কোড) এসে থাকলে ওয়েলকাম বোনাস একবারই মেলে; ফ্রি মিনিটের নিয়ম অপরিবর্তিত থাকে
+  const { claimRefArrival } = useStore()
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('ref')
+    if (code) claimRefArrival(code)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <Routes>
       <Route element={<Layout />}>

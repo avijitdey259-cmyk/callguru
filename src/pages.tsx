@@ -10,12 +10,160 @@ import {
   REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, type Expert
 } from './data'
+import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_COINS, REF_WELCOME_COINS } from './store'
+
+// ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
+// নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
+export async function shareLink(title: string, text: string, url: string): Promise<'shared' | 'copied' | 'failed'> {
+  try {
+    if (navigator.share) { await navigator.share({ title, text, url }); return 'shared' }
+  } catch { return 'failed' }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); return 'copied' } catch { return 'failed' }
+}
+
+function currentWeekLabel(): string {
+  const now = new Date()
+  const day = (now.getDay() + 6) % 7 // সোমবার = ০
+  const mon = new Date(now); mon.setDate(now.getDate() - day)
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+  const fmt = (d: Date) => d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long' })
+  return `${fmt(mon)} – ${fmt(sun)}`
+}
+
+// রেফার লিংকে এসে থাকলে ফিডের উপরে ওয়েলকাম ব্যানার
+export function RefWelcomeBanner() {
+  const { refNotice, dismissRefNotice } = useStore()
+  if (!refNotice) return null
+  return (
+    <Card className="!bg-green-50 dark:!bg-green-900">
+      <div className="flex items-start gap-2">
+        <p className="text-sm font-medium flex-1">{refNotice}</p>
+        <button className="text-gray-400" onClick={dismissRefNotice}>✕</button>
+      </div>
+      <p className="text-xs text-gray-500 mt-1">প্রথম কলের প্রথম ১ মিনিট ফ্রি — নতুন ব্যবহারকারীদের জন্য প্রযোজ্য।</p>
+    </Card>
+  )
+}
+
+// বন্ধুকে ডাকুন — ব্যক্তিগত ইনভাইট লিংক, কপি/শেয়ার, রেফারেল হিসাব
+export function InviteCard() {
+  const { referralCode, referrals, referralCoinsEarned } = useStore()
+  const [msg, setMsg] = useState('')
+  const link = `${INVITE_BASE_URL}?ref=${referralCode}`
+  async function copy() {
+    try { await navigator.clipboard.writeText(link); setMsg('✅ লিংক কপি হয়েছে — বন্ধুকে পাঠান!') }
+    catch { setMsg('লিংক: ' + link) }
+  }
+  async function share() {
+    const r = await shareLink('CallGuru — লাইভ এক্সপার্ট পরামর্শ', 'CallGuru-তে আসুন — প্রথম কলের প্রথম ১ মিনিট ফ্রি + ১০ কয়েন বোনাস!', link)
+    setMsg(r === 'shared' ? '✅ শেয়ার হয়েছে!' : r === 'copied' ? '✅ লিংক কপি হয়েছে — বন্ধুকে পাঠান!' : '')
+  }
+  return (
+    <Card>
+      <h2 className="font-bold">📣 বন্ধুকে ডাকুন — দুজনেই পাবেন</h2>
+      <p className="text-sm mt-1">আপনার লিংকে বন্ধু এলে বন্ধু পাবে <b>প্রথম কলের প্রথম ১ মিনিট ফ্রি + {REF_WELCOME_COINS} কয়েন</b>। বন্ধু প্রথম টপ-আপ করলে <b>আপনি পাবেন {REF_INVITER_COINS} কয়েন</b>।</p>
+      <p className="text-sm mt-2 break-all">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code></p>
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={copy}>📋 লিংক কপি করুন</Btn>
+        <Btn variant="green" onClick={share}>↗️ শেয়ার করুন</Btn>
+      </div>
+      <p className="text-sm mt-2">রেফারেল: <b>{referrals} জন</b> • রেফারেল থেকে আয়: <b>🪙 {referralCoinsEarned} কয়েন</b></p>
+      {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
+      <p className="text-xs text-gray-400 mt-2">ডেমো নোট: রেফারেল এই ডিভাইসে ট্র্যাক করা হয় — আসল ক্রস-ডিভাইস ট্র্যাকিংয়ের জন্য ব্যাকএন্ড লাগবে।</p>
+    </Card>
+  )
+}
+
+// ডেইলি বোনাস — ৭ দিনের চক্র, একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
+export function DailyBonusCard() {
+  const { streak, dailyClaimedToday, claimDailyBonus, coins } = useStore()
+  const [msg, setMsg] = useState('')
+  function claim() {
+    const r = claimDailyBonus()
+    if (r) setMsg(`🎉 দিন ${r.day} — ${r.coins} কয়েন পেয়েছেন! মোট কয়েন: ${coins + r.coins}।`)
+  }
+  const nextDay = ((streak % 7) + 1)
+  return (
+    <Card className="!bg-amber-50 dark:!bg-amber-900/30">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <h2 className="font-bold">🎁 ডেইলি বোনাস</h2>
+        <span className="text-sm">🔥 স্ট্রিক: <b>{streak} দিন</b> • কয়েন: <b>🪙 {coins}</b></span>
+      </div>
+      <div className="flex gap-1.5 mt-3 flex-wrap">
+        {DAILY_BONUS_REWARDS.map((c, i) => {
+          const day = i + 1
+          const cycleDay = streak % 7 // ০ = নতুন চক্র শুরু হয়নি বা চক্র শেষ হয়েছে
+          const doneCount = dailyClaimedToday ? (cycleDay === 0 ? 7 : cycleDay) : cycleDay
+          const done = day <= doneCount
+          const isNext = day === nextDay && !dailyClaimedToday
+          return (
+            <span key={day} className={`text-xs px-2 py-1.5 rounded-lg font-bold ${done ? 'bg-green-500 text-white' : isNext ? 'bg-amber-400 text-black ring-2 ring-amber-600' : 'bg-white dark:bg-slate-700'}`}>
+              দিন {day}: {c}🪙
+            </span>
+          )
+        })}
+      </div>
+      <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — ৭ম দিনে ৫০ কয়েন! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
+      <Btn variant="green" className="mt-3" disabled={dailyClaimedToday} onClick={claim}>
+        {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (দিন ${nextDay}: ${DAILY_BONUS_REWARDS[nextDay - 1]} কয়েন)`}
+      </Btn>
+      {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
+    </Card>
+  )
+}
+
+// সপ্তাহের লিডারবোর্ড — লাইভ হোস্ট (গিফট) ও গিফট-দাতা; ডেমো ডেটা + নিজের হিসাব
+export function LeaderboardCard() {
+  const { liveEarnings, giftsSentCoins } = useStore()
+  const hostSeed = [
+    { name: 'তানিয়া', gifts: 320 }, { name: 'সুমাইয়া', gifts: 260 }, { name: 'নুসরাত', gifts: 180 },
+    { name: 'মেহজাবিন', gifts: 150 }, { name: 'রাকিব', gifts: 90 }
+  ]
+  const giverSeed = [
+    { name: 'রাফি আহমেদ', gifts: 240 }, { name: 'সাবরিনা খান', gifts: 180 },
+    { name: 'হাসান মাহমুদ', gifts: 120 }, { name: 'প্রিয়া দাস', gifts: 95 }
+  ]
+  const hosts = [...hostSeed.map(h => ({ ...h, mine: false, demo: true })), ...(liveEarnings > 0 ? [{ name: 'আপনি', gifts: liveEarnings, mine: true, demo: false }] : [])]
+    .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
+  const givers = [...giverSeed.map(h => ({ ...h, mine: false, demo: true })), ...(giftsSentCoins > 0 ? [{ name: 'আপনি', gifts: giftsSentCoins, mine: true, demo: false }] : [])]
+    .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
+  return (
+    <Card>
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <h2 className="font-bold">🏆 সপ্তাহের লিডারবোর্ড</h2>
+        <span className="text-xs text-gray-400">এই সপ্তাহ: {currentWeekLabel()}</span>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4 mt-3">
+        <div>
+          <p className="text-sm font-bold">🎤 সেরা লাইভ হোস্ট (গিফট পেয়েছেন)</p>
+          {hosts.map((h, i) => (
+            <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
+              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>}</span>
+              <span>🎁 {h.gifts} কয়েন</span>
+            </p>
+          ))}
+        </div>
+        <div>
+          <p className="text-sm font-bold">💝 সেরা গিফট-দাতা</p>
+          {givers.map((h, i) => (
+            <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
+              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>}</span>
+              <span>🎁 {h.gifts} কয়েন</span>
+            </p>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mt-2">লিডারবোর্ডের ডেমো নামগুলো উদাহরণ — আপনার নিজের লাইভ আয় ও পাঠানো গিফট এখানে “আপনি” হিসেবে যোগ হয়।</p>
+    </Card>
+  )
+}
 
 // ---------- Landing ----------
 export function Landing() {
   const navigate = useNavigate()
   return (
     <div className="space-y-6">
+      <RefWelcomeBanner />
       <Card className="text-center py-10 bg-gradient-to-br from-blue-600 to-blue-400 !text-white">
         <h1 className="text-4xl font-extrabold">CallGuru</h1>
         <p className="mt-2 text-lg">লাইভ এক্সপার্ট পরামর্শ • সোশ্যাল কমিউনিটি • ক্রিয়েটর মার্কেটপ্লেস</p>
@@ -94,6 +242,10 @@ export function Feed() {
           </div>
         ))}
       </div>
+      <RefWelcomeBanner />
+      <DailyBonusCard />
+      <InviteCard />
+      <LeaderboardCard />
       <Card>
         <p className="font-medium">আপনার মনে কী আছে?</p>
         <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="কিছু লিখুন…" />
@@ -530,6 +682,7 @@ export function WalletPage() {
         <p className="text-xs text-gray-400 mt-2">ওয়ালেট ব্যালেন্স থেকে কাটবে — ব্যালেন্স কম থাকলে আগে টপ-আপ করুন।</p>
         {coinMsg && <p className="text-sm mt-2">{coinMsg}</p>}
       </Card>
+      <InviteCard />
       <Card>
         <h2 className="font-bold">🔗 অ্যাফিলিয়েট ও রেফারেল</h2>
         <p className="text-sm mt-1">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">callguru.app/r/avijit</code></p>
@@ -1040,7 +1193,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { balance, deduct, liveRate, user, coins, addCoins, kycVerified } = useStore()
+  const { balance, deduct, liveRate, user, coins, addCoins, kycVerified, recordShare, addGiftsSent } = useStore()
   const navigate = useNavigate()
   const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
@@ -1068,6 +1221,11 @@ export function DatingLivePage() {
   const [giftsSent, setGiftsSent] = useState<{ icon: string; name: string; price: number }[]>([])
   const [giftMsg, setGiftMsg] = useState('')
   const [giftCoinsTotal, setGiftCoinsTotal] = useState(0)
+  const [shareMsg, setShareMsg] = useState('')
+  async function shareLive() {
+    const res = await shareLink('CallGuru লাইভ', 'আমি CallGuru লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
+    if (res === 'shared' || res === 'copied') { recordShare(); setShareMsg(res === 'shared' ? '✅ শেয়ার হয়েছে!' : '✅ লাইভের লিংক কপি হয়েছে!') }
+  }
   // আসল লাইভ (WebRTC) — সার্ভার না পৌঁছালে ডেমো আচরণই থাকবে
   const remoteRef = useRef<HTMLVideoElement>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
@@ -1083,6 +1241,7 @@ export function DatingLivePage() {
   function sendGift(g: { icon: string; name: string; price: number }) {
     if (coins < g.price) { setGiftMsg('কয়েন যথেষ্ট নয় — কয়েন কিনুন'); return }
     addCoins(-g.price)
+    addGiftsSent(g.price)
     setGiftsSent(prev => [...prev, g])
     setGiftCoinsTotal(t => t + g.price)
     setGiftMsg(`🎁 আপনি ${g.icon} ${g.name} পাঠিয়েছেন!`)
@@ -1217,10 +1376,12 @@ export function DatingLivePage() {
             <p>বর্তমান ব্যালেন্স: <b>{formatBDT(balance - cost < 0 ? 0 : balance - cost)}</b></p>
           </div>
           <p className="text-sm text-gray-300 mt-2">{endReason}</p>
-          <div className="flex gap-2 mt-5 justify-center">
+          <div className="flex gap-2 mt-5 justify-center flex-wrap">
             <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 টপ-আপ</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={shareLive}>📤 শেয়ার করুন</Btn>
           </div>
+          {shareMsg && <p className="text-sm text-green-400 mt-2">{shareMsg}</p>}
         </Card>
       </div>
     )
@@ -1315,7 +1476,7 @@ export function DatingLivePage() {
 
 // নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
 export function DatingGoLivePage() {
-  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified } = useStore()
+  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified, recordShare } = useStore()
   const navigate = useNavigate()
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
   const [started, setStarted] = useState(false)
@@ -1326,6 +1487,11 @@ export function DatingGoLivePage() {
   const [endMyShare, setEndMyShare] = useState(0)
   const [endGross, setEndGross] = useState(0)
   const [endSeconds, setEndSeconds] = useState(0)
+  const [shareMsg, setShareMsg] = useState('')
+  async function shareLive() {
+    const res = await shareLink('CallGuru লাইভ', 'আমি CallGuru লাইভে ছিলাম — দেখুন', `${INVITE_BASE_URL}dating`)
+    if (res === 'shared' || res === 'copied') { recordShare(); setShareMsg(res === 'shared' ? '✅ শেয়ার হয়েছে!' : '✅ লাইভের লিংক কপি হয়েছে!') }
+  }
   const [endPeak, setEndPeak] = useState(0)
   const [facing, setFacing] = useState<'user' | 'environment'>('user')
   const [camCount, setCamCount] = useState<number | null>(null)
@@ -1492,10 +1658,12 @@ export function DatingGoLivePage() {
             <p>অ্যাডমিনের শেয়ার (৩০%): <b>{formatBDT(adminFinal)}</b></p>
             <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatBDT(liveEarnings)}</b></p>
           </div>
-          <div className="flex gap-2 mt-5 justify-center">
+          <div className="flex gap-2 mt-5 justify-center flex-wrap">
             <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>💰 ওয়ালেট</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={shareLive}>📤 শেয়ার করুন</Btn>
           </div>
+          {shareMsg && <p className="text-sm text-green-400 mt-2">{shareMsg}</p>}
         </Card>
       </div>
     )
@@ -1639,12 +1807,32 @@ export function GroupsPage() {
 }
 
 export function ReelsPage() {
+  const { reelShares, totalShares, recordShare } = useStore()
+  const [shareMsg, setShareMsg] = useState('')
+  async function shareReel(r: { id: string; title: string; creator: string }) {
+    const url = `${INVITE_BASE_URL}reels?reel=${r.id}`
+    const res = await shareLink(`CallGuru রিলস — ${r.title}`, `দেখুন: “${r.title}” (${r.creator}) — CallGuru রিলস!`, url)
+    if (res === 'shared' || res === 'copied') {
+      recordShare(r.id)
+      setShareMsg(res === 'shared' ? '✅ রিল শেয়ার হয়েছে!' : '✅ রিলের লিংক কপি হয়েছে — পাঠিয়ে দিন!')
+    }
+  }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">🎬 রিলস ও মনিটাইজেশন</h1>
+      <p className="text-sm text-gray-500">মোট শেয়ার: <b>↗️ {totalShares}</b> • ভালো লাগলে শেয়ার করুন — বন্ধুরা CallGuru-তে আসবে!</p>
+      {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
         {REELS.map(r => (
-          <Card key={r.id}><div className="text-4xl">🎬</div><p className="font-bold mt-2">{r.title}</p><p className="text-sm text-gray-500">{r.views} ভিউ • {r.creator}</p></Card>
+          <Card key={r.id}>
+            <div className="text-4xl">🎬</div>
+            <p className="font-bold mt-2">{r.title}</p>
+            <p className="text-sm text-gray-500">{r.views} ভিউ • {r.creator}</p>
+            <div className="flex gap-2 mt-3 items-center">
+              <Btn variant="ghost" onClick={() => shareReel(r)}>↗️ শেয়ার</Btn>
+              <span className="text-sm text-gray-500">↗️ {reelShares[r.id] ?? 0} শেয়ার</span>
+            </div>
+          </Card>
         ))}
       </div>
       <Card><h2 className="font-bold">ক্রিয়েটর মনিটাইজেশন</h2><p className="text-sm mt-1">রিলস, লাইভ ক্লাস ও প্রিমিয়াম কনটেন্ট থেকে আয় করুন। ভিউ, গিফট ও সাবস্ক্রিপশন থেকে ক্রিয়েটর পান শেয়ার — বিস্তারিত অ্যাডমিন রেভিনিউ প্যানেলে।</p></Card>

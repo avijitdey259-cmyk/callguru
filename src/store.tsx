@@ -11,6 +11,16 @@ export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'
 // সেলফি ও লাইভ ভিডিও ক্লিপ শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয়
 export type KycInfo = { name: string; dob: string; idType: string; idNumber?: string; idLast4: string; selfie?: string; selfieVideo?: string; submittedAt: string; verifiedAt: string | null }
 
+// ভাইরাল গ্রোথ — ডেইলি বোনাস চক্র (৭ দিন, তারপর আবার ১ম দিন থেকে)
+export const DAILY_BONUS_REWARDS = [5, 10, 15, 20, 25, 30, 50]
+export const REF_WELCOME_COINS = 10 // রেফার লিংকে এসে নতুন ব্যবহারকারী পাবেন
+export const REF_INVITER_COINS = 20 // রেফার করা বন্ধুর প্রথম টপ-আপে আমন্ত্রণকারী পাবেন
+export const INVITE_BASE_URL = 'https://callguru-app.netlify.app/'
+
+function todayStr(): string { return new Date().toLocaleDateString('en-CA') }
+function yesterdayStr(): string { return new Date(Date.now() - 86400000).toLocaleDateString('en-CA') }
+function randomCode(): string { return 'cg-' + Math.random().toString(36).slice(2, 8) }
+
 type Store = {
   user: { name: string; email: string } | null
   login: (name: string, email: string) => void
@@ -53,6 +63,23 @@ type Store = {
   approveKyc: () => void
   rejectKyc: (reason: string) => void
   resetKyc: () => void
+  // ভাইরাল গ্রোথ — রেফারেল/ইনভাইট, ডেইলি বোনাস, শেয়ার, লাইভ লিডারবোর্ড (ডেমো: এই ডিভাইসে ট্র্যাক করা হয়)
+  referralCode: string
+  referrer: string | null
+  refNotice: string | null
+  dismissRefNotice: () => void
+  claimRefArrival: (code: string) => void
+  referralRewarded: boolean
+  referralCoinsEarned: number
+  lastClaimDate: string | null
+  streak: number
+  dailyClaimedToday: boolean
+  claimDailyBonus: () => { day: number; coins: number } | null
+  totalShares: number
+  reelShares: Record<string, number>
+  recordShare: (id?: string) => void
+  giftsSentCoins: number
+  addGiftsSent: (n: number) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -99,6 +126,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return info
   })
   const [kycRejectReason, setKycRejectReason] = useState<string>(() => load('kycRejectReason', ''))
+  // ভাইরাল গ্রোথ — রেফারেল কোড একবার তৈরি হয়ে স্থায়ী থাকে; ?ref= লিংকে এলে ওয়েলকাম বোনাস একবারই মেলে
+  const [referralCode] = useState<string>(() => load('referralCode', randomCode()))
+  const [referrer, setReferrer] = useState<string | null>(() => load('referrer', null))
+  const [refWelcomeClaimed, setRefWelcomeClaimed] = useState<boolean>(() => load('refWelcomeClaimed', false))
+  const [refNotice, setRefNotice] = useState<string | null>(() => load('refNotice', null))
+  const [referralRewarded, setReferralRewarded] = useState<boolean>(() => load('referralRewarded', false))
+  const [referralCoinsEarned, setReferralCoinsEarned] = useState<number>(() => load('referralCoinsEarned', 0))
+  const [hasToppedUp, setHasToppedUp] = useState<boolean>(() => load('hasToppedUp', false))
+  // ডেইলি বোনাস — শেষ দাবির তারিখ ও টানা দিনের সংখ্যা; একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
+  const [lastClaimDate, setLastClaimDate] = useState<string | null>(() => load('lastClaimDate', null))
+  const [streak, setStreak] = useState<number>(() => load('streak', 0))
+  // শেয়ার — মোট শেয়ার ও প্রতি রিলের শেয়ার সংখ্যা
+  const [totalShares, setTotalShares] = useState<number>(() => load('totalShares', 0))
+  const [reelShares, setReelShares] = useState<Record<string, number>>(() => load('reelShares', {}))
+  // লিডারবোর্ডের জন্য এই ডিভাইসে পাঠানো মোট গিফট (কয়েনে)
+  const [giftsSentCoins, setGiftsSentCoins] = useState<number>(() => load('giftsSentCoins', 0))
 
   useEffect(() => save('user', user), [user])
   useEffect(() => save('balance', balance), [balance])
@@ -118,13 +161,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('kycStatus', kycStatus), [kycStatus])
   useEffect(() => save('kycInfo', kycInfo), [kycInfo])
   useEffect(() => save('kycRejectReason', kycRejectReason), [kycRejectReason])
+  useEffect(() => save('referralCode', referralCode), [referralCode])
+  useEffect(() => save('referrer', referrer), [referrer])
+  useEffect(() => save('refWelcomeClaimed', refWelcomeClaimed), [refWelcomeClaimed])
+  useEffect(() => save('refNotice', refNotice), [refNotice])
+  useEffect(() => save('referralRewarded', referralRewarded), [referralRewarded])
+  useEffect(() => save('referralCoinsEarned', referralCoinsEarned), [referralCoinsEarned])
+  useEffect(() => save('hasToppedUp', hasToppedUp), [hasToppedUp])
+  useEffect(() => save('lastClaimDate', lastClaimDate), [lastClaimDate])
+  useEffect(() => save('streak', streak), [streak])
+  useEffect(() => save('totalShares', totalShares), [totalShares])
+  useEffect(() => save('reelShares', reelShares), [reelShares])
+  useEffect(() => save('giftsSentCoins', giftsSentCoins), [giftsSentCoins])
 
   const value: Store = useMemo(() => ({
     user,
     login: (name, email) => setUser({ name, email }),
     logout: () => setUser(null),
     balance,
-    topUp: (amount, _method) => setBalance(b => b + amount),
+    topUp: (amount, _method) => {
+      setBalance(b => b + amount)
+      // রেফারেল পুরস্কার: রেফার লিংকে এসে প্রথম টপ-আপ করলেই আমন্ত্রণকারী ২০ কয়েন পান (একবারই)
+      if (referrer && !referralRewarded && !hasToppedUp) {
+        setReferralRewarded(true)
+        setReferrals(r => r + 1)
+        setReferralCoinsEarned(c => c + REF_INVITER_COINS)
+        // ডেমোতে আমন্ত্রণকারী আর নতুন ব্যবহারকারী একই ডিভাইসে হলে (নিজের লিংকে নিজে এলে) কয়েনটা এখানেই জমা হয়
+        if (referrer === referralCode) setCoins(c => c + REF_INVITER_COINS)
+        setRefNotice(`✅ আপনার প্রথম টপ-আপ সম্পূর্ণ হয়েছে — আপনার আমন্ত্রণকারী ${REF_INVITER_COINS} কয়েন পেয়েছেন!`)
+      }
+      setHasToppedUp(true)
+    },
     deduct: (amount) => {
       let ok = false
       setBalance(b => { if (b >= amount) { ok = true; return b - amount } return b })
@@ -171,8 +238,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     submitKyc: (info) => { setKycInfo({ ...info, submittedAt: new Date().toISOString(), verifiedAt: null }); setKycRejectReason(''); setKycStatus('pending') },
     approveKyc: () => { setKycInfo(prev => prev ? { ...prev, verifiedAt: new Date().toISOString() } : prev); setKycStatus('approved') },
     rejectKyc: (reason) => { setKycRejectReason(reason.trim()); setKycStatus('rejected') },
-    resetKyc: () => { setKycInfo(null); setKycRejectReason(''); setKycStatus('none') }
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason])
+    resetKyc: () => { setKycInfo(null); setKycRejectReason(''); setKycStatus('none') },
+    referralCode,
+    referrer,
+    refNotice,
+    dismissRefNotice: () => { setRefNotice(null) },
+    claimRefArrival: (code) => {
+      const c = (code || '').trim()
+      if (!c || c === referralCode || refWelcomeClaimed) return
+      setReferrer(c); setRefWelcomeClaimed(true); setCoins(coins => coins + REF_WELCOME_COINS)
+      setRefNotice(`🎉 বন্ধুর লিংকে এসেছেন — ${REF_WELCOME_COINS} কয়েন বোনাস পেয়েছেন!`)
+    },
+    referralRewarded,
+    referralCoinsEarned,
+    lastClaimDate,
+    streak,
+    dailyClaimedToday: lastClaimDate === todayStr(),
+    claimDailyBonus: () => {
+      const today = todayStr()
+      if (lastClaimDate === today) return null
+      const nextStreak = lastClaimDate === yesterdayStr() ? streak + 1 : 1
+      const day = ((nextStreak - 1) % 7) + 1
+      const reward = DAILY_BONUS_REWARDS[day - 1]
+      setStreak(nextStreak); setLastClaimDate(today); setCoins(c => c + reward)
+      return { day, coins: reward }
+    },
+    totalShares,
+    reelShares,
+    recordShare: (id) => {
+      setTotalShares(t => t + 1)
+      if (id) setReelShares(prev => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+    },
+    giftsSentCoins,
+    addGiftsSent: (n) => { const m = Math.floor(Number(n)); if (Number.isFinite(m) && m > 0) setGiftsSentCoins(g => g + m) }
+  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, coins, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralCoinsEarned, hasToppedUp, lastClaimDate, streak, totalShares, reelShares, giftsSentCoins])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
