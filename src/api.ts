@@ -7,6 +7,11 @@
 //   GET  /api/experts     -> [{ id, name, rate, online }]
 //   POST /api/topup       -> { ok, amount, method, note }
 //   POST /api/call/start  -> { ok, rate, freeFirstMinute, maxMinutes }
+//   GET  /api/live        -> [{ id, hostName, title, viewers, startedAt }]
+//   POST /api/live        -> create a live room { hostName, title }
+//   DELETE /api/live/:id  -> end a live room
+//   WebSocket (same host/port): live signalling — join/offer/answer/ice/gift/
+//   chat/leave, viewer-count + host-left broadcasts (see src/live.ts).
 import { useEffect, useState } from 'react'
 import { EXPERTS, type Expert } from './data'
 

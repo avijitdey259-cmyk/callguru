@@ -1,7 +1,28 @@
-// CallGuru demo backend (Express). Netlify deploys only the frontend (dist/);
-// run this separately for local/full-stack use: `npm run server` (port 4000).
+// CallGuru backend (Express + self-hosted live server). Netlify deploys only the
+// frontend (dist/); run this separately: `npm run server` (port 4000, or $PORT).
 // No secrets here — real Firebase / SMS / TURN credentials go in environment variables.
+//
+// LIVE SERVER (self-hosted, no external service, no API keys):
+//   REST:  GET /api/live        -> currently live rooms [{id, hostName, title, viewers, startedAt}]
+//          POST /api/live       -> create a room {hostName, title} -> room
+//          DELETE /api/live/:id -> end a room (host + viewers get 'host-left')
+//   WebSocket (same HTTP server/port, so it works on Railway's single PORT):
+//   JSON messages, room = live room id:
+//     join   {roomId, role: 'host'|'viewer', name}  -> host registers, viewer gets
+//             {type:'joined', viewerId, viewers}; everyone gets 'viewer-count'
+//     offer  {roomId, to, from, sdp}   viewer -> host (offer), host -> viewer (via answer)
+//     answer {roomId, to, from, sdp}   host -> viewer
+//     ice    {roomId, to, from, candidate}  relayed host <-> viewer
+//     gift   {roomId, name, gift}      broadcast to the whole room
+//     chat   {roomId, name, text}      broadcast to the room except the sender
+//     leave  {roomId}                  leave the room
+//   Host disconnect -> viewers get 'host-left' and the room is deleted.
+//   Media itself is WebRTC peer-to-peer (mesh): the host sends one stream per
+//   viewer, STUN only (stun:stun.l.google.com:19302) — no TURN yet. Works for a
+//   small audience (roughly 5-8 viewers); a big audience needs an SFU later.
 import express from 'express'
+import http from 'http'
+import { WebSocketServer } from 'ws'
 
 const app = express()
 app.use(express.json())
@@ -38,4 +59,132 @@ app.post('/api/call/start', (req, res) => {
   res.json({ ok: canStart, rate, freeFirstMinute: !freeFirstMinuteUsed, maxMinutes: freeFirstMinuteUsed ? Math.floor((balance || 0) / rate) : 1 + Math.floor((balance || 0) / rate) })
 })
 
-app.listen(PORT, () => console.log(`CallGuru API listening on http://localhost:${PORT}`))
+// ---------- Live rooms (in-memory; a restart clears them) ----------
+/** @type {Map<string, {id: string, hostName: string, title: string, startedAt: number, host: import('ws').WebSocket | null, viewers: Map<string, import('ws').WebSocket>}>} */
+const liveRooms = new Map()
+let liveSeq = 0
+
+function publicRoom(r) {
+  return { id: r.id, hostName: r.hostName, title: r.title, viewers: r.viewers.size, startedAt: r.startedAt }
+}
+
+function send(ws, msg) {
+  try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)) } catch { /* ignore */ }
+}
+
+function broadcast(room, msg, except) {
+  if (room.host && room.host !== except) send(room.host, msg)
+  for (const ws of room.viewers.values()) {
+    if (ws !== except) send(ws, msg)
+  }
+}
+
+function broadcastViewerCount(room) {
+  broadcast(room, { type: 'viewer-count', roomId: room.id, viewers: room.viewers.size })
+}
+
+function endRoom(room, reason) {
+  liveRooms.delete(room.id)
+  broadcast(room, { type: 'host-left', roomId: room.id, reason: reason || 'host-left' })
+}
+
+app.get('/api/live', (_req, res) => {
+  res.json([...liveRooms.values()].map(publicRoom))
+})
+
+app.post('/api/live', (req, res) => {
+  const { hostName, title } = req.body || {}
+  const name = typeof hostName === 'string' && hostName.trim() ? hostName.trim().slice(0, 60) : 'লাইভ হোস্ট'
+  const id = `live-${Date.now().toString(36)}-${++liveSeq}`
+  const room = { id, hostName: name, title: typeof title === 'string' ? title.slice(0, 80) : 'ডেটিং লাইভ', startedAt: Date.now(), host: null, viewers: new Map() }
+  liveRooms.set(id, room)
+  res.status(201).json(publicRoom(room))
+})
+
+app.delete('/api/live/:id', (req, res) => {
+  const room = liveRooms.get(req.params.id)
+  if (!room) return res.status(404).json({ error: 'Room not found' })
+  endRoom(room, 'ended')
+  res.json({ ok: true, id: room.id })
+})
+
+// ---------- WebSocket signalling (same server/port) ----------
+const server = http.createServer(app)
+const wss = new WebSocketServer({ server })
+
+wss.on('connection', (ws) => {
+  ws._live = { roomId: null, role: null, name: null, viewerId: null }
+
+  ws.on('message', (raw) => {
+    let m
+    try { m = JSON.parse(String(raw)) } catch { return }
+    if (!m || typeof m.type !== 'string') return
+    const room = m.roomId ? liveRooms.get(m.roomId) : null
+
+    if (m.type === 'join') {
+      if (!room) { send(ws, { type: 'error', roomId: m.roomId, error: 'Room not found' }); return }
+      ws._live = { roomId: room.id, role: m.role, name: typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি', viewerId: null }
+      if (m.role === 'host') {
+        if (room.host && room.host !== ws) send(room.host, { type: 'host-left', roomId: room.id, reason: 'replaced' })
+        room.host = ws
+        send(ws, { type: 'joined', roomId: room.id, role: 'host', viewers: room.viewers.size })
+      } else {
+        const viewerId = `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+        ws._live.viewerId = viewerId
+        room.viewers.set(viewerId, ws)
+        send(ws, { type: 'joined', roomId: room.id, role: 'viewer', viewerId, viewers: room.viewers.size })
+        broadcastViewerCount(room)
+      }
+      return
+    }
+
+    if (!room) return
+    const from = ws._live.viewerId || ws._live.role || 'unknown'
+
+    if (m.type === 'offer' || m.type === 'answer' || m.type === 'ice') {
+      // Viewer -> host (to 'host' or omitted), host -> one viewer (to = viewerId).
+      if (m.to && m.to !== 'host') {
+        const target = room.viewers.get(m.to)
+        if (target) send(target, { ...m, from })
+      } else if (room.host) {
+        send(room.host, { ...m, from })
+      }
+      return
+    }
+
+    if (m.type === 'gift') {
+      broadcast(room, { type: 'gift', roomId: room.id, from: ws._live.name, gift: m.gift })
+      return
+    }
+
+    if (m.type === 'chat') {
+      if (typeof m.text !== 'string' || !m.text.trim()) return
+      broadcast(room, { type: 'chat', roomId: room.id, from: ws._live.name, text: m.text.slice(0, 500) }, ws)
+      return
+    }
+
+    if (m.type === 'leave') {
+      if (ws._live.role === 'viewer' && ws._live.viewerId) {
+        room.viewers.delete(ws._live.viewerId)
+        broadcastViewerCount(room)
+      }
+      ws._live = { roomId: null, role: null, name: null, viewerId: null }
+      return
+    }
+  })
+
+  ws.on('close', () => {
+    const info = ws._live
+    if (!info || !info.roomId) return
+    const room = liveRooms.get(info.roomId)
+    if (!room) return
+    if (info.role === 'host' && room.host === ws) {
+      endRoom(room, 'host-left')
+    } else if (info.role === 'viewer' && info.viewerId) {
+      room.viewers.delete(info.viewerId)
+      broadcastViewerCount(room)
+    }
+  })
+})
+
+server.listen(PORT, () => console.log(`CallGuru API + live server listening on http://localhost:${PORT}`))

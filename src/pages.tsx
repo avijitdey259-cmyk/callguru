@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
 import { useExperts } from './api'
+import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { Btn, Card } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -635,6 +636,13 @@ export function DatingPage() {
   const [matchedId, setMatchedId] = useState<string | null>(null)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({})
   const [boosted, setBoosted] = useState(false)
+  // আসল লাইভ রুম (CallGuru লাইভ সার্ভার) — সার্ভার না পৌঁছালে ডেমো হোস্ট দেখাবে
+  const [realRooms, setRealRooms] = useState<LiveRoom[] | null>(null)
+  const [liveServerOk, setLiveServerOk] = useState(false)
+  function refreshLiveRooms() {
+    fetchLiveRooms().then(r => { if (r) { setRealRooms(r); setLiveServerOk(true) } else { setLiveServerOk(false) } })
+  }
+  useEffect(() => { refreshLiveRooms() }, [])
   if (!adult) {
     return (
       <div className="max-w-md mx-auto"><Card className="text-center">
@@ -666,11 +674,31 @@ export function DatingPage() {
           <span className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-2 py-1 rounded-full font-bold">LIVE • ১৮+</span>
         </div>
         <p className="text-sm mt-2">লাইভ দেখতে {formatBDT(liveRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>। কলের রেট থেকে আলাদা — লাইভে টাকা কম কাটে।</p>
-        <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>
+        {liveServerOk
+          ? <p className="text-xs text-green-600 mt-1">🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার</p>
+          : <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — লাইভ সার্ভার সংযুক্ত নয়; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>}
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <Btn variant="green" onClick={() => navigate('/dating-go-live')}>📹 লাইভে যান</Btn>
+          <Btn variant="ghost" onClick={refreshLiveRooms}>🔄 লাইভ তালিকা রিফ্রেশ</Btn>
           <span className="text-sm">আপনার মোট লাইভ আয়: <b className="text-green-600">{formatBDT(liveEarnings)}</b> (৭০% শেয়ার)</span>
         </div>
+        {realRooms && realRooms.length > 0 && (
+          <div className="grid sm:grid-cols-3 gap-3 mt-4">
+            {realRooms.map(r => (
+              <div key={r.id} className="border-2 border-red-400 rounded-xl p-3 dark:border-red-700">
+                <div className="flex gap-3 items-center">
+                  <span className="w-12 h-12 rounded-full bg-fb-blue text-white text-xl flex items-center justify-center font-bold relative">{r.hostName.slice(0, 1)}
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
+                  </span>
+                  <div><p className="font-bold">{r.hostName}</p><p className="text-xs text-gray-500">👁️ {r.viewers} জন দেখছেন • <span className="text-green-600 font-bold">আসল লাইভ</span></p></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">{r.title}</p>
+                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${r.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(liveRate)}/মিনিট)</Btn>
+                <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="grid sm:grid-cols-3 gap-3 mt-4">
           {DATING_LIVE_HOSTS.map(h => {
             const p = DATING_PROFILES.find(x => x.id === h.id)!
@@ -680,7 +708,7 @@ export function DatingPage() {
                   <span className="w-12 h-12 rounded-full text-white text-xl flex items-center justify-center font-bold relative" style={{ background: p.color }}>{p.name.slice(0, 1)}
                     <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
                   </span>
-                  <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন</p></div>
+                  <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন • ডেমো</p></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">{p.about}</p>
                 <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatBDT(liveRate)}/মিনিট)</Btn>
@@ -742,8 +770,19 @@ export function DatingLivePage() {
   const { id } = useParams()
   const { balance, deduct, liveRate, user, coins, addCoins } = useStore()
   const navigate = useNavigate()
-  const host = DATING_PROFILES.find(p => p.id === id)
+  const seedHost = DATING_PROFILES.find(p => p.id === id)
   const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
+  // আসল রুম (CallGuru লাইভ সার্ভার) — ডেমো হোস্টের id না মিললে সার্ভারে খুঁজি
+  const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
+  const [roomLookupDone, setRoomLookupDone] = useState(false)
+  const host = seedHost ?? (realRoom ? { id: realRoom.id, name: realRoom.hostName, age: 0, city: '', about: 'লাইভে আছেন', color: '#E91E63' } : undefined)
+  useEffect(() => {
+    if (seedHost) { setRoomLookupDone(true); return }
+    let alive = true
+    fetchLiveRooms().then(rooms => { if (!alive) return; setRealRoom(rooms?.find(x => x.id === id) ?? null); setRoomLookupDone(true) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট ৳৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
@@ -757,6 +796,15 @@ export function DatingLivePage() {
   const [giftsSent, setGiftsSent] = useState<{ icon: string; name: string; price: number }[]>([])
   const [giftMsg, setGiftMsg] = useState('')
   const [giftCoinsTotal, setGiftCoinsTotal] = useState(0)
+  // আসল লাইভ (WebRTC) — সার্ভার না পৌঁছালে ডেমো আচরণই থাকবে
+  const remoteRef = useRef<HTMLVideoElement>(null)
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const viewerIdRef = useRef<string | null>(null)
+  const [remoteReady, setRemoteReady] = useState(false)
+  const [serverLive, setServerLive] = useState(false)
+  const [liveViewers, setLiveViewers] = useState<number | null>(null)
+  const [giftFeed, setGiftFeed] = useState<string[]>([])
   const giftCreatorTotal = Math.floor(giftCoinsTotal * LIVE_CREATOR_SHARE)
   const giftAdminTotal = giftCoinsTotal - giftCreatorTotal
 
@@ -766,6 +814,8 @@ export function DatingLivePage() {
     setGiftsSent(prev => [...prev, g])
     setGiftCoinsTotal(t => t + g.price)
     setGiftMsg(`🎁 আপনি ${g.icon} ${g.name} পাঠিয়েছেন!`)
+    // আসল লাইভে হোস্টকেও গিফটটা জানানো হয়; সার্ভার না থাকলে শুধু লোকালি দেখাবে
+    if (realRoom) sendSignal(wsRef.current, { type: 'gift', roomId: realRoom.id, name: user?.name || 'আপনি', gift: g })
   }
 
   const billedMinutes = Math.ceil(seconds / 60)
@@ -787,6 +837,51 @@ export function DatingLivePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, ended, maxSeconds])
 
+  // দর্শক হিসেবে আসল লাইভে যোগ দেওয়া (শুধু আসল রুমের ক্ষেত্রে; ডেমো হোস্টে কিছুই হয় না)
+  useEffect(() => {
+    if (!started || ended || !realRoom) return
+    let cancelled = false
+    const pc = new RTCPeerConnection(ICE_SERVERS)
+    pcRef.current = pc
+    pc.addTransceiver('video', { direction: 'recvonly' })
+    pc.addTransceiver('audio', { direction: 'recvonly' })
+    pc.ontrack = (ev) => {
+      const s = ev.streams[0]
+      if (s) { if (remoteRef.current) remoteRef.current.srcObject = s; setRemoteReady(true) }
+    }
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate && viewerIdRef.current) {
+        sendSignal(wsRef.current, { type: 'ice', roomId: realRoom.id, from: viewerIdRef.current, to: 'host', candidate: ev.candidate.toJSON() })
+      }
+    }
+    const ws = connectLive(realRoom.id, 'viewer', user?.name || 'দর্শক', {
+      onOpen: () => { if (!cancelled) setServerLive(true) },
+      onClose: () => { if (!cancelled) setServerLive(false) },
+      onJoined: (viewerId, viewers) => {
+        if (cancelled) return
+        viewerIdRef.current = viewerId
+        setLiveViewers(viewers)
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          sendSignal(ws, { type: 'offer', roomId: realRoom.id, from: viewerId, sdp: pc.localDescription })
+        }).catch(() => { /* ignore */ })
+      },
+      onAnswer: (_from, sdp) => { pc.setRemoteDescription(new RTCSessionDescription(sdp)).catch(() => {}) },
+      onIce: (_from, candidate) => { pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}) },
+      onViewerCount: (n) => { if (!cancelled) setLiveViewers(n) },
+      onGift: (from, gift) => { if (!cancelled) setGiftFeed(f => [...f.slice(-4), `${from} পাঠিয়েছেন ${gift.icon} ${gift.name}`]) },
+      onChat: (from, text) => { if (!cancelled) setChat(c => [...c, { from, text }]) },
+      onHostLeft: () => { if (!cancelled) endLive('হোস্ট লাইভ শেষ করেছেন') },
+    })
+    wsRef.current = ws
+    return () => {
+      cancelled = true
+      try { pc.close() } catch { /* ignore */ }
+      try { ws?.close() } catch { /* ignore */ }
+      pcRef.current = null; wsRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, ended, realRoom])
+
   function endLive(reason: string) {
     if (ended) return
     setEnded(true); setEndReason(reason || 'লাইভ দেখা শেষ')
@@ -798,7 +893,19 @@ export function DatingLivePage() {
     const err = contactBanCheck(chatDraft)
     if (err) { setBanMsg(err + ` (চেষ্টা ${banCount + 1} — অ্যাডমিন লগে সংরক্ষিত)`); setBanCount(c => c + 1); return }
     if (!chatDraft.trim()) return
-    setChat(c => [...c, { from: user?.name || 'আপনি', text: chatDraft }]); setChatDraft(''); setBanMsg('')
+    const text = chatDraft
+    setChat(c => [...c, { from: user?.name || 'আপনি', text }]); setChatDraft(''); setBanMsg('')
+    if (realRoom) sendSignal(wsRef.current, { type: 'chat', roomId: realRoom.id, name: user?.name || 'আপনি', text })
+  }
+
+  if (!roomLookupDone) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">লাইভ খুঁজছি…</h1>
+        </Card>
+      </div>
+    )
   }
 
   if (!host) {
@@ -848,7 +955,7 @@ export function DatingLivePage() {
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
           <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
           <h1 className="text-xl font-bold mt-3">{host.name} লাইভে আছেন</h1>
-          <p className="text-sm text-gray-300">{host.age} • {host.city} • 👁️ {seed?.viewers ?? 50} জন দেখছেন</p>
+          <p className="text-sm text-gray-300">{realRoom ? `👁️ ${liveViewers ?? realRoom.viewers} জন দেখছেন • আসল লাইভ` : `${host.age} • ${host.city} • 👁️ ${seed?.viewers ?? 50} জন দেখছেন`}</p>
           <p className="text-sm mt-2">{host.about}</p>
           <div className="mt-4 space-y-1 text-sm text-left">
             <p>দেখার রেট: <b>{formatBDT(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
@@ -857,7 +964,7 @@ export function DatingLivePage() {
             <p>ব্যালেন্স শেষ হলে লাইভ নিজে থেকেই বন্ধ হবে।</p>
             <p>আপনার কয়েন: <b>🪙 {coins}</b> — লাইভে গিফট পাঠাতে CallGuru কয়েন লাগবে।</p>
           </div>
-          <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।</p>
+          <p className="text-xs text-gray-400 mt-2">🔴 এই লাইভটিও অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। {realRoom ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।'}</p>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ টপ-আপ ছাড়া লাইভ দেখা যাবে না। প্রিপেইড — আগে টপ-আপ করুন।</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ লাইভ দেখা শুরু করুন</Btn>
@@ -877,16 +984,18 @@ export function DatingLivePage() {
         <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatBDT(totalPaid)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
-        <div className="text-center px-4">
+        <div className="text-center px-4 w-full max-w-lg">
           <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
-          <span className="w-28 h-28 rounded-full text-white text-4xl flex items-center justify-center font-bold mx-auto mt-3" style={{ background: host.color }}>{host.name.slice(0, 1)}</span>
+          <video ref={remoteRef} className={`w-full aspect-video bg-black rounded-xl mt-3 ${remoteReady ? '' : 'hidden'}`} autoPlay playsInline />
+          {!remoteReady && <span className="w-28 h-28 rounded-full text-white text-4xl flex items-center justify-center font-bold mx-auto mt-3" style={{ background: host.color }}>{host.name.slice(0, 1)}</span>}
           <p className="text-xl font-bold mt-3">{host.name} লাইভে</p>
-          <p className="text-gray-300 text-sm">👁️ {seed?.viewers ?? 50} জন দেখছেন • {fmtLive(seconds)}</p>
+          <p className="text-gray-300 text-sm">👁️ {realRoom ? (liveViewers ?? realRoom.viewers) : (seed?.viewers ?? 50)} জন দেখছেন • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1">
             <p>আপনি দিয়েছেন: <b>{formatBDT(totalPaid)}</b> ({billedMinutes} মিনিট)</p>
             <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatBDT(creatorShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare)}</b></p>
           </div>
-          <p className="text-xs text-gray-400 mt-2">ডেমো লাইভ — হোস্টের আসল ভিডিও স্ট্রিম এখানে দেখানো হচ্ছে না।</p>
+          {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
+          <p className="text-xs text-gray-400 mt-2">{serverLive ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — হোস্টের আসল ভিডিও স্ট্রিম এখানে দেখানো হচ্ছে না।'}</p>
         </div>
       </div>
       <div className="px-3 pb-3">
@@ -949,11 +1058,64 @@ export function DatingGoLivePage() {
   const streamRef = useRef<MediaStream | null>(null)
   const selfRef = useRef<HTMLVideoElement>(null)
   function setFacingBoth(f: 'user' | 'environment') { facingRef.current = f; setFacing(f) }
+  // আসল লাইভ সার্ভার (WebRTC হোস্ট) — সার্ভার না পৌঁছালে ডেমো আচরণই থাকবে
+  const wsRef = useRef<WebSocket | null>(null)
+  const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
+  const roomIdRef = useRef<string | null>(null)
+  const [roomId, setRoomId] = useState<string | null>(null)
+  const [serverLive, setServerLive] = useState(false)
+  const [giftCoinsReceived, setGiftCoinsReceived] = useState(0)
+  const [giftFeed, setGiftFeed] = useState<string[]>([])
+  const [hostChat, setHostChat] = useState<{ from: string; text: string }[]>([])
 
   const billedMinutes = Math.ceil(seconds / 60)
   const gross = billedMinutes * rate
   const myShare = Math.floor(gross * LIVE_CREATOR_SHARE)
   const adminShare = gross - myShare
+  const giftMyShare = Math.floor(giftCoinsReceived * LIVE_CREATOR_SHARE)
+
+  function teardownHostLive() {
+    pcsRef.current.forEach(pc => { try { pc.close() } catch { /* ignore */ } })
+    pcsRef.current.clear()
+    try { wsRef.current?.close() } catch { /* ignore */ }
+    wsRef.current = null
+    if (roomIdRef.current) { const rid = roomIdRef.current; roomIdRef.current = null; setRoomId(null); endLiveRoom(rid) }
+    setServerLive(false)
+  }
+
+  // ক্যামেরা চালু হওয়ার পর লাইভ রুম খুলে সিগন্যালিংয়ে হোস্ট হিসেবে যোগ দেওয়া
+  async function setupHostLive(stream: MediaStream) {
+    const room = await createLiveRoom(user?.name || 'আপনি', 'ডেটিং লাইভ')
+    if (!room) { setServerLive(false); return } // ডেমো ফলব্যাক — রুম ছাড়াই লাইভ চলবে
+    roomIdRef.current = room.id
+    setRoomId(room.id)
+    const ws = connectLive(room.id, 'host', user?.name || 'আপনি', {
+      onOpen: () => setServerLive(true),
+      onClose: () => setServerLive(false),
+      onOffer: async (from, sdp) => {
+        const pc = new RTCPeerConnection(ICE_SERVERS)
+        pcsRef.current.set(from, pc)
+        stream.getTracks().forEach(t => pc.addTrack(t, stream))
+        pc.onicecandidate = (ev) => {
+          if (ev.candidate) sendSignal(ws, { type: 'ice', roomId: room.id, to: from, candidate: ev.candidate.toJSON() })
+        }
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp))
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          sendSignal(ws, { type: 'answer', roomId: room.id, to: from, sdp: answer })
+        } catch { /* ignore */ }
+      },
+      onIce: (from, candidate) => { pcsRef.current.get(from)?.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}) },
+      onViewerCount: (n) => { setViewers(n); setPeakViewers(p => Math.max(p, n)) },
+      onGift: (from, gift) => {
+        setGiftCoinsReceived(c => c + gift.price)
+        setGiftFeed(f => [...f.slice(-4), `${from} পাঠিয়েছেন ${gift.icon} ${gift.name}`])
+      },
+      onChat: (from, text) => { setHostChat(c => [...c.slice(-19), { from, text }]) },
+    })
+    wsRef.current = ws
+  }
 
   useEffect(() => {
     if (!started || ended) return
@@ -961,9 +1123,9 @@ export function DatingGoLivePage() {
     return () => clearInterval(t)
   }, [started, ended])
 
-  // ডেমো দর্শক সংখ্যা — আসল দর্শক নয়
+  // ডেমো দর্শক সংখ্যা — আসল দর্শক নয়; সার্ভার সংযুক্ত থাকলে আসল সংখ্যাই আসবে
   useEffect(() => {
-    if (!started || ended) return
+    if (!started || ended || serverLive) return
     const t = setInterval(() => {
       setViewers(v => {
         const next = Math.max(3, v + Math.floor(Math.random() * 6) - 2)
@@ -972,7 +1134,7 @@ export function DatingGoLivePage() {
       })
     }, 4000)
     return () => clearInterval(t)
-  }, [started, ended])
+  }, [started, ended, serverLive])
 
   useEffect(() => {
     if (!started) return
@@ -984,8 +1146,9 @@ export function DatingGoLivePage() {
       if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
       streamRef.current = s
       if (selfRef.current) selfRef.current.srcObject = s
+      setupHostLive(s)
     }).catch(() => { /* camera unavailable in demo — placeholder stays */ })
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    return () => { cancelled = true; teardownHostLive(); streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
   }, [started])
 
   async function switchCamera() {
@@ -1009,6 +1172,14 @@ export function DatingGoLivePage() {
     const combined = new MediaStream([...newStream.getVideoTracks(), ...oldAudio])
     streamRef.current = combined
     if (selfRef.current) selfRef.current.srcObject = combined
+    // হোস্টের সব দর্শকের পিয়ার কানেকশনেও নতুন ক্যামেরা ট্র্যাক পাঠানো হয়
+    const newVideo = combined.getVideoTracks()[0]
+    if (newVideo) {
+      pcsRef.current.forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+        if (sender) sender.replaceTrack(newVideo).catch(() => { /* ignore */ })
+      })
+    }
     setFacingBoth(next)
     navigator.mediaDevices?.enumerateDevices?.().then(devices => {
       setCamCount(devices.filter(d => d.kind === 'videoinput').length)
@@ -1019,10 +1190,11 @@ export function DatingGoLivePage() {
   function endGoLive() {
     if (ended) return
     const grossFinal = Math.ceil(seconds / 60) * rate
-    const myFinal = Math.floor(grossFinal * LIVE_CREATOR_SHARE)
+    const myFinal = Math.floor(grossFinal * LIVE_CREATOR_SHARE) + Math.floor(giftCoinsReceived * LIVE_CREATOR_SHARE)
     if (myFinal > 0) addLiveEarnings(myFinal)
-    setEndGross(grossFinal); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
+    setEndGross(grossFinal + giftCoinsReceived); setEndMyShare(myFinal); setEndSeconds(seconds); setEndPeak(peakViewers)
     setEnded(true)
+    teardownHostLive()
   }
 
   if (ended) {
@@ -1036,7 +1208,7 @@ export function DatingGoLivePage() {
             <p>মোট আয় (দর্শকরা দিয়েছেন): <b>{formatBDT(endGross)}</b></p>
             <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(endMyShare)}</b></p>
             <p>অ্যাডমিনের শেয়ার (৩০%): <b>{formatBDT(adminFinal)}</b></p>
-            <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatBDT(liveEarnings + endMyShare)}</b></p>
+            <p>আপনার মোট লাইভ আয় (সব লাইভ মিলিয়ে): <b>{formatBDT(liveEarnings)}</b></p>
           </div>
           <div className="flex gap-2 mt-5 justify-center">
             <Btn variant="green" onClick={() => navigate('/dating')}>ডেটিংয়ে ফিরুন</Btn>
@@ -1067,7 +1239,7 @@ export function DatingGoLivePage() {
               <button onClick={() => setFacingBoth('environment')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'environment' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>📷 পেছনের ক্যামেরা</button>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-3">🔴 লাইভটি অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। ডেমো লাইভ — আসল সম্প্রচারের জন্য লাইভ সার্ভার লাগবে।</p>
+          <p className="text-xs text-gray-400 mt-3">🔴 লাইভটি অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে। লাইভ শুরু হলে CallGuru লাইভ সার্ভারে আসল সম্প্রচার হবে; সার্ভার না পৌঁছালে ডেমো লাইভ চলবে।</p>
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" onClick={() => setStarted(true)}>🔴 লাইভ শুরু করুন</Btn>
           </div>
@@ -1091,10 +1263,12 @@ export function DatingGoLivePage() {
           <p className="text-xl font-bold mt-3">{user?.name || 'আপনি'} লাইভে</p>
           <p className="text-gray-200 text-sm">👁️ {viewers} জন দেখছেন • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1 bg-black/50 rounded-xl px-4 py-2">
-            <p>মোট আয়: <b>{formatBDT(gross)}</b> ({billedMinutes} মিনিট)</p>
-            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(myShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare)}</b></p>
+            <p>মোট আয়: <b>{formatBDT(gross + giftCoinsReceived)}</b> ({billedMinutes} মিনিট{giftCoinsReceived > 0 ? ` + ${giftCoinsReceived} কয়েন গিফট` : ''})</p>
+            <p>আপনার শেয়ার (৭০%): <b className="text-green-400">{formatBDT(myShare + giftMyShare)}</b> • অ্যাডমিন (৩০%): <b>{formatBDT(adminShare + (giftCoinsReceived - giftMyShare))}</b></p>
           </div>
-          <p className="text-xs text-gray-300 mt-2">ডেমো লাইভ — দর্শক সংখ্যা ডেমো ডেটা।</p>
+          {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
+          {hostChat.length > 0 && <div className="text-xs text-left mt-2 bg-black/50 rounded-xl px-3 py-2 max-h-20 overflow-y-auto">{hostChat.map((m, i) => <p key={i}><b>{m.from}:</b> {m.text}</p>)}</div>}
+          <p className="text-xs text-gray-300 mt-2">{serverLive ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — দর্শক সংখ্যা ডেমো ডেটা।'}</p>
         </div>
       </div>
       <div className="px-3 pb-4 relative">
