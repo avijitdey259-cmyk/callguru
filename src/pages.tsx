@@ -14,6 +14,7 @@ import {
   type Expert
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI } from './store'
+import { isFirebaseConfigured, signInWithGoogle } from './firebase'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -230,17 +231,37 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
-  const googleLogin = () => { login('Avijit Dey', 'avijitdey259@gmail.com'); navigate('/feed') }
+  const [busy, setBusy] = useState(false)
+  const googleLogin = async () => {
+    // Firebase config থাকলে আসল Google Sign-In, না থাকলে ডেমো মোড
+    if (isFirebaseConfigured) {
+      setBusy(true)
+      setMsg('')
+      try {
+        const u = await signInWithGoogle()
+        if (u) { login(u.name, u.email); navigate('/feed'); return }
+        setMsg('Google লগইন সম্পূর্ণ হয়নি — আবার চেষ্টা করুন।')
+      } catch {
+        setMsg('Google লগইন হয়নি — পপ-আপ বন্ধ হয়েছে বা নেটওয়ার্ক সমস্যা। আবার চেষ্টা করুন।')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    login('Avijit Dey', 'avijitdey259@gmail.com'); navigate('/feed')
+  }
   return (
     <div className="max-w-md mx-auto">
       <Card>
         <h1 className="text-2xl font-bold text-center">PiCall-তে স্বাগতম</h1>
         <p className="text-center text-sm text-gray-500 mt-1">Gmail ১-ক্লিক লগইন • ইমেইল/পাসওয়ার্ড • OTP</p>
-        <button onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800">
+        <button disabled={busy} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
           <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
-          Gmail দিয়ে ১-ক্লিক লগইন
+          {busy ? 'লগইন হচ্ছে…' : 'Gmail দিয়ে ১-ক্লিক লগইন'}
         </button>
-        <p className="text-xs text-center text-gray-400 mt-1">ডেমো মোডে Google লগইন স্থানীয়ভাবে কাজ করে। আসল Firebase Auth সংযোগের জন্য Firebase প্রজেক্টের তথ্য লাগবে।</p>
+        {isFirebaseConfigured
+          ? <p className="text-xs text-center text-gray-400 mt-1">আসল Gmail লগইন চালু আছে — Google অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
+          : <p className="text-xs text-center text-gray-400 mt-1">ডেমো মোড — আসল Gmail লগইনের জন্য Firebase প্রজেক্টের তথ্য লাগবে।</p>}
         <div className="my-4 border-t" />
         <label className="text-sm font-medium">নাম</label>
         <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={name} onChange={e => setName(e.target.value)} placeholder="আপনার নাম" />
