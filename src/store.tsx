@@ -17,6 +17,10 @@ export type PiTx = { id: string; amount: number; ref?: string; address?: string;
 
 // ভাইরাল গ্রোথ — ডেইলি বোনাস: ৭ দিনে ধাপে ধাপে বাড়ে, ১ম দিন ০.০০০১ π থেকে ৭ম দিন ০.০০১ π, তারপর আবার ১ম দিন থেকে
 export const DAILY_BONUS_REWARDS = [0.0001, 0.00025, 0.0004, 0.00055, 0.0007, 0.00085, 0.001]
+// ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে ডেইলি বোনাসের উপরে গিফট বক্স; লটারি — ৩০০০ জনে ১ জন ১ π পাবে, বাকিরা ছোট পুরস্কার
+export const GIFT_BOX_DAYS = 30
+export const GIFT_BOX_PI = 1
+export const GIFT_BOX_CONSOLATION = [0.0001, 0.00025, 0.0005, 0.001]
 export const REF_WELCOME_PI = 10 // রেফার লিংকে এসে নতুন ব্যবহারকারী পাবেন (π)
 export const REF_INVITER_PI = 20 // রেফার করা বন্ধুর প্রথম টপ-আপে আমন্ত্রণকারী পাবেন (π)
 export const INVITE_BASE_URL = 'https://callguru-app.netlify.app/'
@@ -79,6 +83,12 @@ type Store = {
   streak: number
   dailyClaimedToday: boolean
   claimDailyBonus: () => { day: number; pi: number } | null
+  // ৩০ দিনের গিফট বক্স — টানা ৩০ দিনের চক্র; একদিন মিস করলে স্ট্রিকের সঙ্গে এটাও আবার ১ম দিন থেকে
+  giftBoxCycle: number
+  giftBoxDays: number
+  giftBoxClaimed: boolean
+  canClaimGiftBox: boolean
+  claimGiftBox: () => { pi: number; jackpot: boolean } | null
   totalShares: number
   reelShares: Record<string, number>
   recordShare: (id?: string) => void
@@ -178,6 +188,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ডেইলি বোনাস — শেষ দাবির তারিখ ও টানা দিনের সংখ্যা; একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
   const [lastClaimDate, setLastClaimDate] = useState<string | null>(() => load('lastClaimDate', null))
   const [streak, setStreak] = useState<number>(() => load('streak', 0))
+  // ৩০ দিনের গিফট বক্স — কোন ৩০ দিনের চক্রের বক্স নেওয়া হয়েছে (null = এই চক্রের বক্স এখনো নেওয়া হয়নি)
+  const [giftBoxClaimedCycle, setGiftBoxClaimedCycle] = useState<number | null>(() => load('giftBoxClaimedCycle', null))
   // শেয়ার — মোট শেয়ার ও প্রতি রিলের শেয়ার সংখ্যা
   const [totalShares, setTotalShares] = useState<number>(() => load('totalShares', 0))
   const [reelShares, setReelShares] = useState<Record<string, number>>(() => load('reelShares', {}))
@@ -220,6 +232,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('hasToppedUp', hasToppedUp), [hasToppedUp])
   useEffect(() => save('lastClaimDate', lastClaimDate), [lastClaimDate])
   useEffect(() => save('streak', streak), [streak])
+  useEffect(() => save('giftBoxClaimedCycle', giftBoxClaimedCycle), [giftBoxClaimedCycle])
   useEffect(() => save('totalShares', totalShares), [totalShares])
   useEffect(() => save('reelShares', reelShares), [reelShares])
   useEffect(() => save('giftsSentPi', giftsSentPi), [giftsSentPi])
@@ -232,6 +245,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ম্যানুয়াল টপ-আপের আবেদন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হয়
   const [pendingTopUps, setPendingTopUps] = useState<TopUpRequest[]>(() => load('pendingTopUps', []))
   useEffect(() => save('pendingTopUps', pendingTopUps), [pendingTopUps])
+
+  // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
+  const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
+  const giftBoxDays = streak > 0 ? streak - giftBoxCycle * GIFT_BOX_DAYS : 0
+  const giftBoxClaimed = giftBoxClaimedCycle === giftBoxCycle
+  const canClaimGiftBox = streak > 0 && giftBoxDays === GIFT_BOX_DAYS && !giftBoxClaimed
 
   const value: Store = useMemo(() => ({
     user,
@@ -316,11 +335,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     claimDailyBonus: () => {
       const today = todayStr()
       if (lastClaimDate === today) return null
-      const nextStreak = lastClaimDate === yesterdayStr() ? streak + 1 : 1
+      const continues = lastClaimDate === yesterdayStr()
+      const nextStreak = continues ? streak + 1 : 1
+      // স্ট্রিক ভাঙলে (একদিন মিস) গিফট বক্সের চক্রও আবার শুরু — আগের চক্রের দাবি মুছে যায়
+      if (!continues) setGiftBoxClaimedCycle(null)
       const day = ((nextStreak - 1) % 7) + 1
       const reward = DAILY_BONUS_REWARDS[day - 1]
       setStreak(nextStreak); setLastClaimDate(today); setPiBalance(b => roundPi(b + reward))
       return { day, pi: reward }
+    },
+    giftBoxCycle,
+    giftBoxDays,
+    giftBoxClaimed,
+    canClaimGiftBox,
+    claimGiftBox: () => {
+      if (!canClaimGiftBox) return null
+      // লটারি — ৩০০০ জনে ১ জন ১ π পাবে; বাকিরা ভিতরের ছোট পুরস্কারগুলোর একটা পাবে (দাবির মুহূর্তে Math.random() দিয়ে ড্র)
+      const jackpot = Math.random() < 1 / 3000
+      const prize = jackpot ? GIFT_BOX_PI : GIFT_BOX_CONSOLATION[Math.floor(Math.random() * GIFT_BOX_CONSOLATION.length)]
+      setGiftBoxClaimedCycle(giftBoxCycle)
+      setPiBalance(b => roundPi(b + prize))
+      return { pi: prize, jackpot }
     },
     totalShares,
     reelShares,
@@ -392,7 +427,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     rejectTopUp: (id) => {
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'rejected' } : x))
     }
-  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps])
+  }), [user, balance, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

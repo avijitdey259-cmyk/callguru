@@ -81,13 +81,18 @@ export function InviteCard() {
 
 // ডেইলি বোনাস — ৭ দিনের চক্র, একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
 export function DailyBonusCard() {
-  const { streak, dailyClaimedToday, claimDailyBonus, piBalance } = useStore()
+  const { streak, dailyClaimedToday, claimDailyBonus, piBalance, giftBoxDays, giftBoxClaimed, canClaimGiftBox, claimGiftBox } = useStore()
   const [msg, setMsg] = useState('')
   function claim() {
     const r = claimDailyBonus()
     if (r) setMsg(`🎉 দিন ${r.day} — ${r.pi} π পেয়েছেন! মোট Pi: ${formatPi(piBalance + r.pi)}।`)
   }
+  function claimBox() {
+    const r = claimGiftBox()
+    if (r) setMsg(r.jackpot ? `🎉 অভিনন্দন! আপনি ১ π জিতেছেন! মোট Pi: ${formatPi(piBalance + r.pi)}।` : `🎁 আপনি ${r.pi} π পেয়েছেন — আবার চেষ্টা করুন! মোট Pi: ${formatPi(piBalance + r.pi)}।`)
+  }
   const nextDay = ((streak % 7) + 1)
+  const boxRemaining = 30 - giftBoxDays
   return (
     <Card className="!bg-amber-50 dark:!bg-amber-900/30">
       <div className="flex justify-between items-center flex-wrap gap-2">
@@ -109,6 +114,24 @@ export function DailyBonusCard() {
         })}
       </div>
       <p className="text-xs text-gray-500 mt-2">রোজ এসে বোনাস নিন — দিনে দিনে বাড়বে, ৭ম দিনে ০.০০১ π! একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে শুরু হবে।</p>
+      {/* ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে লটারি: ৩০০০ জনে ১ জন ১ π, বাকিরা ছোট পুরস্কার */}
+      <div className="mt-3 border-t border-amber-200 dark:border-amber-800 pt-3">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <h3 className="font-bold text-sm">🎁 ৩০ দিনের গিফট বক্স — সর্বোচ্চ ১ π</h3>
+          <span className="text-sm">{giftBoxDays} / ৩০ দিন</span>
+        </div>
+        <div className="w-full bg-white dark:bg-slate-700 rounded-full h-2.5 mt-2 overflow-hidden">
+          <div className="bg-amber-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (giftBoxDays / 30) * 100)}%` }} />
+        </div>
+        <p className="text-xs text-gray-500 mt-2">টানা ৩০ দিন ডেইলি বোনাস নিলে উপরে গিফট বক্স পাবেন। ৩০০০ জনে ১ জন ১ π পাবে — বাকিরা ছোট পুরস্কার পাবে। একদিন মিস করলে ৩০ দিনের হিসাবও আবার ১ম দিন থেকে শুরু হবে।</p>
+        {canClaimGiftBox ? (
+          <Btn variant="green" className="mt-2" onClick={claimBox}>🎁 গিফট বক্স খুলুন</Btn>
+        ) : giftBoxClaimed ? (
+          <p className="text-sm text-green-600 mt-2">✅ গিফট বক্স নেওয়া হয়েছে — পরের বক্সের জন্য আবার টানা ৩০ দিন বোনাস নিন!</p>
+        ) : (
+          <p className="text-sm mt-2">🔒 {boxRemaining} দিন বাকি — টানা {boxRemaining} দিন বোনাস নিলেই গিফট বক্স খুলবে।</p>
+        )}
+      </div>
       <Btn variant="green" className="mt-3" disabled={dailyClaimedToday} onClick={claim}>
         {dailyClaimedToday ? '✅ আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন' : `🎁 আজকের বোনাস নিন (দিন ${nextDay}: ${DAILY_BONUS_REWARDS[nextDay - 1]} π)`}
       </Btn>
