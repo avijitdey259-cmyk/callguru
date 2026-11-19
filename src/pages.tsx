@@ -248,10 +248,13 @@ export function CallPage() {
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
+  const isDating = type === 'dating'
+  const datingProfile = isDating ? DATING_PROFILES.find(p => p.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'বন্ধু') : undefined
-  const rate = expert ? expert.rate : FRIEND_RATE
-  const name = expert ? expert.name : decodeURIComponent(friendName || 'বন্ধু')
-  const isFreeAvailable = !freeFirstMinuteUsed
+  const rate = expert ? expert.rate : FRIEND_RATE // ডেটিং কলও ৳১০/মিনিট ফ্ল্যাট (FRIEND_RATE)
+  const name = expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'ডেটিং')) : decodeURIComponent(friendName || 'বন্ধু')
+  // ডেটিং কল সম্পূর্ণ প্রিপেইড — গ্লোবাল প্রথম-১-মিনিট-ফ্রি এখানে প্রযোজ্য নয়, ফ্রি মিনিট খরচও হবে না
+  const isFreeAvailable = !isDating && !freeFirstMinuteUsed
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [muted, setMuted] = useState(false)
@@ -349,7 +352,7 @@ export function CallPage() {
     const cost = Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate
     if (cost > 0) deduct(cost)
     if (isFreeAvailable && seconds > 0) markFreeMinuteUsed()
-    addCall({ name, type: expert ? 'Expert' : 'Friend', rate, durationSec: seconds, cost, freeMinute: isFreeAvailable && seconds > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
+    addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: seconds, cost, freeMinute: isFreeAvailable && seconds > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
   }
 
   function sendChat() {
@@ -383,8 +386,12 @@ export function CallPage() {
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full">
           <h1 className="text-xl font-bold">📞 {name}</h1>
-          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : 'বন্ধু • '}{formatBDT(rate)}/মিনিট</p>
+          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isDating ? 'ডেটিং • ' : 'বন্ধু • '}{formatBDT(rate)}/মিনিট</p>
           {isFreeAvailable && <p className="mt-2 text-sm bg-green-600 rounded-lg px-3 py-2">🎉 ১ম মিনিট ফ্রি — আপনার প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি!</p>}
+          {isDating && <div className="mt-2 space-y-2">
+            <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 প্রিপেইড ভিডিও কল — ৳১০/মিনিট। শুধু আপনি (কলকারী) দেবেন, যাকে কল করছেন তার টাকা কাটবে না। এই কলে ফ্রি মিনিট প্রযোজ্য নয়।</p>
+            <p className="text-xs text-gray-300">🔴 এই কলটিও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে — শুধু আপিল/বিরোধের ক্ষেত্রে অ্যাডমিন দেখতে পারে।</p>
+          </div>}
           <div className="mt-4 space-y-1 text-sm">
             <p>ব্যালেন্স: <b>{formatBDT(balance)}</b></p>
             <p>কথা বলা যাবে: <b>~{talkableMinutes} মিনিট</b>{isFreeAvailable ? ' (১ মিনিট ফ্রি সহ)' : ''}</p>
@@ -610,8 +617,10 @@ export function ChatPage() {
 // ---------- Dating 18+ ----------
 export function DatingPage() {
   const { likesUsed, useLike, premium, setPremium, coins, addCoins } = useStore()
+  const navigate = useNavigate()
   const [adult, setAdult] = useState(false)
   const [matched, setMatched] = useState<string | null>(null)
+  const [matchedId, setMatchedId] = useState<string | null>(null)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({})
   const [boosted, setBoosted] = useState(false)
   if (!adult) {
@@ -638,7 +647,13 @@ export function DatingPage() {
         {boosted && <p className="text-sm text-green-600 mt-2">Boost চালু — আপনার প্রোফাইল বেশি দেখাবে।</p>}
         <p className="text-xs text-gray-400 mt-2">প্রিমিয়াম: আনলিমিটেড লাইক + কে লাইক দিয়েছে দেখুন • ৩ মাস ৳২৪৯ • Super Like ১৫ কয়েন • বেশিরভাগ ফিচার বাংলাদেশি ব্যবহারকারীদের জন্য ফ্রি।</p>
       </Card>
-      {matched && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 ম্যাচ হয়েছে — {matched}!</p><p className="text-sm">এখন চ্যাট বা ভিডিও কল করতে পারেন।</p><Link to="/chat" className="text-fb-blue text-sm font-medium">চ্যাট শুরু করুন →</Link></Card>}
+      {matched && matchedId && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 ম্যাচ হয়েছে — {matched}!</p><p className="text-sm">এখন চ্যাট বা ভিডিও কল করতে পারেন।</p>
+        <div className="flex gap-2 mt-3 justify-center flex-wrap">
+          <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">চ্যাট শুরু করুন →</Link>
+          <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 ভিডিও কল করুন (প্রিপেইড)</Btn>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">💳 ভিডিও কল প্রিপেইড — ৳১০/মিনিট, শুধু কলকারীর টাকা কাটবে। এই কলও অন্যান্য কলের মতো অ্যাডমিন-অনলি রেকর্ডিংয়ের আওতায় থাকে।</p>
+      </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
         {DATING_PROFILES.map(p => (
           <Card key={p.id}>
@@ -648,10 +663,11 @@ export function DatingPage() {
             </div>
             <p className="text-sm mt-2">{p.about}</p>
             <div className="flex gap-2 mt-3">
-              <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('আজকের ৩০টি ফ্রি লাইক শেষ — প্রিমিয়াম নিন।'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name) }}>❤️ লাইক</Btn>
-              <Btn variant="ghost" onClick={() => { if (coins < 15) { alert('Super Like-এর জন্য ১৫ কয়েন লাগবে।'); return } addCoins(-15); setMatched(p.name) }}>⭐ Super Like (১৫ কয়েন)</Btn>
+              <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('আজকের ৩০টি ফ্রি লাইক শেষ — প্রিমিয়াম নিন।'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ লাইক</Btn>
+              <Btn variant="ghost" onClick={() => { if (coins < 15) { alert('Super Like-এর জন্য ১৫ কয়েন লাগবে।'); return } addCoins(-15); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (১৫ কয়েন)</Btn>
               <Btn variant="ghost" onClick={() => alert('প্রোফাইলটি রিপোর্ট করা হয়েছে — মডারেশন দেখবে।')}>🚩 রিপোর্ট</Btn>
             </div>
+            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 ভিডিও কল করুন (প্রিপেইড ৳১০/মিনিট)</Btn>}
           </Card>
         ))}
       </div>
