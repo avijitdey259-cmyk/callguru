@@ -16,6 +16,7 @@ Bilingual (English & Bengali) live pay-per-minute expert consultation, social co
 - Friend calls flat **৳10/min**; expert calls at the expert's own rate.
 - Wallet packs **৳100–৳1,000**; bKash / Nagad / Rocket / Bank / USDT / Binance Pay top-up.
 - Chat blocks phone numbers, WhatsApp/Facebook/Telegram links and emails (attempts logged, repeat attempts escalate).
+- Chat friends: 5 friends (রিমা, শাকিল, ফাহিম, মিম, আশা) appear in the Friends list and Chat list like normal users and reply like people with emotion, each with their own voice (funny, caring, helpful, music lover, dreamy), with a typing indicator ("লিখছে…") and a 1–3 second reply delay. Replies come from a local reply engine in the frontend (`src/buddies.ts`) — keyword-aware Bengali replies, varied per intent, never the same reply twice in a row for the same input; no external AI API or API key. Conversations persist in localStorage like normal chats, and a friend's 💬 চ্যাট button opens that friend's chat directly. They can be unfriended like any friend (they do not come back). They appear ONLY in Friends/Chat — never in Dating.
 - Dating is **18+ only**, 30 free likes/day, Premium ৳99/month, Boost ~০.১ π, Super Like ০.১৫ π.
 - Live TV: Bangladeshi channels only, in-app HLS player + official source link. No external video links.
 - Call recordings are **admin-only, for appeals** (30-day retention). Call screen shows only a small red dot — no "Recording" text.
@@ -60,6 +61,7 @@ Never commit secrets, tokens or phone numbers to this repo.
 - `src/api.ts` — backend client: reads `VITE_API_URL`, fetches `/api/health` + `/api/experts` (5s timeout), merges live rates/online status onto the seed, falls back to demo data when unreachable; `useExperts()` hook + Live/Demo indicator
 - `src/live.ts` — live client: `fetchLiveRooms` / `createLiveRoom` / `endLiveRoom`, WebSocket signalling (`connectLive`, `sendSignal`), `ICE_SERVERS` (STUN + free shared TURN for testing); returns null/false when the backend is unreachable so live pages fall back to demo
 - `src/call.ts` — 1-to-1 call client: `makeCallCode` / `callLink` / `fetchCallInfo`, WebSocket signalling (`connectCall`, `sendCallSignal`), `createCallPeerConnection`; call-by-link (no user directory yet) — see "1-to-1 calls" below
+- `src/buddies.ts` — chat friends (রিমা, শাকিল, ফাহিম, মিম, আশা): personas + local Bengali reply engine (`getBuddyReply`), typing delay handled in `ChatPage`; Friends/Chat only, never Dating
 - `server/index.js` — Express API (health, experts, top-up, call gate) + self-hosted live server: `GET/POST/DELETE /api/live` rooms and WebSocket signalling (join/offer/answer/ice/gift/chat, viewer-count + host-left), plus 1-to-1 call rooms (`GET /api/call/:code`, WS `call-join`/`call-offer`/`call-answer`/`call-ice`/`call-chat`/`call-end`, `peer-joined` + `peer-left`), minimal CORS so the Firebase-hosted frontend can call it from a browser
 
 ## Viral growth (all five, built together)

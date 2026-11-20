@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
+import { BUDDIES } from './buddies'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -161,10 +162,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ name: string; email: string } | null>(() => load('user', null))
   const [freeFirstMinuteUsed, setFreeUsed] = useState<boolean>(() => load('freeUsed', false))
   const [calls, setCalls] = useState<CallRecord[]>(() => load('calls', []))
-  const [friends, setFriends] = useState<Friend[]>(() => load('friends', [
-    { id: 'fr-1', name: 'রাফি আহমেদ', color: '#1877F2', online: true },
-    { id: 'fr-2', name: 'সাবরিনা খান', color: '#E91E63', online: false }
-  ]))
+  // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
+  // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
+  const [friends, setFriends] = useState<Friend[]>(() => {
+    const stored = load<Friend[] | null>('friends', null)
+    const base = stored ?? [
+      { id: 'fr-1', name: 'রাফি আহমেদ', color: '#1877F2', online: true },
+      { id: 'fr-2', name: 'সাবরিনা খান', color: '#E91E63', online: false }
+    ]
+    const removed = load<string[]>('buddiesRemoved', [])
+    const merged = [...base]
+    for (const b of BUDDIES) {
+      if (!removed.includes(b.id) && !merged.some(f => f.id === b.id)) {
+        merged.push({ id: b.id, name: b.name, color: b.color, online: b.online })
+      }
+    }
+    return merged
+  })
   const [requests, setRequests] = useState<Friend[]>(() => load('requests', [
     { id: 'rq-1', name: 'হাসান মাহমুদ', color: '#27AE60', online: true },
     { id: 'rq-2', name: 'প্রিয়া দাস', color: '#9C27B0', online: false }
@@ -389,7 +403,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const r = requests.find(x => x.id === id)
       if (r) { setFriends(prev => [...prev, r]); setRequests(prev => prev.filter(x => x.id !== id)) }
     },
-    removeFriend: (id) => setFriends(prev => prev.filter(x => x.id !== id)),
+    removeFriend: (id) => {
+      if (BUDDIES.some(b => b.id === id)) {
+        const removed = load<string[]>('buddiesRemoved', [])
+        if (!removed.includes(id)) save('buddiesRemoved', [...removed, id])
+      }
+      setFriends(prev => prev.filter(x => x.id !== id))
+    },
     likesUsed,
     useLike: () => {
       if (premium) return true

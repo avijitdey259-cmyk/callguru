@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
+import { BUDDIES, BUDDY_OPENERS, getBuddyByName, getBuddyReply } from './buddies'
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -1335,7 +1336,7 @@ export function FriendsPage() {
           <div key={f.id} className="flex items-center gap-3 py-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
             <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● অনলাইন' : '○ অফলাইন'}</span></span>
-            <Btn variant="ghost" onClick={() => navigate('/chat')}>💬 চ্যাট</Btn>
+            <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: f.name } })}>💬 চ্যাট</Btn>
             <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 কল</Btn>
             <Btn variant="ghost" onClick={() => removeFriend(f.id)}>Unfriend</Btn>
           </div>
@@ -1358,27 +1359,63 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user } = useStore()
+  const { user, friends } = useStore()
+  const location = useLocation()
   const [active, setActive] = useState('রাফি আহমেদ')
-  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string }[]>>({
-    'রাফি আহমেদ': [{ from: 'রাফি আহমেদ', text: 'আসসালামু আলাইকুম! কেমন আছো?' }],
-    'ডা. রাহাত': [{ from: 'ডা. রাহাত', text: 'কল করার আগে এখানে প্রশ্ন লিখতে পারেন — চ্যাট সম্পূর্ণ ফ্রি।' }]
+  // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
+  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string }[]>>(() => {
+    try {
+      const raw = localStorage.getItem('callguru:chatMsgs')
+      if (raw) return JSON.parse(raw) as Record<string, { from: string; text: string }[]>
+    } catch { /* পুরোনো চ্যাট না থাকলে ডিফল্ট দিয়ে শুরু */ }
+    const seed: Record<string, { from: string; text: string }[]> = {
+      'রাফি আহমেদ': [{ from: 'রাফি আহমেদ', text: 'আসসালামু আলাইকুম! কেমন আছো?' }],
+      'ডা. রাহাত': [{ from: 'ডা. রাহাত', text: 'কল করার আগে এখানে প্রশ্ন লিখতে পারেন — চ্যাট সম্পূর্ণ ফ্রি।' }]
+    }
+    for (const b of BUDDIES) seed[b.name] = [{ from: b.name, text: BUDDY_OPENERS[b.id] }]
+    return seed
   })
   const [draft, setDraft] = useState('')
   const [ban, setBan] = useState('')
   const [warn, setWarn] = useState(0)
+  // কে লিখছে (প্রতি বন্ধুর জন্য আলাদা) — উত্তর আসার ১–৩ সেকেন্ড আগে "লিখছে…" দেখায়
+  const [typing, setTyping] = useState<Record<string, boolean>>({})
+  const typingTimersRef = useRef<number[]>([])
+  const lastReplyRef = useRef<Record<string, string>>({})
+  // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায়
+  useEffect(() => {
+    const withName = (location.state as { with?: string } | null)?.with
+    if (withName) setActive(withName)
+  }, [location.state])
+  useEffect(() => {
+    try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
+  }, [msgs])
+  useEffect(() => () => { typingTimersRef.current.forEach(t => window.clearTimeout(t)) }, [])
   function send() {
     const err = contactBanCheck(draft)
     if (err) { setBan(err + ' বারবার চেষ্টা করলে সতর্কবার্তা বাড়বে।'); setWarn(w => w + 1); return }
     if (!draft.trim()) return
-    setMsgs(m => ({ ...m, [active]: [...(m[active] || []), { from: user?.name || 'আপনি', text: draft }] }))
+    const text = draft
+    const to = active
+    setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'আপনি', text }] }))
     setDraft(''); setBan('')
+    const buddy = getBuddyByName(to)
+    if (buddy) {
+      setTyping(t => ({ ...t, [to]: true }))
+      typingTimersRef.current.push(window.setTimeout(() => {
+        const reply = getBuddyReply(buddy.id, text, lastReplyRef.current[buddy.id])
+        lastReplyRef.current[buddy.id] = reply
+        setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: buddy.name, text: reply }] }))
+        setTyping(t => ({ ...t, [to]: false }))
+      }, 1000 + Math.random() * 2000))
+    }
   }
+  const contacts = [...friends.map(f => f.name), 'ডা. রাহাত', 'মেহজাবিন'].filter((n, i, a) => a.indexOf(n) === i)
   return (
     <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
       <Card className="md:col-span-1">
         <h2 className="font-bold mb-2">চ্যাট — সম্পূর্ণ ফ্রি</h2>
-        {['রাফি আহমেদ', 'ডা. রাহাত', 'মেহজাবিন'].map(n => (
+        {contacts.map(n => (
           <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-blue-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
         ))}
         <p className="text-xs text-gray-400 mt-3">ফোন নম্বর, WhatsApp/Facebook/Telegram লিংক বা ইমেইল শেয়ার করা যাবে না — স্বয়ংক্রিয়ভাবে ব্লক হবে।</p>
@@ -1388,6 +1425,7 @@ export function ChatPage() {
         <h2 className="font-bold">{active}</h2>
         <div className="h-64 overflow-y-auto space-y-2 mt-3">
           {(msgs[active] || []).map((m, i) => <p key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'আপনি') ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}><b>{m.from}:</b> {m.text}</p>)}
+          {typing[active] && <p className="text-sm text-gray-400 italic px-3 py-2">{active} লিখছে…</p>}
         </div>
         {ban && <p className="text-sm text-red-500 mt-2">{ban}</p>}
         <div className="flex gap-2 mt-3">
