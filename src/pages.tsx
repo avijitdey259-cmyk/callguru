@@ -1133,7 +1133,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { topUp, points, referrals, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
+  const { topUp, points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -1299,7 +1299,7 @@ export function WalletPage() {
       <InviteCard />
       <Card>
         <h2 className="font-bold">🔗 অ্যাফিলিয়েট ও রেফারেল</h2>
-        <p className="text-sm mt-1">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">picall.app/r/avijit</code></p>
+        <p className="text-sm mt-1 break-all">আপনার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{`${INVITE_BASE_URL}?ref=${referralCode}`}</code></p>
         <p className="text-sm mt-1">কমিশন <b>১০%</b> — শুধুমাত্র রেফার করা ব্যবহারকারীর <b>প্রথম ডিপোজিট + প্রথম কেনাকাটা (কল/সার্ভিস/প্রিমিয়াম)</b> সম্পূর্ণ হলেই পাবেন। শুধু সাইনআপ বা ক্লিকে কমিশন নেই।</p>
         <p className="text-sm mt-1">রেফারেল ২-স্তর: লেভেল-১ = ১.০ পয়েন্ট, লেভেল-২ = ০.৫ পয়েন্ট • ১ পয়েন্ট = ৳৫০।</p>
         <Btn variant="ghost" className="mt-3" onClick={() => setAffiliateOn(a => !a)}>{affiliateOn ? 'ড্যাশবোর্ড লুকান' : 'অ্যাফিলিয়েট ড্যাশবোর্ড দেখুন'}</Btn>
