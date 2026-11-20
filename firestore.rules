@@ -1,0 +1,52 @@
+// PiCall — Firestore Security Rules (প্রজেক্ট picall-76185)।
+// ডিপ্লয় করা হয়নি — Firestore কনসোলে চালু হওয়ার পর এই কমান্ডে ডিপ্লয় হবে:
+//   firebase deploy --only firestore:rules --project picall-76185
+// (firebase.json-এ "firestore": { "rules": "firestore.rules" } বসানো আছে।)
+//
+// নিয়মের সারকথা:
+//   users/{uid}   — শুধু সেই ব্যবহারকারীই নিজের ডক পড়তে/লিখতে পারেন
+//                    (request.auth.uid == uid); অ্যাডমিন শুধু আপডেট করতে পারেন
+//                    (KYC অনুমোদন/বাতিলের জন্য — তৈরি/মুছে ফেলা নয়)।
+//   config/public — লগইন করা সবাই পড়তে পারেন (দর + পেমেন্টের বিবরণ);
+//                    লিখতে পারেন শুধু অ্যাডমিন (avijitdey259@gmail.com)।
+//   topups/{id}   — ব্যবহারকারী শুধু নিজের আবেদন তৈরি/পড়তে পারেন;
+//                    অ্যাডমিন সব পড়তে ও স্ট্যাটাস বদলাতে পারেন।
+//   বাকি সব — ডিফল্টভাবে বন্ধ।
+// NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
+// সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'avijitdey259@gmail.com';
+    }
+
+    // এক ব্যবহারকারীর ব্যক্তিগত ডেটা — শুধু সেই ব্যবহারকারী + অ্যাডমিন (আপডেট only)।
+    match /users/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isAdmin();
+    }
+
+    // সবার জন্য অ্যাডমিনের দর + পেমেন্টের বিবরণ — পড়া সবার, লেখা শুধু অ্যাডমিনের।
+    match /config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ম্যানুয়াল টপ-আপ আবেদন — নিজেরটা তৈরি/পড়া; অ্যাডমিন সব পড়া + স্ট্যাটাস বদলানো।
+    match /topups/{topupId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
+    }
+
+    // বাকি সব ডিফল্টভাবে বন্ধ।
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

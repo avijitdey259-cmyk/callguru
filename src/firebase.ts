@@ -6,7 +6,7 @@ import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   getAuth, GoogleAuthProvider, signInWithPopup,
   sendSignInLinkToEmail, signInWithEmailLink, isSignInWithEmailLink,
-  type Auth,
+  onAuthStateChanged, type Auth, type User,
 } from 'firebase/auth'
 
 const firebaseConfig = {
@@ -32,6 +32,27 @@ export function getFirebaseAuth(): Auth | null {
     auth = getAuth(app)
   }
   return auth
+}
+
+// Firestore-এর জন্য একই Firebase অ্যাপ — আলাদা করে initialize করা হয় না।
+export function getFirebaseApp(): FirebaseApp | null {
+  if (!isFirebaseConfigured) return null
+  if (!app) getFirebaseAuth()
+  return app
+}
+
+// এখন লগইন করা Firebase ব্যবহারকারীর UID (users/{uid} ডকের চাবি)।
+// লগইন না থাকলে, বা Firebase সেটআপ না থাকলে, বা OTP লগইনে (Firebase সেশন নেই) null।
+export function getCurrentUid(): string | null {
+  try { return getFirebaseAuth()?.currentUser?.uid ?? null } catch { return null }
+}
+
+// Firebase সেশন ফিরে এলে (পেজ রিলোডের পর) UID জানানো হয় — স্টোর এতে Firestore সিঙ্ক চালায়।
+// Firebase সেটআপ না থাকলে কিছুই করে না, আনসাবস্ক্রাইব ফাংশন ফেরায়।
+export function onFirebaseAuthUser(cb: (u: User | null) => void): () => void {
+  const a = getFirebaseAuth()
+  if (!a) return () => { /* no-op */ }
+  return onAuthStateChanged(a, cb)
 }
 
 // আসল Google Sign-In — popup থেকে ফেরত আসা আসল নাম + ইমেইল দেয়।

@@ -55,7 +55,10 @@ Never commit secrets, tokens or phone numbers to this repo.
 
 - `src/App.tsx` — routes (React Router)
 - `src/pages.tsx` — all pages/flows (feed, marketplace, call, wallet, friends, chat, dating, Live TV, admin…)
-- `src/store.tsx` — wallet/auth/call-history state (localStorage)
+- `src/store.tsx` — wallet/auth/call-history state (localStorage = offline cache; Firestore sync when available — see "Firestore" below)
+- `src/firestore.ts` — Firestore read/write (users/{uid}, config/public, topups/*); every call returns null/false on failure so the app keeps working on localStorage
+- `src/firestoreMapping.ts` — pure localStorage ↔ Firestore field mapping (no Firebase import; tested in `tests/firestore-mapping.test.mjs` — run `node tests/firestore-mapping.test.mjs`)
+- `firestore.rules` — security rules (users read/write only their own doc; admin writes config; deny-all by default) — **not deployed yet**, see "Firestore" below
 - `src/data.ts` — seed data + contact-ban check + TV channels
 - `src/components.tsx` — Facebook-style layout, top bar, mobile bottom nav
 - `src/api.ts` — backend client: reads `VITE_API_URL`, fetches `/api/health` + `/api/experts` (5s timeout), merges live rates/online status onto the seed, falls back to demo data when unreachable; `useExperts()` hook + Live/Demo indicator
@@ -63,6 +66,17 @@ Never commit secrets, tokens or phone numbers to this repo.
 - `src/call.ts` — 1-to-1 call client: `makeCallCode` / `callLink` / `fetchCallInfo`, WebSocket signalling (`connectCall`, `sendCallSignal`), `createCallPeerConnection`; call-by-link (no user directory yet) — see "1-to-1 calls" below
 - `src/buddies.ts` — chat friends (রিমা, শাকিল, ফাহিম, মিম, আশা): personas + local Bengali reply engine (`getBuddyReply`), typing delay handled in `ChatPage`; Friends/Chat only, never Dating
 - `server/index.js` — Express API (health, experts, top-up, call gate) + self-hosted live server: `GET/POST/DELETE /api/live` rooms and WebSocket signalling (join/offer/answer/ice/gift/chat, viewer-count + host-left), plus 1-to-1 call rooms (`GET /api/call/:code`, WS `call-join`/`call-offer`/`call-answer`/`call-ice`/`call-chat`/`call-end`, `peer-joined` + `peer-left`), minimal CORS so the Firebase-hosted frontend can call it from a browser
+
+## Firestore — real shared data (localStorage is the offline cache)
+
+- **Model:** `users/{uid}` — one doc per Firebase Auth user (wallet, Pi ledger, call history, friends/requests, streak/daily bonus, referral, live earnings, KYC safe subset); `config/public` — one shared doc (admin rates + payment details, admin writes, everyone reads); `topups/{requestId}` — one doc per manual top-up request (user writes own, admin reads/approves).
+- **Graceful degradation:** Firestore is NOT enabled in the console yet. Until it is, the app works exactly as before on localStorage. When Firestore is unreachable, every Firestore call returns null/false and the app stays on localStorage — nothing breaks. Firestore sync activates only for Firebase-authenticated sessions (Google / email-link login); email-OTP logins have no Firebase session, so they stay on localStorage.
+- **Migration:** on first login with a Firebase UID, if no `users/{uid}` doc exists, the current localStorage state is written to Firestore once (no data loss, no invented values). After that, Firestore is the source of truth and localStorage is the write-through offline cache (800 ms debounce). If a different user logs in on a device that holds another user's cache, the syncable state resets to fresh-device defaults first (no cross-user leak).
+- **Never synced to Firestore:** full NID number (`idNumber`), KYC selfie, KYC live video (stay local-only until a verified encrypted KYC service exists); admin SMS API key + SMTP password/user (stay on the admin's device + Railway server memory); dark mode, chat messages, transient notices.
+- **Still to do (not in this change):** enable Firestore in the console (below), deploy the rules, then the cross-device admin KYC review queue and cross-device top-up crediting (today, approving a top-up credits the balance on the admin's own device — the demo behaviour — and the status syncs; real crediting needs a backend/Cloud Function).
+- **Enable + deploy rules (after the console step):**
+  1. Firebase console → Build → Firestore Database → Create database → **Native mode** → location **asia-south1** → **Production mode** (rules deny all until `firestore.rules` is deployed).
+  2. `firebase deploy --only firestore:rules --project picall-76185` (rules live in `firestore.rules`, referenced from `firebase.json`).
 
 ## Viral growth (all five, built together)
 - **Referral + invite link:** Feed and Wallet have a "বন্ধুকে ডাকুন" card with a personal link `https://picallbd.web.app/?ref=<code>` (copy + native share). A friend arriving via the link gets 10 π welcome bonus once; when that friend makes their first top-up, the inviter earns 20 π (tracked with a pending-referrer record). The existing points/affiliate system is untouched. Demo: referral tracking is per-device (localStorage); real cross-device tracking needs the backend.

@@ -35,6 +35,19 @@ GitHub রিপো `avijitdey259-cmyk/callguru` → **Settings → Secrets and 
 
 তারপর `main`-এ যেকোনো push-এ GitHub Actions স্বয়ংক্রিয়ভাবে সাইটটি build করে Firebase Hosting-এ deploy করবে (আলাদা করে কিছু চাপতে হয় না)।
 
+## ধাপ ৫ — Firestore চালু করা (Step 5 — Enable Firestore, real shared data)
+
+> **এখনো চালু হয়নি** — কোড প্রস্তুত আছে, কনসোলে চালু করলেই আসল শেয়ার করা ডেটা শুরু হবে। চালু না হওয়া পর্যন্ত অ্যাপ ঠিক আগের মতো localStorage-এই চলবে, কিছুই ভাঙবে না।
+
+1. Firebase console (প্রজেক্ট `picall-76185`) → বাম মেনু **Build → Firestore Database** → **Create database** → **Native mode** → লোকেশন **asia-south1** (যদি দেয়) → **Start in production mode** (নিয়ম প্রথমে সব বন্ধ রাখে)।
+2. তারপর কম্পিউটারে (রিপো ফোল্ডারে) নিয়ম ডিপ্লয় করুন:
+   ```bash
+   firebase deploy --only firestore:rules --project picall-76185
+   ```
+   নিয়ম ফাইল: `firestore.rules` (রিপো রুটে) — ব্যবহারকারী শুধু নিজের `users/{uid}` ডক পড়তে/লিখতে পারেন, অ্যাডমিন `config/public` লেখেন, বাকি সব বন্ধ।
+3. **ডেটা মডেল:** `users/{uid}` (ওয়ালেট, খতিয়ান, কল হিসাব, বন্ধু, স্ট্রিক, রেফারেল, KYC-র নিরাপদ অংশ), `config/public` (অ্যাডমিনের দর + পেমেন্টের বিবরণ), `topups/{id}` (ম্যানুয়াল টপ-আপ আবেদন)।
+4. **যা কখনো ক্লাউডে যায় না:** পুরো NID নম্বর, KYC সেলফি/লাইভ ভিডিও (শুধু এই ডিভাইসে থাকে — ভেরিফায়েড KYC সার্ভিস ছাড়া ক্লাউডে রাখা নিষেধ), SMS API key ও SMTP পাসওয়ার্ড (অ্যাডমিনের ডিভাইস + Railway সার্ভারেই থাকে)।
+
 ## ধাপ ৪ — যাচাই করুন (Step 4 — Verify)
 
 1. https://picallbd.web.app/login খুলুন — বোতামের নিচে "আসল Gmail লগইন চালু আছে" লেখা থাকবে।

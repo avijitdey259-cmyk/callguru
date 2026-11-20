@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
 import { BUDDIES } from './buddies'
+import { getCurrentUid, onFirebaseAuthUser } from './firebase'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps } from './firestore'
+import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -160,6 +163,14 @@ function save(key: string, value: unknown) { try { localStorage.setItem('callgur
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ name: string; email: string } | null>(() => load('user', null))
+  // Firestore সিঙ্কের UID — Firebase Auth-এর UID (users/{uid} ডকের চাবি)।
+  // OTP লগইনে Firebase সেশন থাকে না বলে uid null থাকে — তখন অ্যাপ localStorage-এই চলে।
+  const [uid, setUid] = useState<string | null>(() => load('uid', null))
+  // Firebase সেশন ফিরেছে কি না (রিলোডের পর async) — সেশন না ফেরা পর্যন্ত Firestore ছোঁয়া হয় না।
+  const [authReady, setAuthReady] = useState<boolean>(false)
+  // Firestore সিঙ্কের অবস্থা — off (localStorage মোড) / syncing / on / error (localStorage মোড)।
+  // error হলেও অ্যাপ থামে না — localStorage ক্যাশেই সব চলে।
+  const [fsState, setFsState] = useState<'off' | 'syncing' | 'on' | 'error'>('off')
   const [freeFirstMinuteUsed, setFreeUsed] = useState<boolean>(() => load('freeUsed', false))
   const [calls, setCalls] = useState<CallRecord[]>(() => load('calls', []))
   // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
@@ -229,7 +240,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   })
   const [kycRejectReason, setKycRejectReason] = useState<string>(() => load('kycRejectReason', ''))
   // ভাইরাল গ্রোথ — রেফারেল কোড একবার তৈরি হয়ে স্থায়ী থাকে; ?ref= লিংকে এলে ওয়েলকাম বোনাস একবারই মেলে
-  const [referralCode] = useState<string>(() => load('referralCode', randomCode()))
+  const [referralCode, setReferralCodeState] = useState<string>(() => load('referralCode', randomCode()))
   const [referrer, setReferrer] = useState<string | null>(() => load('referrer', null))
   const [refWelcomeClaimed, setRefWelcomeClaimed] = useState<boolean>(() => load('refWelcomeClaimed', false))
   const [refNotice, setRefNotice] = useState<string | null>(() => load('refNotice', null))
@@ -274,6 +285,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [piWithdrawFeePct, setPiWithdrawFeePctState] = useState<number>(() => load('piWithdrawFeePct', DEFAULT_PI_WITHDRAW_FEE_PCT))
 
   useEffect(() => save('user', user), [user])
+  useEffect(() => save('uid', uid), [uid])
   useEffect(() => save('freeUsed', freeFirstMinuteUsed), [freeFirstMinuteUsed])
   useEffect(() => save('calls', calls), [calls])
   useEffect(() => save('friends', friends), [friends])
@@ -326,6 +338,237 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   })
   useEffect(() => save('adminSettings', adminSettings), [adminSettings])
 
+  // ================= Firestore সিঙ্ক (আসল ডেটা স্তর) =================
+  // নিয়ম: Firestore চালু/পৌঁছানো গেলে users/{uid} ডকই আসল সত্য; localStorage তখন
+  // অফলাইন ক্যাশ (প্রতি বদলে লেখা হয়)। Firestore না থাকলে (কনসোলে চালু হয়নি / নেট
+  // নেই / OTP লগইন) অ্যাপ ঠিক আগের মতো localStorage-এই চলে — কিছুই ভাঙে না।
+  const fsReadyRef = useRef(false) // এই uid-র প্রথম সিঙ্ক শেষ হয়েছে কি না
+  const fsSyncUidRef = useRef<string | null>(null)
+  const fsWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const userRef = useRef(user)
+  userRef.current = user
+
+  // Firebase সেশন ফিরে এলে UID ধরা হয় (রিলোডের পর সেশন async ফেরে)।
+  useEffect(() => {
+    const unsub = onFirebaseAuthUser((fbUser) => {
+      setAuthReady(true)
+      if (fbUser && userRef.current) setUid((prev) => (prev === fbUser.uid ? prev : fbUser.uid))
+    })
+    return unsub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // স্টোরের বর্তমান অবস্থা → Firestore ডকে লেখার মতো স্ন্যাপশট (দরগুলো এখানে নেই — config/public-এ যায়)।
+  const collectSnapshot = (): LocalUserState => ({
+    name: user?.name ?? '',
+    email: user?.email ?? '',
+    freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium,
+    piBalance, bonusPi, points, referrals, liveEarnings,
+    kycStatus, kycInfo, kycRejectReason,
+    referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp,
+    lastClaimDate, streak, giftBoxClaimedCycle,
+    totalShares, reelShares, giftsSentPi,
+    piWalletAddress, piDeposits, piWithdrawals, piLedger,
+  })
+
+  // ক্লাউডের ডক → স্টোরে বসানো (যা ঘর ডকে নেই, সেটা বদলায় না)।
+  const applyHydrated = (h: Partial<LocalUserState>) => {
+    if (h.freeFirstMinuteUsed !== undefined) setFreeUsed(h.freeFirstMinuteUsed)
+    if (h.calls !== undefined) setCalls(h.calls)
+    if (h.friends !== undefined) setFriends(h.friends)
+    if (h.requests !== undefined) setRequests(h.requests)
+    if (h.likesUsed !== undefined) setLikesUsed(h.likesUsed)
+    if (h.premium !== undefined) setPremium(h.premium)
+    if (h.piBalance !== undefined) setPiBalance(h.piBalance)
+    if (h.bonusPi !== undefined) setBonusPi(h.bonusPi)
+    if (h.points !== undefined) setPoints(h.points)
+    if (h.referrals !== undefined) setReferrals(h.referrals)
+    if (h.liveEarnings !== undefined) setLiveEarnings(h.liveEarnings)
+    if (h.kycStatus !== undefined) setKycStatus(h.kycStatus)
+    if (h.kycRejectReason !== undefined) setKycRejectReason(h.kycRejectReason)
+    // KYC তথ্য: ক্লাউডে শুধু নিরাপদ অংশটুকু থাকে; এই ডিভাইসে পুরো তথ্য (NID/সেলফি)
+    // থাকলে আর সেটা একই জমার (submittedAt মিলে) হলে স্থানীয়টাই থাকে — নইলে ক্লাউডেরটা বসে।
+    if (h.kycInfo !== undefined) {
+      setKycInfo((prev) => {
+        if (h.kycInfo && prev && prev.submittedAt && h.kycInfo.submittedAt && prev.submittedAt === h.kycInfo.submittedAt) return prev
+        return h.kycInfo as KycInfo | null
+      })
+    }
+    if (h.referralCode !== undefined) setReferralCodeState(h.referralCode)
+    if (h.referrer !== undefined) setReferrer(h.referrer)
+    if (h.refWelcomeClaimed !== undefined) setRefWelcomeClaimed(h.refWelcomeClaimed)
+    if (h.referralRewarded !== undefined) setReferralRewarded(h.referralRewarded)
+    if (h.referralPiEarned !== undefined) setReferralPiEarned(h.referralPiEarned)
+    if (h.hasToppedUp !== undefined) setHasToppedUp(h.hasToppedUp)
+    if (h.lastClaimDate !== undefined) setLastClaimDate(h.lastClaimDate)
+    if (h.streak !== undefined) setStreak(h.streak)
+    if (h.giftBoxClaimedCycle !== undefined) setGiftBoxClaimedCycle(h.giftBoxClaimedCycle)
+    if (h.totalShares !== undefined) setTotalShares(h.totalShares)
+    if (h.reelShares !== undefined) setReelShares(h.reelShares)
+    if (h.giftsSentPi !== undefined) setGiftsSentPi(h.giftsSentPi)
+    if (h.piWalletAddress !== undefined) setPiWalletAddress(h.piWalletAddress)
+    if (h.piDeposits !== undefined) setPiDeposits(h.piDeposits)
+    if (h.piWithdrawals !== undefined) setPiWithdrawals(h.piWithdrawals)
+    if (h.piLedger !== undefined) setPiLedger(h.piLedger)
+  }
+
+  // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string } }>) => {
+    if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
+    if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
+    if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
+    if (c.datingRate !== undefined) setDatingRateState(c.datingRate)
+    if (c.liveRate !== undefined) setLiveRateState(c.liveRate)
+    if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments } }))
+  }
+
+  // অন্য ব্যবহারকারীর ক্যাশে লগইন করলে — আগের ব্যবহারকারীর ডেটা নতুন ব্যবহারকারীর
+  // ডকে উঠে যাওয়া ঠেকাতে সিঙ্ক করা অবস্থা নতুন ডিভাইসের মতো শূন্য করে দেওয়া হয়।
+  // (একই ব্যবহারকারী আবার এলে রিসেট হয় না — ক্যাশের UID মিলে যায়।)
+  const resetSyncableState = () => {
+    setFreeUsed(false)
+    setCalls([])
+    setFriends(() => {
+      const removed = load<string[]>('buddiesRemoved', [])
+      const base: Friend[] = [
+        { id: 'fr-1', name: 'রাফি আহমেদ', color: '#1877F2', online: true },
+        { id: 'fr-2', name: 'সাবরিনা খান', color: '#E91E63', online: false },
+      ]
+      for (const b of BUDDIES) {
+        if (!removed.includes(b.id) && !base.some((f) => f.id === b.id)) base.push({ id: b.id, name: b.name, color: b.color, online: b.online })
+      }
+      return base
+    })
+    setRequests([
+      { id: 'rq-1', name: 'হাসান মাহমুদ', color: '#27AE60', online: true },
+      { id: 'rq-2', name: 'প্রিয়া দাস', color: '#9C27B0', online: false },
+    ])
+    setLikesUsed(0)
+    setPremium(false)
+    setPiBalance(20)
+    setBonusPi(0)
+    setPoints(0)
+    setReferrals(0)
+    setDatingRateState(0.1)
+    setLiveRateState(0.05)
+    setLiveEarnings(0)
+    setKycStatus('none')
+    setKycInfo(null)
+    setKycRejectReason('')
+    setReferralCodeState(randomCode())
+    setReferrer(null)
+    setRefWelcomeClaimed(false)
+    setRefNotice(null)
+    setReferralRewarded(false)
+    setReferralPiEarned(0)
+    setHasToppedUp(false)
+    setLastClaimDate(null)
+    setStreak(0)
+    setGiftBoxClaimedCycle(null)
+    setTotalShares(0)
+    setReelShares({})
+    setGiftsSentPi(0)
+    setPiWalletAddress(null)
+    setPiDeposits([])
+    setPiWithdrawals([])
+    setPiLedger([{ id: 'open-mig', date: '—', type: 'সমন্বয়', label: 'আগের লেনদেনের সমন্বয়', amount: 20 }])
+    setPiRateBDTState(DEFAULT_PI_RATE_BDT)
+    setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
+    setPiWithdrawFeePctState(DEFAULT_PI_WITHDRAW_FEE_PCT)
+    setPendingTopUps([])
+    setAdminSettingsState(DEFAULT_ADMIN_SETTINGS)
+  }
+
+  // প্রথম সিঙ্ক — লগইনে একবার: ডক থাকলে ক্লাউড থেকে নেওয়া হয় (hydrate),
+  // না থাকলে localStorage-র অবস্থা একবারই ক্লাউডে ওঠে (migration, কোনো মান বানানো হয় না)।
+  // Firestore না থাকলে/ব্যর্থ হলে error হয় — অ্যাপ localStorage মোডেই চলতে থাকে।
+  useEffect(() => {
+    if (!user || !uid || !authReady) {
+      if (!user) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null }
+      return
+    }
+    if (fsSyncUidRef.current === uid) return
+    fsSyncUidRef.current = uid
+    let cancelled = false
+    const run = async () => {
+      const cachedUid = load<string | null>('fsCacheUid', null)
+      if (cachedUid && cachedUid !== uid) resetSyncableState()
+      save('fsCacheUid', uid)
+      setFsState('syncing')
+      fsReadyRef.current = false
+      try {
+        const docData = await fetchUserDoc(uid)
+        if (cancelled) return
+        if (docData) {
+          applyHydrated(fromUserDoc(docData))
+        } else {
+          await writeUserDoc(uid, toUserDoc(collectSnapshot()))
+          if (cancelled) return
+        }
+        const cfg = await fetchPublicConfig()
+        if (cancelled) return
+        if (cfg) {
+          applyPublicConfig(fromPublicConfig(cfg))
+        } else if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
+          // অ্যাডমিন প্রথমবার — নিজের দর + পেমেন্টের বিবরণ ক্লাউডে ওঠে (গোপন অংশ ছাড়া)
+          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments))
+          if (cancelled) return
+        }
+        if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
+          // অ্যাডমিন হলে ক্লাউডের pending টপ-আপগুলো স্থানীয় তালিকায় মেশে
+          const pend = await fetchPendingTopUps()
+          if (cancelled) return
+          if (pend.length > 0) {
+            setPendingTopUps((prev) => {
+              const merged = [...prev]
+              for (const p of pend) {
+                const req = fromTopUpDoc(p.id, p.data)
+                if (req && !merged.some((x) => x.id === req.id)) merged.push(req)
+              }
+              return merged
+            })
+          }
+        } else {
+          // সাধারণ ব্যবহারকারী নিজের আবেদনগুলোর স্ট্যাটাস ক্লাউড থেকে আপডেট পান
+          const mine = await fetchMyTopUps(uid)
+          if (cancelled) return
+          if (mine.length > 0) {
+            setPendingTopUps((prev) => prev.map((x) => {
+              const m = mine.find((y) => y.id === x.id)
+              if (!m) return x
+              const req = fromTopUpDoc(m.id, m.data)
+              return req ? { ...x, status: req.status } : x
+            }))
+          }
+        }
+        if (cancelled) return
+        fsReadyRef.current = true
+        setFsState('on')
+      } catch {
+        if (!cancelled) { fsReadyRef.current = false; setFsState('error') }
+      }
+    }
+    run()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, user, authReady])
+
+  // Write-through — সিঙ্ক চালু থাকলে প্রতি বদল (৮০০ মিলিসেকেন্ড দেরিতে) ক্লাউডে যায়;
+  // localStorage-তো আগেই প্রতি বদলে লেখা হয় (অফলাইন ক্যাশ)। অ্যাডমিনের দর/পেমেন্টের
+  // বিবরণ config/public-এ যায় (গোপন অংশ কখনো নয়)। সিঙ্ক শেষ হওয়ার আগের বদল লেখা হয় না।
+  useEffect(() => {
+    if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
+    if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current)
+    fsWriteTimer.current = setTimeout(() => {
+      writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
+      if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
+        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments)).catch(() => { /* ignore */ })
+      }
+    }, 800)
+    return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, adminSettings])
+
   // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
   const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
   const giftBoxDays = streak > 0 ? streak - giftBoxCycle * GIFT_BOX_DAYS : 0
@@ -375,8 +618,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const value: Store = useMemo(() => ({
     user,
     isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
-    login: (name, email) => setUser({ name, email }),
-    logout: () => setUser(null),
+    login: (name, email) => {
+      setUser({ name, email })
+      // Firebase লগইন হলে (Google/ইমেইল লিংক) UID ধরা হয় — OTP লগইনে Firebase সেশন নেই, uid null থাকে
+      const u = getCurrentUid()
+      setUid(u)
+      if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null }
+    },
+    logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null },
     // ব্যাংক তাৎক্ষণিক টপ-আপ — টাকা অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
     topUp: (amount, _method) => {
       const pi = topUpPi(amount, 'BDT', piRateBDT, usdtRateBDT)
@@ -539,13 +788,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!Number.isFinite(m) || m <= 0) return 'সঠিক পরিমাণ দিন।'
       if (!t) return 'রেফারেন্স দিন।'
       if (pendingTopUps.some(x => x.trxId.toLowerCase() === t.toLowerCase())) return 'এই রেফারেন্স আগেই ব্যবহার হয়েছে।'
-      setPendingTopUps(prev => [{ id: 'tu-' + Date.now(), method, network, amount: m, currency, trxId: t, date: new Date().toLocaleString('bn-BD'), status: 'pending' }, ...prev])
+      const req: TopUpRequest = { id: 'tu-' + Date.now(), method, network, amount: m, currency, trxId: t, date: new Date().toLocaleString('bn-BD'), status: 'pending' }
+      setPendingTopUps(prev => [req, ...prev])
+      // Firestore চালু থাকলে আবেদনটা topups কালেকশনেও যায় (অ্যাডমিন অন্য ডিভাইস থেকে দেখেন)
+      if (fsState === 'on' && uid) writeTopUpDoc(req.id, toTopUpDoc(req, uid)).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       return null
     },
     approveTopUp: (id) => {
       const req = pendingTopUps.find(x => x.id === id)
       if (!req || req.status !== 'pending') return
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'approved' } : x))
+      if (fsState === 'on') updateTopUpStatus(id, 'approved').catch(() => { /* ignore */ })
       // অনুমোদনে টপ-আপ অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
       const pi = topUpPi(req.amount, req.currency, piRateBDT, usdtRateBDT)
       if (pi > 0) {
@@ -562,10 +815,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     rejectTopUp: (id) => {
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'rejected' } : x))
+      if (fsState === 'on') updateTopUpStatus(id, 'rejected').catch(() => { /* ignore */ })
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
