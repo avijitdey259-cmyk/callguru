@@ -55,6 +55,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="/call/:type/:id" element={<CallPage />} />
+      <Route path="/call/:code" element={<CallPage />} />
       <Route path="/dating-live/:id" element={<DatingLivePage />} />
       <Route path="/dating-go-live" element={<DatingGoLivePage />} />
     </Routes>

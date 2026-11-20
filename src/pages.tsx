@@ -4,6 +4,7 @@ import Hls from 'hls.js'
 import { useStore } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
+import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -564,7 +565,32 @@ export function CreateService() {
 
 // ---------- Call (WhatsApp-style, prepaid) ----------
 export function CallPage() {
-  const { type, id } = useParams()
+  const { type, id, code: linkCode } = useParams()
+  // লিংক-কল: /call/<কোড> খুলে ঢুকলে এই ব্যবহারকারী callee (কল গ্রহণকারী,
+  // তিনি দেন না); /call/<type>/<id> থেকে শুরু করলে caller (কলকারী, তিনিই দেবেন)।
+  const isLinkCall = !type && !!linkCode
+  // আসল 1-to-1 কল (WebRTC + Railway সিগন্যালিং) — কল-বাই-লিংক; রেফ দিয়ে
+  // স্টেট পড়া হয়, কারণ সিগন্যালিং হ্যান্ডলারগুলো পুরোনো রেন্ডারের ক্লোজার ধরে
+  const [callCode, setCallCode] = useState<string | null>(linkCode || null)
+  const [connected, setConnected] = useState(false)
+  const [remoteReady, setRemoteReady] = useState(false)
+  const [peerName, setPeerName] = useState('')
+  const [callError, setCallError] = useState('')
+  const [linkInfo, setLinkInfo] = useState<{ callerName: string } | null>(null)
+  const [linkState, setLinkState] = useState<'loading' | 'ready' | 'not-found'>(isLinkCall ? 'loading' : 'ready')
+  const [copied, setCopied] = useState(false)
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const callCodeRef = useRef<string | null>(linkCode || null)
+  const peerPeerIdRef = useRef<string | null>(null)
+  const peerNameRef = useRef('')
+  const offerSentRef = useRef(false)
+  const tracksAddedRef = useRef(false)
+  const pendingOfferRef = useRef<{ from: string; sdp: RTCSessionDescriptionInit } | null>(null)
+  const endedRef = useRef(false)
+  const secondsRef = useRef(0)
+  const connectedRef = useRef(false)
+  const remoteStreamRef = useRef<MediaStream | null>(null)
   const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
@@ -573,7 +599,7 @@ export function CallPage() {
   const datingProfile = isDating ? DATING_PROFILES.find(p => p.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'বন্ধু') : undefined
   const rate = expert ? takaToPi(expert.rate) : isDating ? datingRate : FRIEND_RATE // সব কল Pi-তে — এক্সপার্টের টাকার রেট ÷১০০, ডেটিং রেট অ্যাডমিন থেকে (ডিফল্ট π ০.১), বন্ধুর কল π ০.১ ফ্ল্যাট
-  const name = expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'ডেটিং')) : decodeURIComponent(friendName || 'বন্ধু')
+  const name = isLinkCall ? (linkInfo?.callerName || 'কলার') : expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'ডেটিং')) : decodeURIComponent(friendName || 'বন্ধু')
   // ডেটিং কল সম্পূর্ণ প্রিপেইড — গ্লোবাল প্রথম-১-মিনিট-ফ্রি এখানে প্রযোজ্য নয়, ফ্রি মিনিট খরচও হবে না
   const isFreeAvailable = !isDating && !freeFirstMinuteUsed
   const [started, setStarted] = useState(false)
@@ -601,22 +627,40 @@ export function CallPage() {
   const freeSeconds = isFreeAvailable ? 60 : 0
   const paidSeconds = Math.max(0, seconds - freeSeconds)
   const billedMinutes = Math.ceil(paidSeconds / 60)
-  const liveCost = billedMinutes * rate
+  const liveCost = isLinkCall ? 0 : billedMinutes * rate // লিংক-কলে গ্রহণকারী দেন না
   const maxPaidMinutes = Math.floor(totalPi / rate)
-  const maxSeconds = freeSeconds + maxPaidMinutes * 60
+  // লিংক-কলে গ্রহণকারীর অটো-কাট সীমা নেই (0 = সীমা নেই); কলকারী আগের মতোই প্রিপেইড সীমায় চলবেন
+  const maxSeconds = isLinkCall ? 0 : freeSeconds + maxPaidMinutes * 60
   const talkableMinutes = freeSeconds / 60 + maxPaidMinutes
   const canStart = isFreeAvailable || totalPi >= rate
 
+  // টাইমার (আর বিলিং) শুধু পিয়ার সংযুক্ত হলেই চলে — অপেক্ষার সময় টাকা কাটবে না
   useEffect(() => {
-    if (!started || ended) return
+    if (!connected || ended) return
     const t = setInterval(() => setSeconds(s => {
       const next = s + 1
-      if (next >= maxSeconds && maxSeconds > 0) { endCall('Auto-cut — ব্যালেন্স শেষ') }
+      secondsRef.current = next
+      if (next >= maxSeconds && maxSeconds > 0) { hangUp('Auto-cut — ব্যালেন্স শেষ') }
       return next
     }), 1000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, ended, maxSeconds])
+  }, [connected, ended, maxSeconds])
+
+  // লিংক-কল: লিংক খুলেই কে কল করছেন তা জানা — সার্ভারে রুম না থাকলে "পাওয়া যায়নি"
+  function loadLinkInfo() {
+    if (!linkCode) return
+    setLinkState('loading')
+    fetchCallInfo(linkCode).then(info => {
+      if (info) { setLinkInfo({ callerName: info.callerName }); setLinkState('ready') }
+      else setLinkState('not-found')
+    })
+  }
+  useEffect(() => {
+    if (!isLinkCall) return
+    loadLinkInfo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLinkCall, linkCode])
 
   useEffect(() => {
     if (!started) return
@@ -629,6 +673,8 @@ export function CallPage() {
       if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
       streamRef.current = s
       if (selfRef.current) selfRef.current.srcObject = s
+      maybeCreateOffer()
+      maybeAnswerOffer()
     }).catch(() => { /* camera unavailable in demo — placeholder stays */ })
     return () => { cancelled = true; streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null }
   }, [started])
@@ -657,6 +703,10 @@ export function CallPage() {
     const combined = new MediaStream([...newStream.getVideoTracks(), ...oldAudio])
     streamRef.current = combined
     if (selfRef.current) selfRef.current.srcObject = combined
+    // আসল কলে পিয়ারকেও নতুন ভিডিও ট্র্যাক পাঠাতে হয়
+    const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === 'video')
+    const newVideo = combined.getVideoTracks()[0]
+    if (sender && newVideo) sender.replaceTrack(newVideo).catch(() => {})
     setFacingBoth(next)
     // ক্যামেরা গোনা আবার আপডেট করা (কিছু ডিভাইসে অনুমতির পরেই সঠিক সংখ্যা আসে)
     navigator.mediaDevices?.enumerateDevices?.().then(devices => {
@@ -665,22 +715,184 @@ export function CallPage() {
     setSwitching(false)
   }
 
-  function fmt(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
-
-  function endCall(reason: string) {
-    if (ended) return
-    setEnded(true); setEndReason(reason || 'কল শেষ')
-    const cost = roundPi(Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate)
-    if (cost > 0) addPi(-cost, 'কল খরচ', `কল — ${name}`)
-    if (isFreeAvailable && seconds > 0) markFreeMinuteUsed()
-    addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: seconds, cost, freeMinute: isFreeAvailable && seconds > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
+  // ---------- আসল 1-to-1 কল: সিগন্যালিং + WebRTC (কল-বাই-লিংক) ----------
+  function closeCallResources() {
+    try { pcRef.current?.close() } catch { /* ignore */ }
+    pcRef.current = null
+    try { wsRef.current?.close() } catch { /* ignore */ }
+    wsRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
   }
+
+  function ensurePc() {
+    if (pcRef.current) return pcRef.current
+    const pc = createCallPeerConnection((stream) => {
+      remoteStreamRef.current = stream
+      if (videoRef.current) videoRef.current.srcObject = stream
+      setRemoteReady(true)
+      setConnected(true)
+      connectedRef.current = true
+    })
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate && peerPeerIdRef.current) {
+        sendCallSignal(wsRef.current, { type: 'call-ice', roomId: `call-${callCodeRef.current}`, to: peerPeerIdRef.current, candidate: ev.candidate.toJSON() })
+      }
+    }
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') {
+        setCallError('সংযোগ করা যায়নি — নেটওয়ার্ক চেক করে আবার চেষ্টা করুন।')
+      }
+    }
+    pcRef.current = pc
+    return pc
+  }
+
+  function addLocalTracks() {
+    const pc = pcRef.current
+    const stream = streamRef.current
+    if (!pc || !stream || tracksAddedRef.current) return
+    stream.getTracks().forEach(t => { try { pc.addTrack(t, stream) } catch { /* ignore */ } })
+    tracksAddedRef.current = true
+  }
+
+  // কলকারী: পিয়ার ঢুকেছে + নিজের ক্যামেরা চালু — তবেই অফার পাঠানো হয়
+  function maybeCreateOffer() {
+    if (isLinkCall || offerSentRef.current || !peerPeerIdRef.current || !streamRef.current || !pcRef.current) return
+    addLocalTracks()
+    const pc = pcRef.current
+    pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+      sendCallSignal(wsRef.current, { type: 'call-offer', roomId: `call-${callCodeRef.current}`, to: peerPeerIdRef.current, sdp: pc.localDescription })
+      offerSentRef.current = true
+    }).catch(() => { setCallError('কল শুরু করা যায়নি — আবার চেষ্টা করুন।') })
+  }
+
+  // গ্রহণকারী: অফার এসেছে + নিজের ক্যামেরা চালু — তবেই উত্তর পাঠানো হয়
+  async function maybeAnswerOffer() {
+    const pending = pendingOfferRef.current
+    if (!isLinkCall || !pending || !streamRef.current) return
+    pendingOfferRef.current = null
+    const pc = ensurePc()
+    addLocalTracks()
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(pending.sdp))
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      sendCallSignal(wsRef.current, { type: 'call-answer', roomId: `call-${callCodeRef.current}`, to: pending.from, sdp: pc.localDescription })
+    } catch {
+      setCallError('কল ধরা যায়নি — আবার চেষ্টা করুন।')
+    }
+  }
+
+  function joinCallRoom(code: string, role: 'caller' | 'callee') {
+    callCodeRef.current = code
+    const ws = connectCall(code, role, user?.name || 'আপনি', {
+      onJoined: (_peerId, peers) => {
+        if (peers.length > 0) {
+          peerPeerIdRef.current = peers[0].peerId
+          peerNameRef.current = peers[0].name
+          setPeerName(peers[0].name)
+          maybeCreateOffer()
+        }
+      },
+      onPeerJoined: (peer) => {
+        peerPeerIdRef.current = peer.peerId
+        peerNameRef.current = peer.name
+        setPeerName(peer.name)
+        maybeCreateOffer()
+      },
+      onOffer: (from, sdp) => {
+        peerPeerIdRef.current = from
+        pendingOfferRef.current = { from, sdp }
+        maybeAnswerOffer()
+      },
+      onAnswer: (_from, sdp) => {
+        pcRef.current?.setRemoteDescription(new RTCSessionDescription(sdp)).catch(() => {})
+      },
+      onIce: (_from, candidate) => {
+        pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {})
+      },
+      onChat: (_from, text) => { setChat(c => [...c, { from: peerNameRef.current || 'অপর পক্ষ', text }]) },
+      onPeerLeft: () => { endCallLocal('অপর পক্ষের সংযোগ বিচ্ছিন্ন হয়েছে') },
+      onCallEnded: () => { endCallLocal('অপর পক্ষ কল শেষ করেছেন') },
+      onError: (err) => {
+        setCallError(err === 'call-not-found' ? 'কলটি পাওয়া যায়নি বা শেষ হয়ে গেছে।' : err === 'room-full' ? 'এই কলে ইতিমধ্যে ২ জন আছেন।' : 'সার্ভারে সংযোগ করা যায়নি — আবার চেষ্টা করুন।')
+      },
+      onClose: () => { if (!endedRef.current && !connectedRef.current) setCallError('সার্ভারে সংযোগ করা যায়নি — আবার চেষ্টা করুন।') },
+    })
+    wsRef.current = ws
+    if (!ws) setCallError('সার্ভারে সংযোগ করা যায়নি — আবার চেষ্টা করুন।')
+  }
+
+  // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
+  function startCall() {
+    if (!canStart) return
+    const code = makeCallCode()
+    setCallCode(code)
+    callCodeRef.current = code
+    setStarted(true)
+    ensurePc()
+    joinCallRoom(code, 'caller')
+  }
+
+  // গ্রহণকারী কল ধরলেন: রুমে ঢুকলেন, অফারের অপেক্ষা করবেন
+  function acceptCall() {
+    if (!linkCode) return
+    setCallCode(linkCode)
+    callCodeRef.current = linkCode
+    setStarted(true)
+    joinCallRoom(linkCode, 'callee')
+  }
+
+  async function copyCallLink() {
+    if (!callCode) return
+    const res = await shareLink('PiCall ভিডিও কল', `${name} আপনাকে PiCall-এ কল করছেন — লিংক খুলে ধরুন`, callLink(callCode))
+    if (res === 'copied' || res === 'shared') setCopied(true)
+  }
+
+  function toggleMute() {
+    const next = !muted
+    setMuted(next)
+    streamRef.current?.getAudioTracks().forEach(t => { t.enabled = !next })
+  }
+
+  function toggleCam() {
+    const next = !camOff
+    setCamOff(next)
+    streamRef.current?.getVideoTracks().forEach(t => { t.enabled = !next })
+  }
+
+  // নিজে থেকে কাটা (বোতাম / অটো-কাট): অপর পক্ষকে জানিয়ে তারপর স্থানীয়ভাবে শেষ
+  function hangUp(reason: string) {
+    if (wsRef.current && callCodeRef.current) {
+      sendCallSignal(wsRef.current, { type: 'call-end', roomId: `call-${callCodeRef.current}` })
+    }
+    endCallLocal(reason)
+  }
+
+  function endCallLocal(reason: string) {
+    if (endedRef.current) return
+    endedRef.current = true
+    closeCallResources()
+    setEnded(true); setEndReason(reason || 'কল শেষ')
+    // লিংক-কলে গ্রহণকারী দেন না — খরচ ০, ফ্রি মিনিটও খরচ হয় না; কলকারী আগের মতোই দেবেন
+    const cost = isLinkCall ? 0 : roundPi(Math.ceil(Math.max(0, secondsRef.current - freeSeconds) / 60) * rate)
+    if (cost > 0) addPi(-cost, 'কল খরচ', `কল — ${name}`)
+    if (!isLinkCall && isFreeAvailable && secondsRef.current > 0) markFreeMinuteUsed()
+    addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: secondsRef.current, cost, freeMinute: !isLinkCall && isFreeAvailable && secondsRef.current > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
+  }
+
+  function fmt(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
   function sendChat() {
     const err = contactBanCheck(chatDraft)
     if (err) { setBanMsg(err + ` (চেষ্টা ${banCount + 1} — অ্যাডমিন লগে সংরক্ষিত)`); setBanCount(c => c + 1); return }
     if (!chatDraft.trim()) return
-    setChat(c => [...c, { from: user?.name || 'আপনি', text: chatDraft }]); setChatDraft(''); setBanMsg('')
+    const text = chatDraft
+    setChat(c => [...c, { from: user?.name || 'আপনি', text }]); setChatDraft(''); setBanMsg('')
+    if (connected && callCodeRef.current) {
+      sendCallSignal(wsRef.current, { type: 'call-chat', roomId: `call-${callCodeRef.current}`, text })
+    }
   }
 
   // KYC ছাড়া ডেটিং কল শুরু করা যাবে না — কল শুরু হলে টাকাও কাটবে না
@@ -689,7 +901,7 @@ export function CallPage() {
   }
 
   if (ended) {
-    const cost = Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate
+    const cost = isLinkCall ? 0 : Math.ceil(Math.max(0, seconds - freeSeconds) / 60) * rate
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
@@ -702,6 +914,73 @@ export function CallPage() {
             <Btn variant="green" onClick={() => navigate('/call-history')}>কল হিস্ট্রি</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>ফিডে ফিরুন</Btn>
           </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // লিংক-কল: ধরার আগের পর্দা — কে কল করছেন, ধরবেন না কাটবেন (WhatsApp-স্টাইল)
+  if (isLinkCall && !started) {
+    if (linkState === 'loading') {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+          <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+            <h1 className="text-xl font-bold">কল খুঁজছি…</h1>
+          </Card>
+        </div>
+      )
+    }
+    if (linkState === 'not-found') {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+          <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+            <h1 className="text-xl font-bold">কলটি পাওয়া যায়নি</h1>
+            <p className="text-sm text-gray-300 mt-2">লিংকটি ভুল হতে পারে, অথবা কলটি শেষ হয়ে গেছে। কলকারীকে আবার লিংক পাঠাতে বলুন।</p>
+            <div className="flex gap-2 mt-5 justify-center">
+              <Btn variant="green" onClick={loadLinkInfo}>↻ আবার চেষ্টা করুন</Btn>
+              <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>ফিডে ফিরুন</Btn>
+            </div>
+          </Card>
+        </div>
+      )
+    }
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <span className="w-24 h-24 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
+          <h1 className="text-xl font-bold mt-3">📞 {name} আপনাকে কল করছেন</h1>
+          <p className="text-sm text-gray-300 mt-1">PiCall ভিডিও কল • এই কলের খরচ কলকারী দেবেন, আপনার Pi কাটবে না।</p>
+          <p className="text-xs text-gray-400 mt-2">কল ধরলে আপনার ক্যামেরা ও মাইক চালু হবে।</p>
+          <div className="flex gap-3 mt-6 justify-center">
+            <button onClick={acceptCall} className="px-6 py-3 rounded-full bg-green-600 text-white font-bold text-lg">✅ ধরুন</button>
+            <button onClick={() => navigate('/feed')} className="px-6 py-3 rounded-full bg-red-600 text-white font-bold text-lg">❌ কাটুন</button>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // কল শুরু হয়েছে কিন্তু পিয়ার এখনো সংযুক্ত হননি — অপেক্ষার পর্দা (লিংকসহ)
+  if (started && !connected && !ended) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <span className="w-24 h-24 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
+          <h1 className="text-xl font-bold mt-3">📞 {name}</h1>
+          {callError
+            ? <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">{callError}</p>
+            : <p className="text-sm text-gray-300 mt-2">{isLinkCall ? 'সংযোগ হচ্ছে…' : 'অপর পক্ষের জন্য অপেক্ষা করছি…'}</p>}
+          {!isLinkCall && callCode && (
+            <div className="mt-4 text-left">
+              <p className="text-sm text-gray-300">কল লিংক — যাকে কল করছেন তাকে পাঠান, তিনি লিংক খুললেই কল সংযুক্ত হবে:</p>
+              <p className="text-sm mt-2 break-all bg-slate-700 rounded-lg px-3 py-2">{callLink(callCode)}</p>
+              <div className="flex gap-2 mt-3">
+                <Btn className="flex-1" onClick={copyCallLink}>{copied ? '✅ কপি হয়েছে!' : '🔗 লিংক কপি করুন'}</Btn>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">অপেক্ষার সময় টাকা কাটবে না — সংযুক্ত হলেই টাইমার আর বিলিং শুরু হবে।</p>
+            </div>
+          )}
+          <button onClick={() => hangUp('কল বাতিল করেছেন')} className="mt-5 px-6 py-2 rounded-full bg-red-600 text-white font-bold">❌ বাতিল করুন</button>
         </Card>
       </div>
     )
@@ -732,8 +1011,9 @@ export function CallPage() {
             <p className="text-xs text-gray-400 mt-1">কল চলাকালীনও নিচের 🔄 বোতামে ক্যামেরা বদলানো যাবে।</p>
           </div>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ Pi ব্যালেন্স ছাড়া কল করা যাবে না। প্রিপেইড কল — আগে Pi কিনুন।</p>}
+          <p className="text-xs text-gray-400 mt-3">কল শুরু হলে একটি লিংক পাওয়া যাবে — যাকে কল করছেন তাকে লিংকটি পাঠান, তিনি লিংক খুললেই কল সংযুক্ত হবে।</p>
           <div className="flex gap-2 mt-5">
-            <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ কল শুরু করুন</Btn>
+            <Btn variant="green" className="flex-1" disabled={!canStart} onClick={startCall}>▶️ কল শুরু করুন</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>π Pi কিনুন</Btn>
           </div>
           <button className="text-sm text-gray-300 mt-3" onClick={() => navigate(-1)}>← ফিরে যান</button>
@@ -750,16 +1030,18 @@ export function CallPage() {
         <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmt(seconds)} • {liveCost === 0 ? 'ফ্রি' : formatPi(liveCost)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
-        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-0" autoPlay playsInline muted />
-        <div className="text-center">
-          <span className="w-28 h-28 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
-          <p className="text-xl font-bold mt-3">{name}</p>
-          <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '১ম মিনিট ফ্রি' : `${formatPi(liveCost)}`}</p>
-          {sharing && <p className="text-xs mt-2 bg-blue-600 inline-block px-2 py-1 rounded">🖥️ স্ক্রিন শেয়ার চলছে</p>}
-          {camOff && <p className="text-xs mt-2">📷 ক্যামেরা বন্ধ</p>}
-        </div>
+        <video ref={(el) => { videoRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current }} className={`absolute inset-0 w-full h-full object-cover ${remoteReady ? 'opacity-100' : 'opacity-0'}`} autoPlay playsInline />
+        {!remoteReady && (
+          <div className="text-center">
+            <span className="w-28 h-28 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
+            <p className="text-xl font-bold mt-3">{name}</p>
+            <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '১ম মিনিট ফ্রি' : `${formatPi(liveCost)}`}</p>
+            {sharing && <p className="text-xs mt-2 bg-blue-600 inline-block px-2 py-1 rounded">🖥️ স্ক্রিন শেয়ার চলছে</p>}
+            {camOff && <p className="text-xs mt-2">📷 ক্যামেরা বন্ধ</p>}
+          </div>
+        )}
         {/* সামনের ক্যামেরায় সেলফ-ভিউ আয়নার মতো (mirror), পেছনের ক্যামেরায় নয় */}
-        <video ref={selfRef} style={{ transform: facing === 'user' ? 'scaleX(-1)' : 'none' }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
+        <video ref={(el) => { selfRef.current = el; if (el && streamRef.current) el.srcObject = streamRef.current }} style={{ transform: facing === 'user' ? 'scaleX(-1)' : 'none' }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
       </div>
       <div className="px-3 pb-3">
         <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
@@ -772,15 +1054,16 @@ export function CallPage() {
           <Btn onClick={sendChat}>পাঠান</Btn>
         </div>
         <div className="flex justify-center gap-3 pb-2">
-          <button onClick={() => setMuted(m => !m)} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="মাইক">{muted ? '🔇' : '🎤'}</button>
-          <button onClick={() => setCamOff(c => !c)} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="ক্যামেরা">{camOff ? '📷' : '📹'}</button>
+          <button onClick={toggleMute} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="মাইক">{muted ? '🔇' : '🎤'}</button>
+          <button onClick={toggleCam} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="ক্যামেরা">{camOff ? '📷' : '📹'}</button>
           <button onClick={() => setSharing(s => !s)} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'bg-blue-600' : 'bg-slate-700'}`} title="স্ক্রিন শেয়ার">🖥️</button>
           <button onClick={switchCamera} disabled={switching || camCount === 1} className="h-14 px-3 rounded-full bg-slate-700 text-sm font-bold disabled:opacity-50" title="ক্যামেরা বদলান — সামনে ↔ পেছনে">🔄 {switching ? 'বদলানো হচ্ছে…' : `ক্যামেরা: ${facing === 'user' ? 'সামনে' : 'পেছনে'}`}</button>
-          <button onClick={() => endCall('আপনি কল শেষ করেছেন')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="কল শেষ">📞</button>
+          <button onClick={() => hangUp('আপনি কল শেষ করেছেন')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="কল শেষ">📞</button>
         </div>
         {camCount === 1 && <p className="text-center text-xs text-yellow-300 mb-1">এই ডিভাইসে ১টি ক্যামেরা পাওয়া গেছে — ক্যামেরা বদলানো যাবে না।</p>}
         {camError && <p className="text-center text-xs text-red-300 mb-1">{camError}</p>}
-        <p className="text-center text-xs text-gray-400">ব্যালেন্স শেষ হলে কল অটো-কাট হবে • সর্বোচ্চ {fmt(maxSeconds)}</p>
+        {callError && <p className="text-center text-xs text-red-300 mb-1">{callError}</p>}
+        <p className="text-center text-xs text-gray-400">{isLinkCall ? 'এই কলের খরচ কলকারী দেবেন' : `ব্যালেন্স শেষ হলে কল অটো-কাট হবে${maxSeconds > 0 ? ` • সর্বোচ্চ ${fmt(maxSeconds)}` : ''}`}</p>
       </div>
     </div>
   )

@@ -12,8 +12,11 @@
 //   DELETE /api/live/:id  -> end a live room
 //   POST /api/otp/send    -> { ok:true } or { ok:false, error:'not_configured'|'rate_limited'|'invalid_email' }
 //   POST /api/otp/verify  -> { ok:true } or { ok:false, error:'invalid_code'|'expired'|'too_many_attempts' }
+//   GET  /api/call/:code  -> { ok, code, callerName, peers } or 404 (1-to-1 call link)
 //   WebSocket (same host/port): live signalling — join/offer/answer/ice/gift/
-//   chat/leave, viewer-count + host-left broadcasts (see src/live.ts).
+//   chat/leave, viewer-count + host-left broadcasts (see src/live.ts), and
+//   1-to-1 call signalling — call-join/call-offer/call-answer/call-ice/
+//   call-chat/call-end, peer-joined + peer-left broadcasts (see src/call.ts).
 import { useEffect, useState } from 'react'
 import { EXPERTS, type Expert } from './data'
 

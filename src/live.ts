@@ -4,15 +4,24 @@
 // here returns null / false and the live pages fall back to their demo
 // behaviour — the app must never crash or show a blank page.
 // Media is WebRTC peer-to-peer (mesh): the host sends one stream per viewer.
-// STUN only (Google, free, no key) — no TURN yet, so some strict NATs / mobile
-// networks may fail to connect. Small audience (roughly 5-8 viewers); a big
-// audience needs an SFU later.
+// ICE — STUN (Google, free) + free shared TURN (OpenRelay, published public
+// test credentials — TESTING ONLY, not production: a paid TURN is needed
+// before real users, or calls behind strict NATs / mobile networks will
+// fail. The credentials below are public test credentials, not secrets.
+// Small audience (roughly 5-8 viewers); a big audience needs an SFU later.
 import { API_BASE, API_TIMEOUT_MS } from './api'
 
 export type LiveRoom = { id: string; hostName: string; title: string; viewers: number; startedAt: number }
 
 export const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    // Free shared TURN (OpenRelay) — public test credentials, testing only.
+    // A paid TURN is needed for production; do not treat these as secrets,
+    // but do not rely on them for real users either.
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  ]
 }
 
 /** wss://... base for the live server, or null when no backend is configured. */

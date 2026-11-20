@@ -20,6 +20,17 @@
 //   Media itself is WebRTC peer-to-peer (mesh): the host sends one stream per
 //   viewer, STUN only (stun:stun.l.google.com:19302) — no TURN yet. Works for a
 //   small audience (roughly 5-8 viewers); a big audience needs an SFU later.
+//
+// 1-TO-1 CALLS (real peer-to-peer, call-by-link):
+//   REST:  GET /api/call/:code   -> {ok, code, callerName, peers} or 404
+//   WebSocket (same server/port, separate room map 'call-<code>'):
+//     call-join  {roomId, role: 'caller'|'callee', name} -> 'call-joined'
+//     call-offer / call-answer / call-ice  relayed between the two peers
+//     call-chat  {roomId, text}  relayed to the other peer
+//     call-end   {roomId}        the other peer gets 'call-ended'
+//   Peer disconnect -> the other peer gets 'peer-left'. Max 2 peers per room.
+//   Media is WebRTC peer-to-peer — STUN + free shared TURN (OpenRelay,
+//   public test credentials, testing only; paid TURN needed for production).
 import express from 'express'
 import http from 'http'
 import crypto from 'node:crypto'
@@ -200,6 +211,33 @@ app.post('/api/admin/settings', (req, res) => {
   })
 })
 
+// ---------- 1-to-1 call rooms (in-memory; a restart clears them) ----------
+// Call-by-link: the caller starts from /call/<type>/<id>, gets a short code,
+// shares https://picallbd.web.app/call/<code>; the callee opens the link
+// and joins the same room. Signalling only — media is WebRTC peer-to-peer
+// (STUN + free shared TURN for testing; paid TURN needed for production).
+//   REST: GET /api/call/:code -> {ok, code, callerName, peers} or 404
+//   WebSocket (same server/port as live rooms, separate room map):
+//     call-join  {roomId: 'call-<code>', role: 'caller'|'callee', name}
+//                -> {type:'call-joined', peerId, peers:[{peerId,name,role}]};
+//                   the other peer gets 'peer-joined' {peerId, name, role}
+//     call-offer / call-answer / call-ice  {roomId, to, from, sdp/candidate}
+//                relayed between exactly the two peers (to = peerId)
+//     call-chat  {roomId, text}  relayed to the other peer
+//     call-end   {roomId}        the other peer gets 'call-ended', room deleted
+//   Peer disconnect -> the other peer gets 'peer-left' and the room is deleted
+//   when empty. A room holds at most 2 peers; a callee joining a missing
+//   room gets {type:'call-error', error:'call-not-found'}.
+const callRooms = new Map() // 'call-<code>' -> { id, peers: Map<peerId, {ws, name, role}>, createdAt }
+
+app.get('/api/call/:code', (req, res) => {
+  const code = String(req.params.code || '').trim()
+  const room = callRooms.get(`call-${code}`)
+  if (!room) return res.status(404).json({ ok: false, error: 'not_found' })
+  const caller = [...room.peers.values()].find(p => p.role === 'caller')
+  res.json({ ok: true, code, callerName: caller ? caller.name : 'কলার', peers: room.peers.size })
+})
+
 // ---------- Live rooms (in-memory; a restart clears them) ----------
 /** @type {Map<string, {id: string, hostName: string, title: string, startedAt: number, host: import('ws').WebSocket | null, viewers: Map<string, import('ws').WebSocket>}>} */
 const liveRooms = new Map()
@@ -255,11 +293,63 @@ const wss = new WebSocketServer({ server })
 
 wss.on('connection', (ws) => {
   ws._live = { roomId: null, role: null, name: null, viewerId: null }
+  ws._call = { roomId: null, peerId: null, name: null, role: null }
 
   ws.on('message', (raw) => {
     let m
     try { m = JSON.parse(String(raw)) } catch { return }
     if (!m || typeof m.type !== 'string') return
+
+    // ---- 1-to-1 call signalling (separate room map; live rooms untouched) ----
+    if (m.type === 'call-join') {
+      const code = String(m.roomId || '').trim()
+      if (!/^call-[a-z0-9]{4,12}$/i.test(code)) { send(ws, { type: 'call-error', roomId: code, error: 'bad-call-code' }); return }
+      let room = callRooms.get(code)
+      if (!room) {
+        if (m.role !== 'caller') { send(ws, { type: 'call-error', roomId: code, error: 'call-not-found' }); return }
+        room = { id: code, peers: new Map(), createdAt: Date.now() }
+        callRooms.set(code, room)
+      }
+      if (room.peers.size >= 2) { send(ws, { type: 'call-error', roomId: code, error: 'room-full' }); return }
+      const peerId = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const name = typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি'
+      const role = m.role === 'callee' ? 'callee' : 'caller'
+      room.peers.set(peerId, { ws, name, role })
+      ws._call = { roomId: code, peerId, name, role }
+      const others = [...room.peers.entries()].filter(([pid]) => pid !== peerId).map(([pid, p]) => ({ peerId: pid, name: p.name, role: p.role }))
+      send(ws, { type: 'call-joined', roomId: code, peerId, peers: others })
+      for (const [pid, p] of room.peers) {
+        if (pid !== peerId) send(p.ws, { type: 'peer-joined', roomId: code, peerId, name, role })
+      }
+      return
+    }
+
+    if (m.type === 'call-offer' || m.type === 'call-answer' || m.type === 'call-ice' || m.type === 'call-chat') {
+      const room = callRooms.get(String(m.roomId || ''))
+      if (!room || !ws._call || ws._call.roomId !== m.roomId) return
+      if (m.type === 'call-chat' && (typeof m.text !== 'string' || !m.text.trim())) return
+      const target = m.to ? room.peers.get(m.to) : [...room.peers.values()].find(p => p.ws !== ws)
+      if (!target) return
+      const relay = { type: m.type, roomId: m.roomId, from: ws._call.peerId }
+      if (m.sdp) relay.sdp = m.sdp
+      if (m.candidate) relay.candidate = m.candidate
+      if (m.type === 'call-chat') relay.text = m.text.slice(0, 500)
+      send(target.ws, relay)
+      return
+    }
+
+    if (m.type === 'call-end') {
+      const room = callRooms.get(String(m.roomId || ''))
+      if (room) {
+        for (const p of room.peers.values()) {
+          if (p.ws !== ws) send(p.ws, { type: 'call-ended', roomId: m.roomId })
+        }
+        callRooms.delete(m.roomId)
+      }
+      ws._call = { roomId: null, peerId: null, name: null, role: null }
+      return
+    }
+
     const room = m.roomId ? liveRooms.get(m.roomId) : null
 
     if (m.type === 'join') {
@@ -316,14 +406,25 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const info = ws._live
-    if (!info || !info.roomId) return
-    const room = liveRooms.get(info.roomId)
-    if (!room) return
-    if (info.role === 'host' && room.host === ws) {
-      endRoom(room, 'host-left')
-    } else if (info.role === 'viewer' && info.viewerId) {
-      room.viewers.delete(info.viewerId)
-      broadcastViewerCount(room)
+    if (info && info.roomId) {
+      const room = liveRooms.get(info.roomId)
+      if (room) {
+        if (info.role === 'host' && room.host === ws) {
+          endRoom(room, 'host-left')
+        } else if (info.role === 'viewer' && info.viewerId) {
+          room.viewers.delete(info.viewerId)
+          broadcastViewerCount(room)
+        }
+      }
+    }
+    const c = ws._call
+    if (c && c.roomId) {
+      const room = callRooms.get(c.roomId)
+      if (room) {
+        room.peers.delete(c.peerId)
+        for (const p of room.peers.values()) send(p.ws, { type: 'peer-left', roomId: c.roomId, peerId: c.peerId })
+        if (room.peers.size === 0) callRooms.delete(c.roomId)
+      }
     }
   })
 })
