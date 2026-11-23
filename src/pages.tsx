@@ -1551,8 +1551,8 @@ export function WalletPage() {
   const [wdMsg, setWdMsg] = useState('')
   const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
-  const [depChain, setDepChain] = useState('Pi Mainnet')
-  const [wdChain, setWdChain] = useState('Pi Mainnet')
+  const depChain = 'Pi Mainnet'
+  const wdChain = 'Pi Mainnet'
   const isUsdt = method === 'USDT'
   const isBinance = method === 'Binance Pay'
   const isUsdtAmount = isUsdt || isBinance
@@ -1566,7 +1566,6 @@ export function WalletPage() {
   const savedUsdtAddress = usdtNetwork === 'BEP20' ? adminSettings.payments.usdtBep20 : adminSettings.payments.usdtErc20
   const savedBinanceId = adminSettings.payments.binancePayId
   const savedPiAddress = adminSettings.payments.piDepositAddress
-  const savedPiTestnetAddress = adminSettings.payments.piTestnetAddress || ''
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
     // সব টপ-আপ ম্যানুয়াল — আবেদন জমা হয়, অ্যাডমিন অনুমোদন দিলে Pi যোগ হয়
@@ -1613,20 +1612,11 @@ export function WalletPage() {
         <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin)</p>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi Deposit</p>
-          <label className="text-sm block mt-2">Pi Chain</label>
-          <div className="flex gap-2 flex-wrap mt-1">{(['Pi Mainnet', 'Pi Testnet'] as const).map(c => (
-            <button key={c} onClick={() => setDepChain(c)} className={`px-3 py-1.5 rounded-full text-sm border ${depChain === c ? 'bg-fb-blue text-white' : ''}`}>{c === 'Pi Mainnet' ? 'Pi Mainnet (real Pi)' : 'Pi Testnet (test Pi, no value)'}</button>
-          ))}</div>
-          {depChain === 'Pi Mainnet'
-            ? savedPiAddress
-              ? <><p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <code className="break-all">{savedPiAddress}</code></p>
-                <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiAddress, 'Pi Deposit Address')}>📋 Copy Address</Btn></>
-              : <p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <b className="text-gray-400">Not set up yet — ask the admin</b></p>
-            : savedPiTestnetAddress
-              ? <><p className="text-sm mt-2">PiCall Pi address (Pi Testnet): <code className="break-all">{savedPiTestnetAddress}</code></p>
-                <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiTestnetAddress, 'Pi Testnet Address')}>📋 Copy Address</Btn></>
-              : <p className="text-sm mt-2">PiCall Pi address (Pi Testnet): <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
-          {depChain === 'Pi Testnet' && <p className="text-xs text-amber-600 mt-1">Test Pi has no value — for testing only.</p>}
+          <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
+          {savedPiAddress
+            ? <><p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <code className="break-all">{savedPiAddress}</code></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiAddress, 'Pi Deposit Address')}>📋 Copy Address</Btn></>
+            : <p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
           <label className="text-sm block mt-2">Amount of Pi Sent</label>
           <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="e.g. 5" />
           <label className="text-sm block mt-2">Transaction / Memo Reference</label>
@@ -1637,11 +1627,7 @@ export function WalletPage() {
         </div>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi Withdraw</p>
-          <label className="text-sm block mt-2">Pi Chain</label>
-          <div className="flex gap-2 flex-wrap mt-1">{(['Pi Mainnet', 'Pi Testnet'] as const).map(c => (
-            <button key={c} onClick={() => setWdChain(c)} className={`px-3 py-1.5 rounded-full text-sm border ${wdChain === c ? 'bg-fb-blue text-white' : ''}`}>{c === 'Pi Mainnet' ? 'Pi Mainnet (real Pi)' : 'Pi Testnet (test Pi, no value)'}</button>
-          ))}</div>
-          {wdChain === 'Pi Testnet' && <p className="text-xs text-amber-600 mt-1">Test Pi has no value — for testing only.</p>}
+          <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
           <p className="text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Minimum withdraw: Pi equal to 10 USDT ({formatPi(piMinWithdraw)}) • Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)}</p>
           <label className="text-sm block mt-2">Your Pi address (starts with G, 56 characters)</label>
           <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAddress} onChange={e => setWdAddress(e.target.value)} placeholder="G..." />
@@ -3231,9 +3217,6 @@ function AdminSettingsTab() {
       <input className={inputCls} value={pay.binancePayId} onChange={e => { setPay({ ...pay, binancePayId: e.target.value }); setPayMsg('') }} placeholder="Binance Pay ID" />
       <label className="text-sm block mt-2">Pi Deposit Address</label>
       <input className={inputCls} value={pay.piDepositAddress} onChange={e => { setPay({ ...pay, piDepositAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
-      <label className="text-sm block mt-2">Pi Testnet Address (test Pi only — no value)</label>
-      <input className={inputCls} value={pay.piTestnetAddress || ''} onChange={e => { setPay({ ...pay, piTestnetAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
-      <p className="text-xs text-gray-400 mt-1">Only set this if you have a separate test Pi address. If empty, Testnet shows “Not set up yet”.</p>
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={savePay}>Save</Btn>
         <Btn variant="ghost" onClick={clearPay}>Delete</Btn>

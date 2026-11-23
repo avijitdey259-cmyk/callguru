@@ -164,7 +164,7 @@ type Store = {
   piDeposits: PiTx[]
   piWithdrawals: PiTx[]
   // Pi জমা/তোলা — অফিসিয়াল Pi SDK না আসা পর্যন্ত স্থানীয় হিসাব (আসল ব্লকচেইন
-  // লেনদেন নয়); chain 'Pi Mainnet' (আসল Pi) বা 'Pi Testnet' (পরীক্ষার Pi, মূল্যহীন)।
+  // লেনদেন নয়); chain সবসময় 'Pi Mainnet' (আসল Pi) — Testnet নেই।
   depositPi: (amount: number, ref: string, chain?: string) => void
   withdrawPi: (amount: number, address: string, chain?: string) => boolean
   // প্রোফাইল সেটিংস — নাম, জন্মতারিখ, লিঙ্গ, জেলা, থানা, ঠিকানা (+ লুকানো),

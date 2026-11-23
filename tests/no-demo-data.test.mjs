@@ -105,10 +105,15 @@ check('pages.tsx: honest replacement strings are present', () => {
     'Your submission is reviewed by the admin.',
     'Live server not connected — check your connection and try again.',
     'Not set up yet — ask the admin',
-    'Same district', 'Pi Chain', 'Pi Mainnet', 'Pi Testnet',
+    'Same district', 'Pi Chain', 'Pi Mainnet',
     'Profile Settings', '% complete', 'Hide my address from other users',
     'Video (max 50 MB)', 'Set profile photo',
   ]) assert.ok(pages.includes(s), `"${s}" নেই`)
+})
+
+check('pages.tsx: Pi chain is Mainnet-only (owner: no Testnet, no BNB)', () => {
+  assert.ok(!pages.includes('Pi Testnet'), 'Pi Testnet এখনো Wallet-এ আছে')
+  assert.ok(pages.includes('Pi Mainnet (real Pi)'), 'Mainnet লেবেল নেই')
 })
 
 check('pages.tsx: Pi Wallet card comes before Top Up; only one Pi total on Wallet', () => {
