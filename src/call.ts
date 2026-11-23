@@ -59,6 +59,8 @@ export type CallSignalHandlers = {
   onChat?: (from: string, text: string) => void
   onPeerLeft?: (peerId: string) => void
   onCallEnded?: () => void
+  /** নোটিফিকেশন থেকে Decline — গ্রহণকারী অ্যাপ না খুলেই কেটেছেন। */
+  onCallDeclined?: () => void
   onError?: (error: string) => void
 }
 
@@ -83,6 +85,7 @@ export function connectCall(code: string, role: 'caller' | 'callee', name: strin
       case 'call-chat': h.onChat?.(String(m.from ?? ''), String(m.text ?? '')); break
       case 'peer-left': h.onPeerLeft?.(String(m.peerId ?? '')); break
       case 'call-ended': h.onCallEnded?.(); break
+      case 'call-declined': h.onCallDeclined?.(); break
       case 'call-error': h.onError?.(String(m.error ?? 'failed')); break
       default: break
     }

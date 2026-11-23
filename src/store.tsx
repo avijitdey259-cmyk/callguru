@@ -5,6 +5,7 @@ import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
 import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile } from './firestore'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
+import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
@@ -114,6 +115,10 @@ type Store = {
   // মোবাইল আর কম্পিউটারে একই জায়গায় (মেনু + চ্যাট টগল), একই আচরণ
   soundSettings: SoundSettings
   setSoundSettings: (s: Partial<SoundSettings>) => void
+  // কে কল দিতে পারবে — কলকারীর ইনভাইটে ওভারলে উঠবে কি না এটাই ঠিক করে;
+  // ডিফল্ট 'friends' (শুধু বন্ধুরা)। localStorage-এ থাকে (সাউন্ড সেটিংসের মতোই)।
+  callPrivacy: CallPrivacy
+  setCallPrivacy: (v: CallPrivacy) => void
   expertRate: (id: string) => number
   datingRate: number
   setDatingRate: (v: number) => void
@@ -241,6 +246,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // সব সেটিংসের মতোই); মোবাইল/কম্পিউটার দুটোতেই একই ডিফল্ট ও আচরণ
   const [soundSettings, setSoundSettingsState] = useState<SoundSettings>(() => loadSoundSettings(load<unknown>('soundSettings', null)))
   useEffect(() => save('soundSettings', soundSettings), [soundSettings])
+  // কে কল দিতে পারবে — 'everyone' | 'friends' | 'nobody'; ডিফল্ট 'friends'
+  const [callPrivacy, setCallPrivacyState] = useState<CallPrivacy>(() => loadCallPrivacy(load<unknown>('callPrivacy', null)))
+  useEffect(() => save('callPrivacy', callPrivacy), [callPrivacy])
   // ডেটিং কল রেট এখন Pi-তে (ডিফল্ট π ০.১/মিনিট) — আগের টাকার রেট (≥১) থাকলে ÷১০০ করে Pi করা হয়
   const [datingRate, setDatingRateState] = useState<number>(() => {
     const v = load<number | null>('datingRate', null)
@@ -761,6 +769,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toggleDark: () => setDark(d => !d),
     soundSettings,
     setSoundSettings: (s) => setSoundSettingsState(prev => loadSoundSettings({ ...prev, ...s })),
+    callPrivacy,
+    setCallPrivacy: (v) => setCallPrivacyState(loadCallPrivacy(v)),
     expertRate: (id) => roundPi((EXPERTS.find(e => e.id === id)?.rate ?? 10) / 100),
     datingRate,
     setDatingRate: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 0.01) setDatingRateState(n) },
@@ -903,7 +913,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -3,6 +3,7 @@ import { Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-
 import { Layout } from './components'
 import { useStore } from './store'
 import { installAudioUnlock } from './sounds'
+import { IncomingCallHost } from './IncomingCallOverlay'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, Landing, LiveTV, LoginPage,
@@ -34,8 +35,13 @@ export default function App() {
   useEffect(() => installAudioUnlock(), [])
   // লগইন দেওয়াল — লগইন ছাড়া /login বাদে কোনো পেজই দেখা যায় না (ল্যান্ডিং পেজ সহ); লগইন না থাকলে /login-এ পাঠানো হয়
   if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
+  // ইনকামিং-কল হোস্ট — লগইন থাকলে সব পেজেই (হোম পেজ সহ) কল এলে ওভারলে ওঠে;
+  // /login-এ নয়, আর /call/* পেজে থাকলে ওভারলে নিজে থেকেই বন্ধ থাকে
+  const showCallHost = !!user && loc.pathname !== '/login'
   return (
-    <Routes>
+    <>
+      {showCallHost && <IncomingCallHost />}
+      <Routes>
       {/* লগইন পেজ Layout-এর বাইরে — লগইন ছাড়া অ্যাপের কিছুই (টপ নেভ, সাইডবার, ডান কলাম) দেখা যায় না, শুধু লগইন কার্ড */}
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Layout />}>
@@ -63,5 +69,6 @@ export default function App() {
       <Route path="/dating-live/:id" element={<DatingLivePage />} />
       <Route path="/dating-go-live" element={<DatingGoLivePage />} />
     </Routes>
+    </>
   )
 }

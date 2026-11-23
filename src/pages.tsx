@@ -5,6 +5,9 @@ import { useStore } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
+import { sendCallInvite, onInviteResponse } from './presence'
+import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
+import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail } from './buddies'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
@@ -757,7 +760,7 @@ export function CallPage() {
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified, soundSettings } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified, soundSettings, friends, uid, referralCode } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -993,6 +996,7 @@ export function CallPage() {
       onChat: (_from, text) => { setChat(c => [...c, { from: peerNameRef.current || 'অপর পক্ষ', text }]); playChatSound(soundSettings) },
       onPeerLeft: () => { endCallLocal('অপর পক্ষের সংযোগ বিচ্ছিন্ন হয়েছে') },
       onCallEnded: () => { endCallLocal('অপর পক্ষ কল শেষ করেছেন') },
+      onCallDeclined: () => { if (!endedRef.current && !connectedRef.current) setCallError('The call was declined — please try again.') },
       onError: (err) => {
         setCallError(err === 'call-not-found' ? 'কলটি পাওয়া যায়নি বা শেষ হয়ে গেছে।' : err === 'room-full' ? 'এই কলে ইতিমধ্যে ২ জন আছেন।' : 'সার্ভারে সংযোগ করা যায়নি — আবার চেষ্টা করুন।')
       },
@@ -1001,6 +1005,17 @@ export function CallPage() {
     wsRef.current = ws
     if (!ws) setCallError('সার্ভারে সংযোগ করা যায়নি — আবার চেষ্টা করুন।')
   }
+
+  // গ্রহণকারী কলটি কাটলে কলকারীকে জানানো — অপেক্ষার স্ক্রিনেই দেখাবে
+  useEffect(() => {
+    const off = onInviteResponse((res) => {
+      if (res.code === callCodeRef.current && !res.accepted && !endedRef.current) {
+        setCallError('The call was declined — please try again.')
+      }
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
   function startCall() {
@@ -1011,6 +1026,14 @@ export function CallPage() {
     setStarted(true)
     ensurePc()
     joinCallRoom(code, 'caller')
+    // বন্ধুর কল: বন্ধু অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল ওভারলে যাবে
+    // (presence ইনভাইট); না পৌঁছালেও শেয়ার লিংক আগের মতোই কাজ করে
+    if (type === 'friend') {
+      const target = friends.find((f) => f.name === name)
+      if (target) {
+        sendCallInvite(target.id, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'friend' })
+      }
+    }
   }
 
   // গ্রহণকারী কল ধরলেন: রুমে ঢুকলেন, অফারের অপেক্ষা করবেন
@@ -3082,8 +3105,21 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings } = useStore()
+  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode } = useStore()
   const navigate = useNavigate()
+  const [pushMsg, setPushMsg] = useState('')
+  const [pushBusy, setPushBusy] = useState(false)
+  const pushStatus = getPushStatus()
+  async function enablePush() {
+    setPushBusy(true); setPushMsg('')
+    const res = await enableCallPush(uid ?? referralCode)
+    setPushBusy(false)
+    setPushMsg(res.ok ? '✅ Call notifications are on — you will know when a call comes, even if the app is closed.'
+      : res.reason === 'denied' ? '❌ Permission not given — turn on notifications from browser settings.'
+      : res.reason === 'not-configured' ? '⚠️ Push key is not set on the server — the admin is setting it up. The in-app call card will still work.'
+      : res.reason === 'unsupported' ? '❌ Push notifications do not work on this browser/device.'
+      : '❌ Could not turn it on — please try again.')
+  }
   const tiles = [
     { to: '/feed', label: 'ফিড', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'মার্কেটপ্লেস', icon: '🛍️', color: '#27AE60' },
     { to: '/friends', label: 'বন্ধুরা', icon: '👥', color: '#8E44AD' }, { to: '/dating', label: 'ডেটিং ১৮+', icon: '❤️', color: '#E91E63' },
@@ -3106,6 +3142,28 @@ export function MenuPage() {
           : <Btn className="mt-3" onClick={() => navigate('/login')}>লগইন করুন</Btn>}
       </Card>
       <InstallButton />
+      <Card>
+        <h2 className="font-bold">📞 Call Settings</h2>
+        <p className="text-sm text-gray-500 mt-1">Choose who can call you. For friend calls, an Answer/Decline card appears on the home page.</p>
+        <div className="flex gap-2 flex-wrap mt-3">
+          {(['everyone', 'friends', 'nobody'] as CallPrivacy[]).map(p => (
+            <button key={p} onClick={() => setCallPrivacy(p)} className={`px-3 py-2 rounded-full text-sm font-medium ${callPrivacy === p ? 'bg-fb-blue text-white' : 'bg-gray-100 dark:bg-slate-800'}`}>{CALL_PRIVACY_LABELS[p]}</button>
+          ))}
+        </div>
+        <div className="mt-4 border-t pt-3">
+          <p className="font-medium text-sm">🔔 Call Notifications</p>
+          <p className="text-sm text-gray-500 mt-1">When on, a call will show a notification on the lock screen even if the app is closed — with Answer/Decline buttons. Tapping Answer opens the app straight into the call.</p>
+          <p className="text-xs text-gray-400 mt-1">Honest note: a web app cannot wake a locked screen and come forward by itself — that needs a native app (coming later). Notifications are the way for now.</p>
+          {pushStatus.status === 'unsupported' ? (
+            <p className="text-sm text-gray-500 mt-2">❌ Push notifications do not work on this browser/device.</p>
+          ) : (
+            <div className="mt-2">
+              <Btn disabled={pushBusy || pushStatus.status === 'granted'} onClick={enablePush}>{pushBusy ? 'Starting…' : pushStatus.status === 'granted' ? '✅ Notifications are on' : '🔔 Turn on call notifications'}</Btn>
+              {pushMsg && <p className="text-sm mt-2">{pushMsg}</p>}
+            </div>
+          )}
+        </div>
+      </Card>
       {/* সাউন্ড সেটিংস — একটাই জায়গা, মোবাইল আর কম্পিউটারে একই; চ্যাট টগলের সাথে এক */}
       <Card>
         <h2 className="font-bold">🔔 Sound Settings</h2>

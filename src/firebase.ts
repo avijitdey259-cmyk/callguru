@@ -9,13 +9,14 @@ import {
   onAuthStateChanged, type Auth, type User,
 } from 'firebase/auth'
 
+const _env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {}
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
+  apiKey: _env.VITE_FIREBASE_API_KEY,
+  authDomain: _env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: _env.VITE_FIREBASE_PROJECT_ID,
+  appId: _env.VITE_FIREBASE_APP_ID,
+  storageBucket: _env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: _env.VITE_FIREBASE_MESSAGING_SENDER_ID,
 }
 
 export const isFirebaseConfigured = Boolean(
@@ -45,6 +46,17 @@ export function getFirebaseApp(): FirebaseApp | null {
 // লগইন না থাকলে, বা Firebase সেটআপ না থাকলে, বা OTP লগইনে (Firebase সেশন নেই) null।
 export function getCurrentUid(): string | null {
   try { return getFirebaseAuth()?.currentUser?.uid ?? null } catch { return null }
+}
+
+// এখন লগইন করা Firebase ব্যবহারকারীর ID token — সুরক্ষিত API রুট
+// (অ্যাডমিন সেটিংস, লাইভ রুম, পুশ সাবস্ক্রিপশন) + WebSocket presence-এ
+// Authorization হিসেবে পাঠানো হয়। লগইন না থাকলে null। টোকেন কখনো লগ হয় না।
+export async function getIdToken(forceRefresh = false): Promise<string | null> {
+  try {
+    const u = getFirebaseAuth()?.currentUser
+    if (!u) return null
+    return await u.getIdToken(forceRefresh)
+  } catch { return null }
 }
 
 // Firebase সেশন ফিরে এলে (পেজ রিলোডের পর) UID জানানো হয় — স্টোর এতে Firestore সিঙ্ক চালায়।

@@ -19,6 +19,7 @@
 //   call-chat/call-end, peer-joined + peer-left broadcasts (see src/call.ts).
 import { useEffect, useState } from 'react'
 import { EXPERTS, type Expert } from './data'
+import { getIdToken } from './firebase'
 
 export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) || 'https://callguru-production.up.railway.app').trim().replace(/\/+$/, '')
 export const API_TIMEOUT_MS = 5000
@@ -164,6 +165,13 @@ export function verifyEmailOtp(email: string, code: string): Promise<OtpResult |
 // ব্রাউজারের localStorage সার্ভার পড়তে পারে না। সার্ভারের কপি শুধু মেমোরিতে
 // থাকে (Railway রিস্টার্টে মুছে যায়); স্থায়ী উপায় SMTP_* env var।
 export type AdminSmtpPayload = { host: string; port: number; user: string; pass: string; from: string }
+
+// সুরক্ষিত API কলের Authorization হেডার — লগইন না থাকলে খালি।
+// সার্ভার (server/auth.js) Bearer টোকেন যাচাই করে; টোকেন ছাড়া 401।
+export async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getIdToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
   if (!API_BASE) return false
