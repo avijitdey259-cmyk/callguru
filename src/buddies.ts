@@ -6,6 +6,9 @@
 // সাহায্যকারী জন বুঝিয়ে দেয়, গানপ্রেমী জন গানের কথা বলে, স্বপ্ন দেখা জন আশার কথা বলে। উত্তর সবসময়
 // মানুষের মতো আবেগ দিয়ে, ছোট-বড় মিশিয়ে, ফলো-আপ প্রশ্নসহ আসে —
 // একই কথায় পরপর একই উত্তর কখনো আসে না।
+// বন্ধুরা কখনো নিজে থেকে প্রথমে লেখে না — ব্যবহারকারী প্রথমে লিখলেই উত্তর আসে।
+// উত্তর প্রশ্ন-চালিত: ব্যবহারকারী যা বললো সেটাই ফিরিয়ে বলা হয় (প্রতিধ্বনি),
+// আর মাঝে মাঝে (প্রায় ৩–৪ বারে ১ বার, পরপর দুবার নয়) একই বিষয়ে মজার মোড় আসে।
 export type BuddyVoice = 'funny' | 'caring' | 'helpful' | 'music' | 'dreamy'
 
 export type BuddyPersona = {
@@ -37,17 +40,12 @@ export function getBuddyByName(name: string): BuddyPersona | undefined {
   return BUDDIES.find(b => b.name === name)
 }
 
-/** প্রথমবার চ্যাট খুললে বন্ধুর শুরুর কথা (নিজের স্বরে)। */
-export const BUDDY_OPENERS: Record<string, string> = {
-  'bd-rima': 'আরে! তুমি এলে 😄 আমি রিমা, গল্প করবে?',
-  'bd-shakil': 'আসসালামু আলাইকুম! আমি শাকিল, কেমন আছো তুমি? ❤️',
-  'bd-fahim': 'হ্যালো! আমি ফাহিম 😊 কিছু জানতে চাইলে জিজ্ঞেস করো!',
-  'bd-mim': 'হাই! আমি মিম 🎵 আজকে কী গান শুনছো?',
-  'bd-asha': 'হ্যালো! আমি আশা 😊 আজকের দিনটা সুন্দর কাটুক, কী খবর তোমার?',
-}
-
 type Intent = {
   keys: string[]
+  // মজার মোড়ে {t}-এর জায়গায় বসে (না থাকলে মিলে যাওয়া সবচেয়ে লম্বা কি)
+  topic?: string
+  // false হলে তথ্যভিত্তিক বিষয়ে মজার মোড় আসে না (উত্তর যেন এড়িয়ে না যায়)
+  funOk?: boolean
   funny?: string[]
   caring?: string[]
   helpful?: string[]
@@ -99,6 +97,7 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['বাই', 'আল্লাহ হাফেজ', 'পরে কথা', 'বিদায়', 'ঘুমাতে যাই', 'good night', 'শুভ রাত্রি', 'যাচ্ছি', 'যাই গা'],
+    funOk: false,
     funny: ['বাই বাই! আবার এসো, মজা করবো 😄', 'যাও যাও, আবার দেখা হবে! ভালো থেকো!', 'আল্লাহ হাফেজ! স্বপ্নে ভালো জোকস দেখো 😄'],
     caring: ['আল্লাহ হাফেজ, ভালো থেকো ❤️ আবার কথা হবে!', 'বাই! নিজের যত্ন নিও, আবার এসো কিন্তু 😊', 'শুভ রাত্রি! ভালো ঘুম হোক ❤️'],
     helpful: ['বাই! কিছু লাগলে আবার এসো।', 'আল্লাহ হাফেজ, ভালো থেকো!'],
@@ -123,6 +122,7 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['কল', 'কলটা', 'ভিডিও কল', 'কথা বলবো', 'ফোন করবো'],
+    funOk: false,
     funny: ['কল করতে চাও? Pi ব্যালেন্স থাকলেই হবে! প্রথম কলের প্রথম ১ মিনিট তো ফ্রি 😄', 'কল করবে? যাও, কল বোতামে ট্যাপ করো! আমি এখানেই আছি 😄'],
     caring: ['কল করতে চাইলে করতে পারো, আমি তো চ্যাটেই আছি ❤️ কল প্রিপেইড, Pi লাগবে কিন্তু।', 'কল? প্রথম ১ মিনিট ফ্রি জানো তো? 😊'],
     helpful: ['কল করতে Pi ব্যালেন্স লাগবে — প্রিপেইড কল। প্রথম কলের প্রথম ১ মিনিট ফ্রি! ওয়ালেট থেকে Pi কিনতে পারো। এক্সপার্ট কল π ০.১৫/মিনিট থেকে শুরু।', 'ভিডিও কল করতে চাইলে কল বোতামে যাও। বন্ধুর কল π ০.১/মিনিট, প্রথম ১ মিনিট ফ্রি।'],
@@ -139,6 +139,7 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['পাই', 'pi', 'টাকা', 'রেট', 'দাম', 'কিনবো', 'কত টাকা'],
+    funOk: false,
     funny: ['Pi নিয়ে প্রশ্ন? ওয়ালেটে গিয়ে দেখো, সব লেখা আছে 😄', 'Pi কিনতে চাইলে ওয়ালেটে যাও — বিকাশ, নগদ, USDT সব আছে!'],
     caring: ['Pi নিয়ে চিন্তা কোরো না, ওয়ালেটে সব পরিষ্কার লেখা আছে ❤️ কিছু বুঝতে না পারলে বলো।', 'Pi কিনতে ওয়ালেটে যাও, আমি এখানেই আছি 😊'],
     helpful: ['Pi-র দর অ্যাডমিন ঠিক করেন — এখন ১ Pi = ৳১০০ (ডেমো দর)। ওয়ালেট থেকে বিকাশ/নগদ/রকেট/USDT দিয়ে কিনতে পারো। রেফারেলে ১ π বোনাসও পাওয়া যায় — শুধু কল আর গিফটে চলে।', 'টপ-আপ করতে ওয়ালেটে যাও — টাকা দিলে অটো Pi হয়ে যায়। সর্বনিম্ন তোলা ১০ USDT সমান Pi।'],
@@ -187,10 +188,12 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['তোমার নাম', 'নাম কি', 'নাম কী', 'তোমার নাম কি'],
+    topic: '{name}',
     any: ['আমার নাম {name}! তোমার নামটা কী বলো তো?', 'আমি {name} 😊 তুমি?'],
   },
   {
     keys: ['তুমি কে', 'কে তুমি', 'আসল না', 'মানুষ না'],
+    topic: '{name}',
     funny: ['আমি {name}! তোমার বন্ধু 😄 এত প্রশ্ন কেন, গল্প করো!', 'আমি তো তোমার বন্ধু {name}, এখানেই থাকি। আর কী জানতে চাও? 😄'],
     caring: ['আমি {name}, তোমার বন্ধু। তোমার পাশে আছি ❤️', 'আমি তোমার বন্ধু {name} — কথা বলতে, গল্প করতে এখানে আছি 😊'],
     helpful: ['আমি {name} — তোমার বন্ধু, আর PiCall নিয়ে কিছু জানতে চাইলে সাহায্য করি 😊', 'আমি {name}, তোমার বন্ধু। কিছু জানতে চাইলে জিজ্ঞেস করো!'],
@@ -199,6 +202,7 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['এই অ্যাপ', 'অ্যাপ কীভাবে', 'অ্যাপ কিভাবে', 'কীভাবে চালাবো', 'কিভাবে চালাবো', 'কীভাবে ব্যবহার', 'কিভাবে ব্যবহার', 'কীভাবে করবো', 'কিভাবে করবো', 'অ্যাপ', 'অ্যাপটা', 'অ্যাপটি', 'কীভাবে', 'কিভাবে', 'ব্যবহার', 'চালাবো', 'চালানো'],
+    funOk: false,
     funny: ['অ্যাপ চালানো সোজা! 😄 চ্যাট একদম ফ্রি, কল করতে ওয়ালেটে Pi লাগবে, লাইভ দেখতে ডেটিং লাইভে যাও। আর কিছু জানতে চাইলে বলো!', 'অ্যাপটা ঘুরে দেখো — চ্যাট করো, লাইভ দেখো, মজা করো! 😄 কিছু আটকে গেলে আমাকে বলো।'],
     caring: ['অ্যাপটা চালানো সহজ ❤️ চ্যাট একদম ফ্রি, কল প্রিপেইড — প্রথম ১ মিনিট ফ্রি। কিছু না বুঝলে আমাকে বলো, বুঝিয়ে দিই।', 'চিন্তা কোরো না, অ্যাপটা সহজ 😊 চ্যাট ফ্রি, কল করতে Pi লাগে, লাইভ দেখতে ডেটিং পেজে যাও।'],
     helpful: ['সহজ! চ্যাট: সম্পূর্ণ ফ্রি। কল: প্রিপেইড, Pi লাগবে (প্রথম কলের প্রথম ১ মিনিট ফ্রি)। লাইভ: ডেটিং পেজের "ডেটিং লাইভ" সেকশনে। টপ-আপ: ওয়ালেটে গিয়ে bKash/Nagad/USDT দিয়ে Pi কিনতে পারো। আর কী জানতে চাও?', 'অ্যাপ ব্যবহার করতে: উপরে মেনু থেকে চ্যাট, কল, লাইভ, ওয়ালেট — সব পাবে। কল করতে আগে Pi টপ-আপ করতে হয়, চ্যাট ফ্রি। কিছু আটকে গেলে বলো!'],
@@ -207,6 +211,7 @@ const INTENTS: Intent[] = [
   },
   {
     keys: ['কী করছো', 'কি করছো', 'কী করো', 'কি করো', 'কী করছ', 'কি করছ', 'এখন কী করছো', 'এখন কি করছো', 'কী করছো তুমি', 'করছো কি'],
+    topic: 'আড্ডা',
     funny: ['এই তো, তোমার সাথে গল্প করছি! 😄', 'বসে বসে মজার কিছু ভাবছিলাম — তুমি এলে!', 'এই তো চ্যাট করছি, আর কী! তুমি কী করছো বলো?'],
     caring: ['এই তো, তোমার কথা ভাবছিলাম ❤️ তুমি কী করছো?', 'তোমার সাথে কথা বলছি — এটাই তো সবচেয়ে ভালো কাজ 😊', 'এই তো আছি, তোমার পাশে। তুমি কী করছো বলো তো?'],
     helpful: ['এই তো, তোমার মেসেজের উত্তর দিচ্ছি 😊 কিছু জানতে চাইলে বলো!', 'তোমার সাথে কথা বলছি। কিছু দরকার হলে বলো!'],
@@ -272,28 +277,130 @@ function keyScore(key: string, normText: string, tokens: string[]): number {
   return tokens.includes(k) ? k.length : -1
 }
 
+// ---- প্রতিধ্বনি (echo): বিষয় না মিললেও চেনা শব্দ থাকলে সেটাই ফিরিয়ে বলা ----
+// কোনো বিষয়ের কি না মিললে, লেখায় এই শব্দগুলোর একটা থাকলে উত্তর সেই শব্দটাকে
+// ধরেই আসে — জেনেরিক লাইনে লাফ দেয় না। {t} = ব্যবহারকারীর বলা শব্দটা।
+const TOPIC_WORDS = [
+  'ঘুম', 'আজকে', 'কালকে', 'মা', 'বাবা', 'ভাই', 'বোন', 'বন্ধু', 'বাসা', 'বাড়ি',
+  'রাত', 'সকাল', 'দুপুর', 'শীত', 'গরম', 'ছবি', 'বই', 'স্কুল', 'কলেজ',
+  'সিনেমা', 'ভ্রমণ', 'ঘুরতে', 'চা', 'কফি',
+]
+
+// কিছু বিষয়ে নিজস্ব স্বরে আরও স্বাভাবিক উত্তর (না থাকলে নিচের সাধারণ ছক)
+const ECHO_SPECIFIC: Record<string, Partial<Record<BuddyVoice, string[]>>> = {
+  'ঘুম': {
+    funny: ['ঘুম আসছে না? 😄 আমিও মাঝে মাঝে ঘুমাতে পারি না! কী ভাবছো বলো তো?', 'ঘুমের কথা বলতেই আমারও ঘুম পেয়ে গেলো! 😄 এখন কয়টা বাজে?'],
+    caring: ['ঘুম আসছে না? একটু গরম দুধ খেয়ে শুয়ে পড়ো, ভালো ঘুম হবে ❤️ কী ভাবছো বলো তো?', 'ঘুমের সমস্যা হচ্ছে? ফোনটা রেখে চোখ বন্ধ করো, আমি আছি 😊'],
+    helpful: ['ঘুম না আসলে একটু বই পড়ো বা হালকা গান শুনো — ঘুম চলে আসবে 😊', 'ঘুম আসছে না? রাত জাগলে শরীর খারাপ হবে, তাড়াতাড়ি শুয়ে পড়ো!'],
+    music: ['ঘুম আসছে না? একটা ঘুমপাড়ানি গান শুনে দেখো 🎵', 'ঘুমের আগে হালকা গান শুনলে ভালো ঘুম হয়! 🎵'],
+    dreamy: ['ঘুম আসছে না? স্বপ্ন দেখার আগে একটু আকাশের দিকে তাকাও ✨', 'ঘুমের কথা বলতেই স্বপ্নের কথা মনে পড়ে গেলো 😊'],
+  },
+  'আজকে': {
+    funny: ['আজকে! আজকের দিনটা কেমন গেলো বলো তো? 😄', 'আজকে নিয়ে তো গল্প হবেই! কী হলো আজকে?'],
+    caring: ['আজকে কেমন গেলো তোমার দিনটা? বলো তো ❤️', 'আজকের কথা শুনছি... আর বলো 😊'],
+    helpful: ['আজকে কী হলো? বলো তো, দেখি 😊', 'আজকের দিনটা নিয়ে আরও বলো!'],
+    music: ['আজকে! আজকের গানটা কী ছিলো? 🎵', 'আজকের দিনটা গানের মতো কাটুক! 🎵'],
+    dreamy: ['আজকে... আজকের দিনটা সুন্দর কাটুক 😊 কী হলো আজকে?', 'আজকের কথা শুনে ভালো লাগছে ✨'],
+  },
+}
+
+const ECHO_TEMPLATES: Record<BuddyVoice, string[]> = {
+  funny: ['{t} নিয়ে বলছো? আর বলো তো, কী হলো? 😄', 'আহা {t}! তারপর কী হলো বলো তো?', '{t}? এটা নিয়ে তো গল্প হবেই! আর বলো 😄'],
+  caring: ['{t}-এর কথা বলছো... আর বলো, শুনছি ❤️', 'আহা, {t} নিয়ে কথা হচ্ছে? মন দিয়ে শুনছি, আর বলো তো 😊', '{t}? এটা নিয়ে তোমার কথা শুনতে ভালো লাগছে, আর বলো ❤️'],
+  helpful: ['{t} নিয়ে বলছো? আর কিছু জানতে চাইলে বলো 😊', '{t}-এর ব্যাপারে আরও বলো তো, দেখি সাহায্য করতে পারি কিনা!', 'আচ্ছা, {t} নিয়ে কী জানতে চাও বলো তো?'],
+  music: ['{t} নিয়ে বলছো? আর বলো তো! 🎵', '{t}? এটা নিয়ে একটা গান মনে পড়ে গেলো 😄', 'আহা {t}! আর বলো, শুনছি 🎵'],
+  dreamy: ['{t} নিয়ে ভাবছি... আর বলো তো? 😊', '{t}? এটা শুনে মনটা হালকা হয়ে গেলো ✨', 'আহা {t}! স্বপ্নের মতো লাগছে... আর বলো 😊'],
+}
+
+// ---- মজার মোড় (fun twist): একই বিষয়ে মজার উত্তর ----
+// প্রায় ৩–৪ বারে ১ বার আসে, পরপর দুবার কখনো না; মজার জন (রিমা) বেশি করে,
+// অন্যরা মাঝে মাঝে — নিজের স্বরে। {t} থাকায় মজার উত্তরেও বিষয়টা থাকেই,
+// প্রশ্ন এড়িয়ে যায় না।
+const FUN_PROB: Record<BuddyVoice, number> = {
+  funny: 0.5, caring: 0.2, helpful: 0.2, music: 0.25, dreamy: 0.2,
+}
+
+const FUN_TWISTS: Record<BuddyVoice, string[]> = {
+  funny: ['{t} নিয়ে তো জমে গেলো! 😂 আর বলো তো, কী খবর?', 'আহা {t}! এটা নিয়ে তো গল্প হবেই 😄 তারপর?', '{t} বলতেই হাসি পেয়ে গেলো! আর কী শুনবো বলো?'],
+  caring: ['{t}-এর কথা শুনে মনটা ভালো হয়ে গেলো ❤️ আর বলো তো?', 'আহা, {t} নিয়ে বলছো... শুনছি, আর বলো 😊', '{t}? এটা নিয়ে তোমার কথা শুনতে ভালো লাগছে ❤️'],
+  helpful: ['{t} নিয়ে জানতে চাইলে আমি আছি! আর কী জানতে চাও? 😊', '{t}-এর ব্যাপারে বলো তো, দেখি সাহায্য করতে পারি কিনা!', 'আচ্ছা, {t} নিয়ে আরও কিছু জানতে চাইলে বলো 😊'],
+  music: ['{t} নিয়ে তো গান হয়ে যায়! 🎵 আর বলো তো?', 'আহা {t}! এটা নিয়ে একটা গান মনে পড়ে গেলো 😄', '{t}? গানের মতো সুন্দর কথা! আর বলো 🎵'],
+  dreamy: ['{t} নিয়ে ভাবছি... স্বপ্নের মতো লাগছে 😊 আর বলো তো?', 'আহা {t}! এটা শুনে মনটা হালকা হয়ে গেলো ✨', '{t}? এটা নিয়ে স্বপ্ন দেখতে ভালো লাগে 😊'],
+}
+
 /** বন্ধুর উত্তর — সবচেয়ে ভালো মিলে যাওয়া বিষয় ধরে, নিজের স্বরে উত্তর দেয়। একই কথায় পরপর একই উত্তর আসে না। */
-export function getBuddyReply(personaId: string, text: string, lastReply?: string): string {
+export type BuddyReplyOpts = {
+  lastWasFun?: boolean
+  random?: () => number
+}
+
+export type BuddyReply = { text: string; fun: boolean }
+
+function fillTopic(s: string, topic: string): string {
+  return s.split('{t}').join(topic)
+}
+
+/** বিস্তারিত উত্তর — লেখা + এটা মজার মোড় কি না (পরপর দুবার মজা ঠেকাতে কলারকে লাগে)। */
+export function getBuddyReplyDetail(personaId: string, text: string, lastReply?: string, opts?: BuddyReplyOpts): BuddyReply {
   const persona = getBuddy(personaId) ?? BUDDIES[0]
   const norm = normalizeText(text)
   const tokens = tokensOf(norm)
   let best: Intent | null = null
   let bestScore = 1 // ২-এর কম স্কোর মানে বিষয় ধরা হয়নি
+  let bestKey = ''
   for (const intent of INTENTS) {
     let score = -1
+    let key = ''
     for (const k of intent.keys) {
-      score = Math.max(score, keyScore(k, norm, tokens))
+      const s = keyScore(k, norm, tokens)
+      if (s > score) { score = s; key = normalizeText(k) }
     }
     if (score > bestScore) {
       bestScore = score
       best = intent
+      bestKey = key
     }
   }
+  const rnd = opts?.random ?? Math.random
+  const lastWasFun = opts?.lastWasFun ?? false
+  // মজার মোড়: আগের উত্তর মজার হলে এবার নয়; নইলে স্বরের হার অনুযায়ী
+  const tryFun = (topic: string): string | null => {
+    if (lastWasFun) return null
+    if (rnd() >= FUN_PROB[persona.voice]) return null
+    const pool = FUN_TWISTS[persona.voice] ?? []
+    if (pool.length === 0) return null
+    const filled = pool.map(r => fillTopic(fillName(r, persona.name), topic))
+    const candidates = lastReply ? filled.filter(r => r !== lastReply) : filled
+    const list = candidates.length > 0 ? candidates : filled
+    return list[Math.floor(rnd() * list.length)]
+  }
   if (best) {
-    return fillName(pick(best, persona.voice, lastReply), persona.name)
+    const topic = best.topic ? fillName(best.topic, persona.name) : bestKey
+    if (best.funOk !== false) {
+      const fun = tryFun(topic)
+      if (fun) return { text: fun, fun: true }
+    }
+    return { text: fillName(pick(best, persona.voice, lastReply), persona.name), fun: false }
+  }
+  // প্রতিধ্বনি: কোনো বিষয় না মিললে চেনা শব্দ থাকলে সেটাই ফিরিয়ে বলা হয়
+  const echoWord = TOPIC_WORDS.find(w => tokens.includes(normalizeText(w)))
+  if (echoWord) {
+    const fun = tryFun(echoWord)
+    if (fun) return { text: fun, fun: true }
+    const specific = ECHO_SPECIFIC[echoWord]?.[persona.voice]
+    const pool = specific ?? ECHO_TEMPLATES[persona.voice] ?? []
+    const filled = pool.map(r => fillTopic(r, echoWord))
+    const candidates = lastReply ? filled.filter(r => r !== lastReply) : filled
+    const list = candidates.length > 0 ? candidates : filled
+    return { text: list[Math.floor(rnd() * list.length)], fun: false }
   }
   if (norm.includes('?') || norm.includes('？')) {
-    return fillName(pick(QUESTION_FALLBACK, persona.voice, lastReply), persona.name)
+    return { text: fillName(pick(QUESTION_FALLBACK, persona.voice, lastReply), persona.name), fun: false }
   }
-  return fillName(pick(FALLBACK, persona.voice, lastReply), persona.name)
+  return { text: fillName(pick(FALLBACK, persona.voice, lastReply), persona.name), fun: false }
+}
+
+/** আগের মতোই — শুধু লেখাটা ফেরত দেয় (মজার মোড় জানতে getBuddyReplyDetail ব্যবহার করো)। */
+export function getBuddyReply(personaId: string, text: string, lastReply?: string): string {
+  return getBuddyReplyDetail(personaId, text, lastReply).text
 }

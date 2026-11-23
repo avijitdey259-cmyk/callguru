@@ -85,6 +85,7 @@ export function Sidebar() {
 
 export function Layout() {
   const loc = useLocation()
+  const { friends } = useStore()
   const hideChrome = loc.pathname.startsWith('/call/')
   if (hideChrome) return <Outlet />
   return (
@@ -102,8 +103,9 @@ export function Layout() {
             </div>
             <div className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm">
               <h3 className="font-bold text-gray-500 text-sm mb-2">Contacts • অনলাইন</h3>
-              {['রাফি আহমেদ', 'ডা. রাহাত', 'মেহজাবিন', 'সাকিব'].map(n => (
-                <div key={n} className="flex items-center gap-2 py-1.5 text-sm"><span className="relative w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-xs font-bold">{n.slice(0, 1)}<span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" /></span>{n}</div>
+              {friends.length === 0 && <p className="text-sm text-gray-500">এখনো কোনো বন্ধু নেই।</p>}
+              {friends.map(f => (
+                <div key={f.id} className="flex items-center gap-2 py-1.5 text-sm"><span className="relative w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold" style={{ background: f.color }}>{f.name.slice(0, 1)}{f.online && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />}</span>{f.name}</div>
               ))}
             </div>
           </div>

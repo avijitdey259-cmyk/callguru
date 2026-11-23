@@ -5,16 +5,9 @@ export type Expert = {
   langs: string[]; about: string; avatarColor: string; featured?: boolean;
 }
 
-export const EXPERTS: Expert[] = [
-  { id: 'exp-1', name: 'ডা. রাহাত হোসেন', title: 'জেনারেল ফিজিশিয়ান', category: 'স্বাস্থ্য', rate: 15, rating: 4.9, calls: 1240, online: true, langs: ['বাংলা', 'English'], about: '১০ বছরের অভিজ্ঞতা। সাধারণ স্বাস্থ্য পরামর্শ, প্রেসক্রিপশন বোঝা ও ফলো-আপ।', avatarColor: '#1877F2', featured: true },
-  { id: 'exp-2', name: 'অ্যাডভোকেট নুসরাত জাহান', title: 'আইনজীবী — পারিবারিক আইন', category: 'আইন', rate: 25, rating: 4.8, calls: 860, online: true, langs: ['বাংলা'], about: 'পারিবারিক, সম্পত্তি ও চুক্তি বিষয়ে পরামর্শ। প্রথম মিনিট ফ্রি অফার প্রযোজ্য।', avatarColor: '#8E44AD', featured: true },
-  { id: 'exp-3', name: 'সাকিব আল হাসান', title: 'ক্যারিয়ার কোচ', category: 'ক্যারিয়ার', rate: 12, rating: 4.7, calls: 540, online: false, langs: ['বাংলা', 'English'], about: 'সিভি, ইন্টারভিউ ও বিদেশে পড়াশোনা নিয়ে পরামর্শ।', avatarColor: '#27AE60' },
-  { id: 'exp-4', name: 'মেহজাবিন চৌধুরী', title: 'ইংরেজি শিক্ষক', category: 'শিক্ষা', rate: 10, rating: 4.9, calls: 2100, online: true, langs: ['বাংলা', 'English'], about: 'IELTS ও স্পোকেন ইংরেজি। প্রতিদিন সকাল ৯টা–রাত ৯টা।', avatarColor: '#E67E22', featured: true },
-  { id: 'exp-5', name: 'তানভীর আহমেদ', title: 'ব্যবসা পরামর্শক', category: 'ব্যবসা', rate: 20, rating: 4.6, calls: 430, online: true, langs: ['বাংলা'], about: 'ছোট ব্যবসা, অনলাইন শপ ও মার্কেটিং পরিকল্পনা।', avatarColor: '#16A085' },
-  { id: 'exp-6', name: 'ডা. ফারহানা রহমান', title: 'শিশু বিশেষজ্ঞ', category: 'স্বাস্থ্য', rate: 18, rating: 4.9, calls: 980, online: false, langs: ['বাংলা', 'English'], about: 'শিশুর খাবার, টিকা ও সাধারণ অসুখ নিয়ে পরামর্শ।', avatarColor: '#C0392B' },
-  { id: 'exp-7', name: 'ইমরান খান', title: 'ফ্রিল্যান্সিং মেন্টর', category: 'ক্যারিয়ার', rate: 12, rating: 4.8, calls: 760, online: true, langs: ['বাংলা', 'English'], about: 'Fiverr/Upwork প্রোফাইল, গিগ ও ক্লায়েন্ট হ্যান্ডলিং।', avatarColor: '#2C3E50' },
-  { id: 'exp-8', name: 'আয়েশা সিদ্দিকা', title: 'পুষ্টিবিদ', category: 'স্বাস্থ্য', rate: 10, rating: 4.7, calls: 620, online: true, langs: ['বাংলা'], about: 'ডায়েট চার্ট, ওজন নিয়ন্ত্রণ ও ডায়াবেটিস ডায়েট।', avatarColor: '#D35400' }
-]
+// ফ্রন্টএন্ড সিড এক্সপার্ট সরানো হয়েছে (ডেমো ডেটা) — এক্সপার্ট আসে Railway
+// ব্যাকএন্ড (/api/experts) থেকে; সার্ভার না পেলে মার্কেটপ্লেস খালি দেখাবে।
+export const EXPERTS: Expert[] = []
 
 export const CATEGORIES = ['সবগুলো', 'স্বাস্থ্য', 'আইন', 'শিক্ষা', 'ক্যারিয়ার', 'ব্যবসা']
 
@@ -62,34 +55,16 @@ export const DATING_PROFILES: DatingProfile[] = [
 ]
 
 export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string }
-export const SEED_POSTS: Post[] = [
-  { id: 'p1', author: 'ডা. রাহাত হোসেন', time: '২ ঘণ্টা আগে', text: 'শীতকালে শিশুদের সর্দি-কাশি বাড়ে। গরম পানি, বিশ্রাম আর প্রয়োজনে ডাক্তারের পরামর্শ নিন। সরাসরি কল করে পরামর্শ নিতে পারেন।', likes: 128, comments: 24, shares: 12, color: '#1877F2' },
-  { id: 'p2', author: 'মেহজাবিন চৌধুরী', time: '৫ ঘণ্টা আগে', text: 'IELTS Speaking-এ ভালো করতে প্রতিদিন ১৫ মিনিট ইংরেজিতে কথা বলার অভ্যাস করুন। আজকের লাইভ ক্লাস রাত ৮টায়।', likes: 342, comments: 61, shares: 45, color: '#E67E22' },
-  { id: 'p3', author: 'PiCall', time: 'আজ সকালে', text: 'নতুন অফার! প্রথম কলের প্রথম ১ মিনিট সম্পূর্ণ ফ্রি — শুধু প্রথম ব্যবহারকারী ও প্রথম বন্ধুর জন্য। চ্যাট সবসময় ফ্রি।', likes: 890, comments: 132, shares: 210, color: '#27AE60' }
-]
+// সিড পোস্ট সরানো হয়েছে (ডেমো ডেটা) — ফিডে শুধু ব্যবহারকারীর নিজের পোস্ট থাকে।
+export const SEED_POSTS: Post[] = []
 
-export const STORIES = [
-  { id: 's1', name: 'আপনার স্টোরি', mine: true },
-  { id: 's2', name: 'রাহাত', color: '#1877F2' },
-  { id: 's3', name: 'নুসরাত', color: '#8E44AD' },
-  { id: 's4', name: 'সাকিব', color: '#27AE60' },
-  { id: 's5', name: 'মেহজাবিন', color: '#E67E22' },
-  { id: 's6', name: 'তানভীর', color: '#16A085' }
-]
+// পুরোনো STORIES সিড সরানো হয়েছে (ডেমো ডেটা) — স্টোরি স্ট্রিপ এখন বন্ধু + ৫ পারসোনা থেকে আসে।
 
-export const REELS = [
-  { id: 'r1', title: 'IELTS টিপস — ১ মিনিটে', views: '১২ হাজার', creator: 'মেহজাবিন' },
-  { id: 'r2', title: 'শিশুর যত্নে ৫টি ভুল', views: '৮ হাজার', creator: 'ডা. রাহাত' },
-  { id: 'r3', title: 'ফ্রিল্যান্সিং শুরু যেভাবে', views: '২৫ হাজার', creator: 'ইমরান' },
-  { id: 'r4', title: 'বাসা পরিষ্কারের টিপস', views: '৫ হাজার', creator: 'CleanHome' }
-]
+// সিড রিল সরানো হয়েছে (ডেমো ডেটা) — রিলস খালি থাকবে, যতক্ষণ না আসল রিল আসে।
+export const REELS = []
 
-export const FRIEND_SUGGESTIONS = [
-  { id: 'f1', name: 'রাফি আহমেদ', mutual: 12, color: '#1877F2' },
-  { id: 'f2', name: 'সাবরিনা খান', mutual: 8, color: '#E91E63' },
-  { id: 'f3', name: 'হাসান মাহমুদ', mutual: 5, color: '#27AE60' },
-  { id: 'f4', name: 'প্রিয়া দাস', mutual: 18, color: '#9C27B0' }
-]
+// People You May Know-এর সিড সরানো হয়েছে (ডেমো ডেটা) — শুধু আসল বন্ধু + ৫ পারসোনা থাকে।
+export const FRIEND_SUGGESTIONS = []
 
 export const FRIEND_RATE = 0.1 // π/min flat for friend calls (সব কল Pi-তে)
 export const FREE_MINUTES_NOTE = 'শুধু প্রথম কলের প্রথম ১ মিনিট ফ্রি (প্রথম ব্যবহারকারী / প্রথম বন্ধু)। ২ মিনিট ফ্রি নয়।'

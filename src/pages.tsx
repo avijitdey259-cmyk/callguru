@@ -5,7 +5,7 @@ import { useStore } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
-import { BUDDIES, BUDDY_OPENERS, getBuddyByName, getBuddyReply } from './buddies'
+import { BUDDIES, getBuddyByName, getBuddyReplyDetail } from './buddies'
 import { buildSearchablePeople, searchPeople, searchPosts, type SearchablePerson } from './friendSearch'
 import { Btn, Card, InstallButton } from './components'
 import {
@@ -145,21 +145,11 @@ export function DailyBonusCard() {
   )
 }
 
-// সপ্তাহের লিডারবোর্ড — লাইভ হোস্ট (গিফট) ও গিফট-দাতা; ডেমো ডেটা + নিজের হিসাব
+// সপ্তাহের লিডারবোর্ড — লাইভ হোস্ট (গিফট) ও গিফট-দাতা; ডেমো ডেটা নেই, শুধু নিজের হিসাব
 export function LeaderboardCard() {
   const { liveEarnings, giftsSentPi } = useStore()
-  const hostSeed = [
-    { name: 'তানিয়া', gifts: 12.5 }, { name: 'সুমাইয়া', gifts: 9.8 }, { name: 'নুসরাত', gifts: 7.2 },
-    { name: 'মেহজাবিন', gifts: 5.5 }, { name: 'রাকিব', gifts: 3.1 }
-  ]
-  const giverSeed = [
-    { name: 'রাফি আহমেদ', gifts: 8.4 }, { name: 'সাবরিনা খান', gifts: 6.2 },
-    { name: 'হাসান মাহমুদ', gifts: 4.5 }, { name: 'প্রিয়া দাস', gifts: 3 }
-  ]
-  const hosts = [...hostSeed.map(h => ({ ...h, mine: false, demo: true })), ...(liveEarnings > 0 ? [{ name: 'আপনি', gifts: liveEarnings, mine: true, demo: false }] : [])]
-    .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
-  const givers = [...giverSeed.map(h => ({ ...h, mine: false, demo: true })), ...(giftsSentPi > 0 ? [{ name: 'আপনি', gifts: giftsSentPi, mine: true, demo: false }] : [])]
-    .sort((a, b) => b.gifts - a.gifts).slice(0, 5)
+  const hosts = liveEarnings > 0 ? [{ name: 'আপনি', gifts: liveEarnings, mine: true }] : []
+  const givers = giftsSentPi > 0 ? [{ name: 'আপনি', gifts: giftsSentPi, mine: true }] : []
   return (
     <Card>
       <div className="flex justify-between items-center flex-wrap gap-2">
@@ -169,24 +159,26 @@ export function LeaderboardCard() {
       <div className="grid sm:grid-cols-2 gap-4 mt-3">
         <div>
           <p className="text-sm font-bold">🎤 সেরা লাইভ হোস্ট (গিফট পেয়েছেন)</p>
+          {hosts.length === 0 && <p className="text-sm text-gray-500 py-1">এখনো কেউ লাইভে গিফট পায়নি।</p>}
           {hosts.map((h, i) => (
             <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
-              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>}</span>
+              <span>{i + 1}. {h.name}</span>
               <span>🎁 π {h.gifts}</span>
             </p>
           ))}
         </div>
         <div>
           <p className="text-sm font-bold">💝 সেরা গিফট-দাতা</p>
+          {givers.length === 0 && <p className="text-sm text-gray-500 py-1">এখনো কেউ গিফট পাঠায়নি।</p>}
           {givers.map((h, i) => (
             <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
-              <span>{i + 1}. {h.name} {h.demo && <span className="text-[10px] text-gray-400">ডেমো</span>} {h.mine && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold">π Pi গিফটার</span>}</span>
+              <span>{i + 1}. {h.name} {h.mine && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold">π Pi গিফটার</span>}</span>
               <span>🎁 π {h.gifts}</span>
             </p>
           ))}
         </div>
       </div>
-      <p className="text-xs text-gray-400 mt-2">লিডারবোর্ডের ডেমো নামগুলো উদাহরণ — আপনার নিজের Pi লাইভ আয় ও পাঠানো Pi গিফট এখানে “আপনি” হিসেবে যোগ হয়।</p>
+      <p className="text-xs text-gray-400 mt-2">আপনার নিজের Pi লাইভ আয় ও পাঠানো Pi গিফট এখানে "আপনি" হিসেবে যোগ হয়।</p>
     </Card>
   )
 }
@@ -513,13 +505,18 @@ export function Feed() {
       <DailyBonusCard />
       <InviteCard />
       <LeaderboardCard />
-      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        {REELS.map(r => (
-          <div key={r.id} onClick={() => navigate('/reels')} className="shrink-0 w-36 rounded-xl bg-slate-900 text-white p-3 cursor-pointer">
-            <div className="text-2xl">🎬</div><p className="text-sm font-medium mt-2">{r.title}</p><p className="text-xs opacity-70">{r.views} ভিউ • {r.creator}</p>
-          </div>
-        ))}
-      </div>
+      {REELS.length > 0 ? (
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+          {REELS.map(r => (
+            <div key={r.id} onClick={() => navigate('/reels')} className="shrink-0 w-36 rounded-xl bg-slate-900 text-white p-3 cursor-pointer">
+              <div className="text-2xl">🎬</div><p className="text-sm font-medium mt-2">{r.title}</p><p className="text-xs opacity-70">{r.views} ভিউ • {r.creator}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">এখনো কোনো রিল নেই।</p>
+      )}
+      {posts.length === 0 && <Card><p className="text-sm text-gray-500 text-center">এখনো কোনো পোস্ট নেই — প্রথম পোস্টটি লিখুন।</p></Card>}
       {posts.map(p => (
         <div key={p.id} id={'post-' + p.id}>
         <Card>
@@ -567,7 +564,7 @@ export function Marketplace() {
       </h2>
       <div className="grid sm:grid-cols-2 gap-3">
         {filteredExperts.map(e => <ExpertCard key={e.id} expert={e} />)}
-        {filteredExperts.length === 0 && <p className="text-sm text-gray-500">কোনো এক্সপার্ট পাওয়া যায়নি।</p>}
+        {filteredExperts.length === 0 && <p className="text-sm text-gray-500">এখনো কোনো এক্সপার্ট নেই।</p>}
       </div>
       <h2 className="font-bold pt-2">সার্ভিস মার্কেটপ্লেস</h2>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -1460,6 +1457,7 @@ export function FriendsPage() {
       </Card>
       <Card>
         <h2 className="font-bold">আমার বন্ধুরা ({friends.length}) — চ্যাট ফ্রি, কল প্রিপেইড π ০.১/মিনিট</h2>
+        {friends.length === 0 && <p className="text-sm text-gray-500 mt-1">এখনো কোনো বন্ধু নেই — বন্ধু খুঁজে যোগ করুন।</p>}
         {friends.map(f => (
           <div key={f.id} className="flex items-center gap-3 py-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
@@ -1472,6 +1470,7 @@ export function FriendsPage() {
       </Card>
       <Card>
         <h2 className="font-bold">People You May Know</h2>
+        {FRIEND_SUGGESTIONS.length === 0 && <p className="text-sm text-gray-500 mt-1">এখনো কাউকে চেনা যাচ্ছে না।</p>}
         {FRIEND_SUGGESTIONS.map(s => (
           <div key={s.id} className="flex items-center gap-3 py-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: s.color }}>{s.name.slice(0, 1)}</span>
@@ -1491,18 +1490,24 @@ export function FriendsPage() {
 export function ChatPage() {
   const { user, friends } = useStore()
   const location = useLocation()
-  const [active, setActive] = useState('রাফি আহমেদ')
+  // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
+  const [active, setActive] = useState(() => friends[0]?.name ?? 'রিমা')
   // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
+  // বন্ধুরা নিজে থেকে প্রথমে লেখে না — চ্যাট খালি দিয়ে শুরু, ব্যবহারকারী লিখলেই উত্তর আসে
   const [msgs, setMsgs] = useState<Record<string, { from: string; text: string }[]>>(() => {
+    const seed: Record<string, { from: string; text: string }[]> = {}
     try {
       const raw = localStorage.getItem('callguru:chatMsgs')
-      if (raw) return JSON.parse(raw) as Record<string, { from: string; text: string }[]>
-    } catch { /* পুরোনো চ্যাট না থাকলে ডিফল্ট দিয়ে শুরু */ }
-    const seed: Record<string, { from: string; text: string }[]> = {
-      'রাফি আহমেদ': [{ from: 'রাফি আহমেদ', text: 'আসসালামু আলাইকুম! কেমন আছো?' }],
-      'ডা. রাহাত': [{ from: 'ডা. রাহাত', text: 'কল করার আগে এখানে প্রশ্ন লিখতে পারেন — চ্যাট সম্পূর্ণ ফ্রি।' }]
-    }
-    for (const b of BUDDIES) seed[b.name] = [{ from: b.name, text: BUDDY_OPENERS[b.id] }]
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, { from: string; text: string }[]>
+        // শুধু বর্তমান বন্ধুদের চ্যাটই থাকে — সরানো ডেমো চ্যাট আর দেখাবে না
+        const friendNames = new Set(friends.map(f => f.name))
+        for (const k of Object.keys(parsed)) {
+          if (!friendNames.has(k)) continue
+          seed[k] = parsed[k]
+        }
+      }
+    } catch { /* পুরোনো চ্যাট না থাকলে খালি দিয়ে শুরু */ }
     return seed
   })
   const [draft, setDraft] = useState('')
@@ -1512,10 +1517,11 @@ export function ChatPage() {
   const [typing, setTyping] = useState<Record<string, boolean>>({})
   const typingTimersRef = useRef<number[]>([])
   const lastReplyRef = useRef<Record<string, string>>({})
-  // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায়
+  const lastFunRef = useRef<Record<string, boolean>>({})
+  // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায় (শুধু আসল বন্ধুর নামে)
   useEffect(() => {
     const withName = (location.state as { with?: string } | null)?.with
-    if (withName) setActive(withName)
+    if (withName && friends.some(f => f.name === withName)) setActive(withName)
   }, [location.state])
   useEffect(() => {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
@@ -1533,18 +1539,20 @@ export function ChatPage() {
     if (buddy) {
       setTyping(t => ({ ...t, [to]: true }))
       typingTimersRef.current.push(window.setTimeout(() => {
-        const reply = getBuddyReply(buddy.id, text, lastReplyRef.current[buddy.id])
-        lastReplyRef.current[buddy.id] = reply
-        setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: buddy.name, text: reply }] }))
+        const reply = getBuddyReplyDetail(buddy.id, text, lastReplyRef.current[buddy.id], { lastWasFun: lastFunRef.current[buddy.id] })
+        lastReplyRef.current[buddy.id] = reply.text
+        lastFunRef.current[buddy.id] = reply.fun
+        setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: buddy.name, text: reply.text }] }))
         setTyping(t => ({ ...t, [to]: false }))
       }, 1000 + Math.random() * 2000))
     }
   }
-  const contacts = [...friends.map(f => f.name), 'ডা. রাহাত', 'মেহজাবিন'].filter((n, i, a) => a.indexOf(n) === i)
+  const contacts = friends.map(f => f.name)
   return (
     <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
       <Card className="md:col-span-1">
         <h2 className="font-bold mb-2">চ্যাট — সম্পূর্ণ ফ্রি</h2>
+        {contacts.length === 0 && <p className="text-sm text-gray-500">এখনো কোনো বন্ধু নেই — বন্ধু যোগ করুন।</p>}
         {contacts.map(n => (
           <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-blue-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
         ))}
@@ -1555,6 +1563,7 @@ export function ChatPage() {
         <h2 className="font-bold">{active}</h2>
         <div className="h-64 overflow-y-auto space-y-2 mt-3">
           {(msgs[active] || []).map((m, i) => <p key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'আপনি') ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}><b>{m.from}:</b> {m.text}</p>)}
+          {(msgs[active] || []).length === 0 && !typing[active] && <p className="text-sm text-gray-400 px-3 py-2">এখনো কোনো মেসেজ নেই — প্রথম মেসেজটি লিখুন।</p>}
           {typing[active] && <p className="text-sm text-gray-400 italic px-3 py-2">{active} লিখছে…</p>}
         </div>
         {ban && <p className="text-sm text-red-500 mt-2">{ban}</p>}
@@ -1883,7 +1892,7 @@ export function DatingPage() {
         <p className="text-sm mt-2">লাইভ দেখতে {formatPi(liveRate)}/মিনিট (প্রিপেইড — শুধু দর্শক দেবে)। লাইভকারী পাবেন <b>৭০%</b>, অ্যাডমিন পাবেন <b>৩০%</b>। কলের রেট থেকে আলাদা — লাইভে Pi কম কাটে।</p>
         {liveServerOk
           ? <p className="text-xs text-green-600 mt-1">🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার</p>
-          : <p className="text-xs text-gray-400 mt-1">ডেমো লাইভ — লাইভ সার্ভার সংযুক্ত নয়; এখানে লাইভ ভিডিও ডেমো ডেটা ও নিজের ক্যামেরা প্রিভিউ।</p>}
+          : <p className="text-xs text-gray-400 mt-1">লাইভ সার্ভার সংযুক্ত নয় — সংযুক্ত হলে চলমান লাইভ এখানে দেখা যাবে।</p>}
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <Btn variant="green" onClick={() => navigate('/dating-go-live')}>📹 লাইভে যান</Btn>
           <Btn variant="ghost" onClick={refreshLiveRooms}>🔄 লাইভ তালিকা রিফ্রেশ</Btn>
@@ -1906,24 +1915,9 @@ export function DatingPage() {
             ))}
           </div>
         )}
-        <div className="grid sm:grid-cols-3 gap-3 mt-4">
-          {DATING_LIVE_HOSTS.map(h => {
-            const p = DATING_PROFILES.find(x => x.id === h.id)!
-            return (
-              <div key={h.id} className="border rounded-xl p-3 dark:border-slate-600">
-                <div className="flex gap-3 items-center">
-                  <span className="w-12 h-12 rounded-full text-white text-xl flex items-center justify-center font-bold relative" style={{ background: p.color }}>{p.name.slice(0, 1)}
-                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
-                  </span>
-                  <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-xs text-gray-500">{p.city} • 👁️ {h.viewers} জন দেখছেন • ডেমো</p></div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">{p.about}</p>
-                <Btn variant="green" className="mt-3 w-full" onClick={() => navigate(`/dating-live/${p.id}`)}>👁️ দেখুন (প্রিপেইড {formatPi(liveRate)}/মিনিট)</Btn>
-                <p className="text-[11px] text-gray-400 mt-1 text-center">লাইভকারী পাবেন ৭০% • অ্যাডমিন ৩০%</p>
-              </div>
-            )
-          })}
-        </div>
+        {(!realRooms || realRooms.length === 0) && DATING_LIVE_HOSTS.length === 0 && (
+          <p className="text-sm text-gray-500 mt-4">এখন কেউ লাইভে নেই।</p>
+        )}
       </Card>
       {matched && matchedId && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 ম্যাচ হয়েছে — {matched}!</p><p className="text-sm">এখন চ্যাট বা ভিডিও কল করতে পারেন।</p>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
@@ -1954,12 +1948,8 @@ export function DatingPage() {
 }
 
 // ---------- ডেটিং লাইভ ----------
-// ডেমো লাইভ হোস্ট — আসল সম্প্রচার নয়; দর্শক সংখ্যাও ডেমো ডেটা
-const DATING_LIVE_HOSTS = [
-  { id: 'dt-1', viewers: 132 },
-  { id: 'dt-3', viewers: 87 },
-  { id: 'dt-5', viewers: 208 },
-]
+// ডেমো লাইভ হোস্ট সরানো হয়েছে — শুধু আসল লাইভ রুম দেখাবে
+const DATING_LIVE_HOSTS: { id: string; viewers: number }[] = []
 const LIVE_CREATOR_SHARE = 0.7 // লাইভকারী পাবেন ৭০%, অ্যাডমিন ৩০% — নির্দিষ্ট ভাগ
 
 function fmtLive(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
@@ -1977,14 +1967,11 @@ export function DatingLivePage() {
   const { id } = useParams()
   const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent } = useStore()
   const navigate = useNavigate()
-  const seedHost = DATING_PROFILES.find(p => p.id === id)
-  const seed = DATING_LIVE_HOSTS.find(h => h.id === id)
-  // আসল রুম (PiCall লাইভ সার্ভার) — ডেমো হোস্টের id না মিললে সার্ভারে খুঁজি
+  // ডেমো হোস্ট সরানো — শুধু আসল রুম (PiCall লাইভ সার্ভার) দেখাবে
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
   const [roomLookupDone, setRoomLookupDone] = useState(false)
-  const host = seedHost ?? (realRoom ? { id: realRoom.id, name: realRoom.hostName, age: 0, city: '', about: 'লাইভে আছেন', color: '#E91E63' } : undefined)
+  const host = realRoom ? { id: realRoom.id, name: realRoom.hostName, age: 0, city: '', about: 'লাইভে আছেন', color: '#E91E63' } : undefined
   useEffect(() => {
-    if (seedHost) { setRoomLookupDone(true); return }
     let alive = true
     fetchLiveRooms().then(rooms => { if (!alive) return; setRealRoom(rooms?.find(x => x.id === id) ?? null); setRoomLookupDone(true) })
     return () => { alive = false }
@@ -2175,7 +2162,7 @@ export function DatingLivePage() {
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
           <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
           <h1 className="text-xl font-bold mt-3">{host.name} লাইভে আছেন</h1>
-          <p className="text-sm text-gray-300">{realRoom ? `👁️ ${liveViewers ?? realRoom.viewers} জন দেখছেন • আসল লাইভ` : `${host.age} • ${host.city} • 👁️ ${seed?.viewers ?? 50} জন দেখছেন`}</p>
+          <p className="text-sm text-gray-300">👁️ {liveViewers ?? realRoom?.viewers ?? 0} জন দেখছেন • আসল লাইভ</p>
           <p className="text-sm mt-2">{host.about}</p>
           <div className="mt-4 space-y-1 text-sm text-left">
             <p>দেখার রেট: <b>{formatPi(rate)}/মিনিট</b> (প্রিপেইড — শুধু আপনি দেবেন)</p>
@@ -2209,13 +2196,13 @@ export function DatingLivePage() {
           <video ref={remoteRef} className={`w-full aspect-video bg-black rounded-xl mt-3 ${remoteReady ? '' : 'hidden'}`} autoPlay playsInline />
           {!remoteReady && <span className="w-28 h-28 rounded-full text-white text-4xl flex items-center justify-center font-bold mx-auto mt-3" style={{ background: host.color }}>{host.name.slice(0, 1)}</span>}
           <p className="text-xl font-bold mt-3">{host.name} লাইভে</p>
-          <p className="text-gray-300 text-sm">👁️ {realRoom ? (liveViewers ?? realRoom.viewers) : (seed?.viewers ?? 50)} জন দেখছেন • {fmtLive(seconds)}</p>
+          <p className="text-gray-300 text-sm">👁️ {liveViewers ?? realRoom?.viewers ?? 0} জন দেখছেন • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1">
             <p>আপনি দিয়েছেন: <b>{formatPi(totalPaid)}</b> ({billedMinutes} মিনিট)</p>
             <p>লাইভকারী পাবেন (৭০%): <b className="text-green-400">{formatPi(creatorShare)}</b> • অ্যাডমিন (৩০%): <b>{formatPi(adminShare)}</b></p>
           </div>
           {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
-          <p className="text-xs text-gray-400 mt-2">{serverLive ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'ডেমো লাইভ — হোস্টের আসল ভিডিও স্ট্রিম এখানে দেখানো হচ্ছে না।'}</p>
+          <p className="text-xs text-gray-400 mt-2">{serverLive ? '🟢 লাইভ সার্ভার সংযুক্ত — আসল সম্প্রচার।' : 'লাইভ সার্ভার সংযুক্ত নয় — হোস্টের ভিডিও এখনো আসেনি।'}</p>
         </div>
       </div>
       <div className="px-3 pb-3">
@@ -2605,6 +2592,7 @@ export function ReelsPage() {
       <p className="text-sm text-gray-500">মোট শেয়ার: <b>↗️ {totalShares}</b> • ভালো লাগলে শেয়ার করুন — বন্ধুরা PiCall-তে আসবে!</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
+        {REELS.length === 0 && <p className="text-sm text-gray-500 col-span-2">এখনো কোনো রিল নেই।</p>}
         {REELS.map(r => (
           <Card key={r.id}>
             <div className="text-4xl">🎬</div>

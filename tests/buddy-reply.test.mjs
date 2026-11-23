@@ -10,7 +10,10 @@
 //   ৫) "কী করছো?"-তে পারসোনা নিজে কী করছে বলে
 //   ৬) কোনো বিষয় না মিললে প্রশ্নের উত্তরে সোজা বলে বোঝেনি, অন্য বিষয়ে লাফ দেয় না
 //   ৭) আগের আচরণ অটুট: একই কথায় পরপর একই উত্তর না, পারসোনা ভেদে স্বর আলাদা,
-//      ওপেনার আছে, ৫ পারসোনাই আছে
+//      ওপেনার নেই (বন্ধুরা নিজে থেকে লেখে না), ৫ পারসোনাই আছে
+//   ৮) প্রতিধ্বনি: চেনা বিষয়ের শব্দ থাকলে উত্তর সেই বিষয়টাই ধরে (ঘুম/আজকে/মা)
+//   ৯) মজার মোড়: একই বিষয়ে মাঝে মাঝে মজার উত্তর, পরপর দুবার নয়, মজায় বিষয় থাকেই
+//      আর তথ্যভিত্তিক প্রশ্নে (অ্যাপ/Pi) মজার মোড় আসে না
 import { build } from 'esbuild'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -134,13 +137,11 @@ check('একই কথায় পরপর একই উত্তর আস�
   }
 })
 
-check('৫ পারসোনা, স্বর আলাদা, ওপেনার আছে', () => {
+check('৫ পারসোনা, স্বর আলাদা, ওপেনার নেই (বন্ধুরা নিজে থেকে লেখে না)', () => {
   assert.equal(M.BUDDIES.length, 5)
   const voices = new Set(M.BUDDIES.map(b => b.voice))
   assert.equal(voices.size, 5)
-  for (const b of M.BUDDIES) {
-    assert.ok(M.BUDDY_OPENERS[b.id] && M.BUDDY_OPENERS[b.id].includes(b.name), b.id)
-  }
+  assert.equal(M.BUDDY_OPENERS, undefined)
   // একই প্রশ্নে ভিন্ন পারসোনার উত্তর একরকম নয় (অন্তত ৩ জন আলাদা)
   const rs = new Set(M.BUDDIES.map(b => M.getBuddyReply(b.id, 'কেমন আছো?')))
   assert.ok(rs.size >= 3, [...rs].join(' | '))
@@ -151,4 +152,95 @@ check('খালি/ফাঁকা মেসেজে ক্র্যাশ ক
   assert.ok(M.getBuddyReply('bd-rima', '   ').length > 0)
 })
 
-console.log(`\n${passed}/17 passed`)
+// ---- প্রতিধ্বনি (echo): চেনা বিষয় থাকলে উত্তর সেই বিষয়টাই ধরে ----
+check('"ঘুম আসছে না" বললে ঘুমের উত্তর আসে, জেনেরিক নয়', () => {
+  const r = M.getBuddyReply('bd-shakil', 'ঘুম আসছে না')
+  assert.ok(/ঘুম/.test(r), r)
+  assert.ok(!/বুঝলাম না|বুঝতে পারলাম না/.test(r), r)
+})
+
+check('"আজকে খুব ভালো দিন" বললে আজকের উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-rima', 'আজকে খুব ভালো দিন')
+  assert.ok(/আজকে/.test(r), r)
+})
+
+check('"আমার মা অসুস্থ" বললে মায়ের কথা ধরে উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-shakil', 'আমার মা অসুস্থ')
+  assert.ok(/মা/.test(r), r)
+  assert.ok(!/বুঝলাম না|বুঝতে পারলাম না/.test(r), r)
+})
+
+check('"বৃষ্টি হচ্ছে" বললে বৃষ্টির উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-mim', 'বৃষ্টি হচ্ছে')
+  assert.ok(/বৃষ্টি/.test(r), r)
+})
+
+check('"মন খারাপ" বললে সহানুভূতির উত্তর আসে, নাম ধরে', () => {
+  const r = M.getBuddyReply('bd-shakil', 'মন খারাপ')
+  assert.ok(/মন খারাপ/.test(r), r)
+  assert.ok(/❤️|আহা|শুনছি|হালকা/.test(r), r)
+})
+
+// ---- ফলো-আপের বৈচিত্র্য: একই ধরনের দুই মেসেজে একই ছক নয় ----
+check('একই বিষয়ে দুই মেসেজে দুই রকম উত্তর আসে', () => {
+  const r1 = M.getBuddyReply('bd-rima', 'বৃষ্টি হচ্ছে')
+  const r2 = M.getBuddyReply('bd-rima', 'বৃষ্টি ভালো লাগে', r1)
+  assert.notEqual(r2, r1)
+  assert.ok(/বৃষ্টি/.test(r1) && /বৃষ্টি/.test(r2), `${r1} | ${r2}`)
+})
+
+// ---- দৈর্ঘ্যের বৈচিত্র্য: ছোট-বড় মিশিয়ে ----
+check('একই প্রশ্নে ছোট-বড় মিশিয়ে উত্তর আসে', () => {
+  const rs = []
+  let prev = ''
+  for (let i = 0; i < 15; i++) {
+    const r = M.getBuddyReply('bd-rima', 'কেমন আছো?', prev)
+    rs.push(r)
+    prev = r
+  }
+  const lens = rs.map(r => r.length)
+  assert.ok(new Set(rs).size >= 3, rs.join(' | '))
+  assert.ok(Math.max(...lens) - Math.min(...lens) >= 8, lens.join(','))
+})
+
+// ---- মজার মোড় ----
+check('একই প্রশ্ন ৬ বার করলে মজা আর সাধারণ মিশিয়ে আসে, মজায় বিষয় থাকে', () => {
+  const seq = [0.05, 0.95]
+  let i = 0
+  const rnd = () => seq[i++ % seq.length]
+  let lastWasFun = false
+  let funCount = 0
+  for (let n = 0; n < 6; n++) {
+    const b = M.BUDDIES[n % M.BUDDIES.length]
+    const r = M.getBuddyReplyDetail(b.id, 'বৃষ্টি হচ্ছে', undefined, { lastWasFun, random: rnd })
+    if (r.fun) {
+      funCount++
+      assert.ok(r.text.includes('বৃষ্টি'), r.text)
+    }
+    lastWasFun = r.fun
+  }
+  assert.ok(funCount >= 1 && funCount <= 5, `funCount=${funCount}`)
+})
+
+check('সবসময় মজা চাইলেও পরপর দুবার মজা আসে না', () => {
+  let lastWasFun = false
+  let funCount = 0
+  for (let n = 0; n < 6; n++) {
+    const r = M.getBuddyReplyDetail('bd-rima', 'বৃষ্টি হচ্ছে', undefined, { lastWasFun, random: () => 0.01 })
+    if (r.fun) funCount++
+    assert.ok(!(lastWasFun && r.fun), 'পরপর দুবার মজা')
+    lastWasFun = r.fun
+  }
+  assert.equal(funCount, 3)
+})
+
+check('তথ্যভিত্তিক প্রশ্নে মজার মোড় আসে না (উত্তর এড়ায় না)', () => {
+  for (let n = 0; n < 5; n++) {
+    const r1 = M.getBuddyReplyDetail('bd-fahim', 'এই অ্যাপ কীভাবে চালাবো?', undefined, { random: () => 0.01 })
+    assert.equal(r1.fun, false, r1.text)
+    const r2 = M.getBuddyReplyDetail('bd-fahim', 'Pi কিনবো কীভাবে?', undefined, { random: () => 0.01 })
+    assert.equal(r2.fun, false, r2.text)
+  }
+})
+
+console.log(`\n${passed}/27 passed`)

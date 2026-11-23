@@ -21,6 +21,11 @@ export type PiTx = { id: string; amount: number; ref?: string; address?: string;
 // π Pi রিপোর্টের লেনদেন খতিয়ান — প্রতিটি Pi ওঠানামা এক লাইনে (আয় +, খরচ −); localStorage-এ থাকে
 export type PiLedgerRow = { id: string; date: string; type: string; label: string; amount: number }
 
+// সরানো ডেমো বন্ধু/রিকোয়েস্ট — পুরোনো localStorage-এ থাকলেও লোডের সময় বাদ যায়
+// (শুধু সিড id দিয়ে ফিল্টার — একই নামের আসল বন্ধু ভুলে বাদ যাবে না)
+const REMOVED_DEMO_FRIEND_IDS = ['fr-1', 'fr-2']
+const REMOVED_DEMO_REQUEST_IDS = ['rq-1', 'rq-2']
+
 // ভাইরাল গ্রোথ — ডেইলি বোনাস: ৭ দিনে ধাপে ধাপে বাড়ে, ১ম দিন ০.০০০১ π থেকে ৭ম দিন ০.০০১ π, তারপর আবার ১ম দিন থেকে
 export const DAILY_BONUS_REWARDS = [0.0001, 0.00025, 0.0004, 0.00055, 0.0007, 0.00085, 0.001]
 // ৩০ দিনের গিফট বক্স — টানা ৩০ দিন ডেইলি বোনাস নিলে ডেইলি বোনাসের উপরে গিফট বক্স; লটারি — সর্বোচ্চ ১ π, বাকিরা ছোট পুরস্কার
@@ -176,10 +181,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
   const [friends, setFriends] = useState<Friend[]>(() => {
     const stored = load<Friend[] | null>('friends', null)
-    const base = stored ?? [
-      { id: 'fr-1', name: 'রাফি আহমেদ', color: '#1877F2', online: true },
-      { id: 'fr-2', name: 'সাবরিনা খান', color: '#E91E63', online: false }
-    ]
+    // সরানো ডেমো বন্ধু (রাফি/সাবরিনা) পুরোনো localStorage-এ থাকলেও আর দেখাবে না
+    const base = (stored ?? []).filter(f => !REMOVED_DEMO_FRIEND_IDS.includes(f.id))
     const removed = load<string[]>('buddiesRemoved', [])
     const merged = [...base]
     for (const b of BUDDIES) {
@@ -189,10 +192,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     return merged
   })
-  const [requests, setRequests] = useState<Friend[]>(() => load('requests', [
-    { id: 'rq-1', name: 'হাসান মাহমুদ', color: '#27AE60', online: true },
-    { id: 'rq-2', name: 'প্রিয়া দাস', color: '#9C27B0', online: false }
-  ]))
+  const [requests, setRequests] = useState<Friend[]>(() =>
+    // সরানো ডেমো রিকোয়েস্ট (হাসান/প্রিয়া) পুরোনো localStorage-এ থাকলেও আর দেখাবে না
+    load<Friend[]>('requests', []).filter(f => !REMOVED_DEMO_REQUEST_IDS.includes(f.id))
+  )
   const [likesUsed, setLikesUsed] = useState<number>(() => load('likesUsed', 0))
   const [premium, setPremium] = useState<boolean>(() => load('premium', false))
   // অ্যাপের একমাত্র মুদ্রা Pi — আগের 'coins' ব্যালেন্স ১:১-এ Pi হয়ে গেছে
@@ -429,19 +432,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCalls([])
     setFriends(() => {
       const removed = load<string[]>('buddiesRemoved', [])
-      const base: Friend[] = [
-        { id: 'fr-1', name: 'রাফি আহমেদ', color: '#1877F2', online: true },
-        { id: 'fr-2', name: 'সাবরিনা খান', color: '#E91E63', online: false },
-      ]
+      const base: Friend[] = []
       for (const b of BUDDIES) {
         if (!removed.includes(b.id) && !base.some((f) => f.id === b.id)) base.push({ id: b.id, name: b.name, color: b.color, online: b.online })
       }
       return base
     })
-    setRequests([
-      { id: 'rq-1', name: 'হাসান মাহমুদ', color: '#27AE60', online: true },
-      { id: 'rq-2', name: 'প্রিয়া দাস', color: '#9C27B0', online: false },
-    ])
+    setRequests([])
     setLikesUsed(0)
     setPremium(false)
     setPiBalance(20)
