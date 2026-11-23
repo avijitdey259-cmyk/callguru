@@ -8,6 +8,7 @@ import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from '.
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
 import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
+import { profileCompletion, type Gender, type ProfileFields } from './profile'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -20,8 +21,9 @@ export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type KycInfo = { name: string; dob: string; idType: string; idNumber?: string; idLast4: string; selfie?: string; selfieVideo?: string; submittedAt: string; verifiedAt: string | null }
 // হাতে করা (ম্যানুয়াল) টপ-আপ — bKash/Nagad/Rocket: টাকা পাঠিয়ে TrxID জমা দিলে অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হয়
 export type TopUpRequest = { id: string; method: string; network?: string; amount: number; currency: 'BDT' | 'USDT'; trxId: string; date: string; status: 'pending' | 'approved' | 'rejected' }
-// Pi জমা/তোলার হিসাব — ডেমো লেনদেন, আসল Pi ব্লকচেইন লেনদেন নয়
-export type PiTx = { id: string; amount: number; ref?: string; address?: string; fee?: number; received?: number; date: string; status: string }
+// Pi জমা/তোলার হিসাব — Pi নেটওয়ার্কে আসল ব্লকচেইন লেনদেন নয় (অফিসিয়াল Pi SDK
+// যুক্ত না হওয়া পর্যন্ত স্থানীয় হিসাব); chain বলে দেয় কোন নেটওয়ার্কের জন্য রেকর্ডটি।
+export type PiTx = { id: string; amount: number; ref?: string; address?: string; fee?: number; received?: number; date: string; status: string; chain?: string }
 // π Pi রিপোর্টের লেনদেন খতিয়ান — প্রতিটি Pi ওঠানামা এক লাইনে (আয় +, খরচ −); localStorage-এ থাকে
 export type PiLedgerRow = { id: string; date: string; type: string; label: string; amount: number }
 
@@ -47,12 +49,12 @@ export const ADMIN_EMAIL = 'avijitdey259@gmail.com'
 // কখনো পুরো দেখানো হয় না, খতিয়ানে/শেয়ারে লেখা হয় না।
 export type SmsSettings = { provider: string; apiKey: string; senderId: string }
 export type SmtpSettings = { host: string; port: number; user: string; pass: string; from: string }
-export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string }
+export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string }
 export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings }
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   sms: { provider: 'BulkSMSBD', apiKey: '', senderId: '' },
   smtp: { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' },
-  payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '' },
+  payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '' },
 }
 
 export function topUpPi(amount: number, currency: 'BDT' | 'USDT', piRateBDT: number, usdtRateBDT: number): number {
@@ -159,12 +161,25 @@ type Store = {
   giftsSentPi: number
   addGiftsSent: (n: number) => void
   piWalletAddress: string | null
-  connectPiWallet: () => void
-  addDemoPi: (n: number) => void
   piDeposits: PiTx[]
   piWithdrawals: PiTx[]
-  depositPi: (amount: number, ref: string) => void
-  withdrawPi: (amount: number, address: string) => boolean
+  // Pi জমা/তোলা — অফিসিয়াল Pi SDK না আসা পর্যন্ত স্থানীয় হিসাব (আসল ব্লকচেইন
+  // লেনদেন নয়); chain 'Pi Mainnet' (আসল Pi) বা 'Pi Testnet' (পরীক্ষার Pi, মূল্যহীন)।
+  depositPi: (amount: number, ref: string, chain?: string) => void
+  withdrawPi: (amount: number, address: string, chain?: string) => boolean
+  // প্রোফাইল সেটিংস — নাম, জন্মতারিখ, লিঙ্গ, জেলা, থানা, ঠিকানা (+ লুকানো),
+  // প্রোফাইল ছবি, গ্যালারি ছবি (সর্বোচ্চ ৮), ইন্টারেস্ট; profileCompletion ০–১০০।
+  profileDob: string
+  gender: Gender
+  district: string
+  thana: string
+  address: string
+  hideAddress: boolean
+  profilePhoto: string
+  galleryPhotos: string[]
+  interests: string[]
+  updateProfile: (p: Partial<ProfileFields>) => void
+  profileCompletion: number
   // π Pi রিপোর্ট — সব Pi লেনদেনের খতিয়ান (নতুনতম আগে), ওয়ালেটে দেখায়
   piLedger: PiLedgerRow[]
   piRateBDT: number
@@ -209,7 +224,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ফিডের খোঁজা + পোস্ট — হেডার সার্চ আর ফিড একই অবস্থা দেখে (পোস্ট আগে ফিডের
   // লোকাল state-এ ছিল, নেভিগেট করলেই হারাত; এখন সেশনে থাকে, Firestore-এ যায় না)
   const [feedQuery, setFeedQuery] = useState('')
-  const [posts, setPosts] = useState<Post[]>(SEED_POSTS)
+  const [posts, setPosts] = useState<Post[]>(() => load<Post[]>('posts', SEED_POSTS))
   // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
   // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
   const [friends, setFriends] = useState<Friend[]>(() => {
@@ -303,16 +318,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [reelShares, setReelShares] = useState<Record<string, number>>(() => load('reelShares', {}))
   // লিডারবোর্ডের জন্য এই ডিভাইসে পাঠানো মোট গিফট (কয়েনে)
   const [giftsSentPi, setGiftsSentPi] = useState<number>(() => load('giftsSentPi', load('giftsSentCoins', 0)))
-  // π Pi ওয়ালেট — ডেমো ঠিকানা, জমা/তোলার হিসাব (আসল Pi ব্লকচেইন লেনদেন নয়)
+  // π Pi ওয়ালেট — জমা/তোলার হিসাব (অফিসিয়াল Pi SDK না আসা পর্যন্ত স্থানীয় হিসাব)
   const [piWalletAddress, setPiWalletAddress] = useState<string | null>(() => load('piWalletAddress', null))
-  const [piDeposits, setPiDeposits] = useState<PiTx[]>(() => load('piDeposits', []))
-  const [piWithdrawals, setPiWithdrawals] = useState<PiTx[]>(() => load('piWithdrawals', []))
+  // প্রোফাইল সেটিংস — অ্যাকাউন্ট করার পর ব্যবহারকারী নিজে সাজায়
+  const [profileDob, setProfileDob] = useState<string>(() => load('profileDob', ''))
+  const [gender, setGender] = useState<Gender>(() => load<Gender>('gender', ''))
+  const [district, setDistrict] = useState<string>(() => load('district', ''))
+  const [thana, setThana] = useState<string>(() => load('thana', ''))
+  const [address, setAddress] = useState<string>(() => load('address', ''))
+  const [hideAddress, setHideAddress] = useState<boolean>(() => load('hideAddress', false))
+  const [profilePhoto, setProfilePhoto] = useState<string>(() => load('profilePhoto', ''))
+  const [galleryPhotos, setGalleryPhotos] = useState<string[]>(() => load('galleryPhotos', []))
+  const [interests, setInterests] = useState<string[]>(() => load('interests', []))
+  // পুরোনো সংরক্ষিত "Demo" লেখা থাকলে নিরবে নতুন লেখায় বদলে যায় (ইতিহাস থাকে, লেখা থাকে না)
+  const sanitizePiTx = (list: PiTx[]): PiTx[] => list.map(t => ({
+    ...t,
+    status: t.status === '✅ Demo deposit complete' ? '✅ Deposit recorded'
+      : t.status === '⏳ Processing (demo)' ? '⏳ Processing' : t.status,
+  }))
+  const sanitizeLedger = (rows: PiLedgerRow[]): PiLedgerRow[] => rows.map(r => (
+    r.type === 'Demo Pi' || r.type === 'ডেমো Pi'
+      ? { ...r, type: 'Bonus', label: r.label === 'Add demo Pi' ? 'Add Pi' : r.label }
+      : r
+  ))
+  const [piDeposits, setPiDeposits] = useState<PiTx[]>(() => sanitizePiTx(load('piDeposits', [])))
+  const [piWithdrawals, setPiWithdrawals] = useState<PiTx[]>(() => sanitizePiTx(load('piWithdrawals', [])))
   // π Pi রিপোর্টের খতিয়ান — প্রথমবার পুরোনো হিসাব (জমা/তোলা/কল/লাইভ আয়/গিফট/রেফারেল) থেকে বানানো হয়;
   // যা থেকে বানানো যায় না (যেমন আগের ডেইলি বোনাস) তা 'Adjustment' লাইনে ধরা হয়, যাতে যোগফল বর্তমান ব্যালেন্সের সঙ্গে মেলে।
   // কোনো পরিমাণ বানানো হয় না — খতিয়ানে শুধু সংরক্ষিত হিসাবেরই অঙ্ক থাকে।
   const [piLedger, setPiLedger] = useState<PiLedgerRow[]>(() => {
     const saved = load<PiLedgerRow[] | null>('piLedger', null)
-    if (saved && saved.length > 0) return saved
+    if (saved && saved.length > 0) return sanitizeLedger(saved)
     const rows: PiLedgerRow[] = []
     piDeposits.forEach(d => rows.push({ id: d.id, date: d.date, type: 'Deposit', label: `Pi deposit${d.ref ? ' — ' + d.ref : ''}`, amount: roundPi(d.amount) }))
     piWithdrawals.forEach(w => rows.push({ id: w.id, date: w.date, type: 'Withdraw', label: `Pi withdrawal — fee ${formatPi(w.fee ?? 0)}`, amount: -roundPi(w.amount) }))
@@ -367,6 +403,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('reelShares', reelShares), [reelShares])
   useEffect(() => save('giftsSentPi', giftsSentPi), [giftsSentPi])
   useEffect(() => save('piWalletAddress', piWalletAddress), [piWalletAddress])
+  useEffect(() => save('posts', posts.slice(0, 20)), [posts])
+  useEffect(() => save('profileDob', profileDob), [profileDob])
+  useEffect(() => save('gender', gender), [gender])
+  useEffect(() => save('district', district), [district])
+  useEffect(() => save('thana', thana), [thana])
+  useEffect(() => save('address', address), [address])
+  useEffect(() => save('hideAddress', hideAddress), [hideAddress])
+  useEffect(() => save('profilePhoto', profilePhoto), [profilePhoto])
+  useEffect(() => save('galleryPhotos', galleryPhotos), [galleryPhotos])
+  useEffect(() => save('interests', interests), [interests])
   useEffect(() => save('piDeposits', piDeposits), [piDeposits])
   useEffect(() => save('piWithdrawals', piWithdrawals), [piWithdrawals])
   useEffect(() => save('piLedger', piLedger), [piLedger])
@@ -420,6 +466,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     lastClaimDate, streak, giftBoxClaimedCycle,
     totalShares, reelShares, giftsSentPi,
     piWalletAddress, piDeposits, piWithdrawals, piLedger,
+    profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests,
   })
 
   // ক্লাউডের ডক → স্টোরে বসানো (যা ঘর ডকে নেই, সেটা বদলায় না)।
@@ -458,9 +505,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (h.reelShares !== undefined) setReelShares(h.reelShares)
     if (h.giftsSentPi !== undefined) setGiftsSentPi(h.giftsSentPi)
     if (h.piWalletAddress !== undefined) setPiWalletAddress(h.piWalletAddress)
-    if (h.piDeposits !== undefined) setPiDeposits(h.piDeposits)
-    if (h.piWithdrawals !== undefined) setPiWithdrawals(h.piWithdrawals)
-    if (h.piLedger !== undefined) setPiLedger(h.piLedger)
+    if (h.piDeposits !== undefined) setPiDeposits(sanitizePiTx(h.piDeposits))
+    if (h.piWithdrawals !== undefined) setPiWithdrawals(sanitizePiTx(h.piWithdrawals))
+    if (h.piLedger !== undefined) setPiLedger(sanitizeLedger(h.piLedger))
+    if (h.profileDob !== undefined) setProfileDob(h.profileDob)
+    if (h.gender !== undefined) setGender(h.gender)
+    if (h.district !== undefined) setDistrict(h.district)
+    if (h.thana !== undefined) setThana(h.thana)
+    if (h.address !== undefined) setAddress(h.address)
+    if (h.hideAddress !== undefined) setHideAddress(h.hideAddress)
+    if (h.profilePhoto !== undefined) setProfilePhoto(h.profilePhoto)
+    if (h.galleryPhotos !== undefined) setGalleryPhotos(h.galleryPhotos)
+    if (h.interests !== undefined) setInterests(h.interests)
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
@@ -517,6 +573,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPiWalletAddress(null)
     setPiDeposits([])
     setPiWithdrawals([])
+    setProfileDob('')
+    setGender('')
+    setDistrict('')
+    setThana('')
+    setAddress('')
+    setHideAddress(false)
+    setProfilePhoto('')
+    setGalleryPhotos([])
+    setInterests([])
     setPiLedger([{ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: 20 }])
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
@@ -551,7 +616,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // পুরোনো প্রোফাইলে referralCode না থাকলে লগইনে ব্যাকফিল — নাম/আইডি
           // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনের প্রোফাইল লেখা হয় না।
           if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
-            await writePublicProfile(uid, user.name, referralCode)
+            await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
             if (cancelled) return
           }
         } else {
@@ -562,7 +627,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনের প্রোফাইল লেখা হয় না (তিনি নতুন
           // সদস্যের তালিকায় আসবেন না)।
           if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
-            await writePublicProfile(uid, user.name, referralCode)
+            await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
             if (cancelled) return
           }
         }
@@ -628,7 +693,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests])
+
+  // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
+  // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
+  // জন্মতারিখ এখানে যায় না — সেগুলো শুধু users/{uid} ডকে থাকে।
+  useEffect(() => {
+    if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
+    if (user.email.trim().toLowerCase() === ADMIN_EMAIL) return
+    const t = setTimeout(() => {
+      writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto }).catch(() => { /* ignore */ })
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fsState, uid, user, profileDob, gender, district, interests, profilePhoto])
 
   // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
   const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
@@ -848,24 +926,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     giftsSentPi,
     addGiftsSent: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) setGiftsSentPi(g => roundPi(g + m)) },
     piWalletAddress,
-    connectPiWallet: () => {
-      if (piWalletAddress) return
-      const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-      let a = 'G'
-      for (let i = 0; i < 55; i++) a += alpha[Math.floor(Math.random() * alpha.length)]
-      setPiWalletAddress(a)
-    },
-    addDemoPi: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) { setPiBalance(b => roundPi(b + m)); recordPi('Demo Pi', 'Add demo Pi', m) } },
     piDeposits,
     piWithdrawals,
-    depositPi: (amount, ref) => {
+    depositPi: (amount, ref, chain) => {
       const m = roundPi(Number(amount))
       if (!Number.isFinite(m) || m <= 0) return
       setPiBalance(b => roundPi(b + m))
       recordPi('Deposit', `Pi deposit${ref.trim() ? ' — ' + ref.trim() : ''}`, m)
-      setPiDeposits(prev => [{ id: 'dep-' + Date.now(), amount: m, ref: ref.trim(), date: new Date().toLocaleString('en-GB'), status: '✅ Demo deposit complete' }, ...prev])
+      setPiDeposits(prev => [{ id: 'dep-' + Date.now(), amount: m, ref: ref.trim(), date: new Date().toLocaleString('en-GB'), status: '✅ Deposit recorded', chain: chain || 'Pi Mainnet' }, ...prev])
     },
-    withdrawPi: (amount, address) => {
+    withdrawPi: (amount, address, chain) => {
       const m = roundPi(Number(amount))
       const min = piMinWithdraw(piRateBDT, usdtRateBDT)
       if (!Number.isFinite(m) || m < min || m > piBalance) return false
@@ -873,9 +943,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const received = roundPi(m - fee)
       setPiBalance(b => roundPi(b - m))
       recordPi('Withdraw', `Pi withdrawal — fee ${formatPi(fee)}`, -m)
-      setPiWithdrawals(prev => [{ id: 'wd-' + Date.now(), amount: m, fee, received, address, date: new Date().toLocaleString('en-GB'), status: '⏳ Processing (demo)' }, ...prev])
+      setPiWithdrawals(prev => [{ id: 'wd-' + Date.now(), amount: m, fee, received, address, date: new Date().toLocaleString('en-GB'), status: '⏳ Processing', chain: chain || 'Pi Mainnet' }, ...prev])
       return true
     },
+    profileDob,
+    gender,
+    district,
+    thana,
+    address,
+    hideAddress,
+    profilePhoto,
+    galleryPhotos,
+    interests,
+    updateProfile: (p) => {
+      if (p.profileDob !== undefined) setProfileDob(p.profileDob)
+      if (p.gender !== undefined) setGender(p.gender)
+      if (p.district !== undefined) setDistrict(p.district)
+      if (p.thana !== undefined) setThana(p.thana)
+      if (p.address !== undefined) setAddress(p.address)
+      if (p.hideAddress !== undefined) setHideAddress(p.hideAddress)
+      if (p.profilePhoto !== undefined) setProfilePhoto(p.profilePhoto)
+      if (p.galleryPhotos !== undefined) setGalleryPhotos(p.galleryPhotos.slice(0, 8))
+      if (p.interests !== undefined) setInterests(p.interests.slice(0, 16))
+    },
+    profileCompletion: profileCompletion(user?.name ?? '', { profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests }),
     piRateBDT,
     setPiRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setPiRateBDTState(n) },
     usdtRateBDT,

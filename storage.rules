@@ -1,0 +1,20 @@
+// PiCall — Firebase Storage Security Rules (প্রজেক্ট picall-76185)।
+// ডিপ্লয় করা হয়নি — Firebase কনসোলে চালু হওয়ার পর এই কমান্ডে ডিপ্লয় হবে:
+//   firebase deploy --only storage --project picall-76185
+// (firebase.json-এ "storage": { "rules": "storage.rules" } বসানো আছে।)
+//
+// নিয়মের সারকথা:
+//   uploads/{uid}/... — লগইন করা ব্যবহারকারী শুধু নিজের ফোল্ডারে লিখতে
+//                    পারেন (50 MB সর্বোচ্চ — ভিডিও পোস্টের সীমা);
+//                    পড়তে পারেন লগইন করা সবাই (পোস্ট/রিল দেখার জন্য)।
+//   বাকি সব — ডিফল্টভাবে বন্ধ।
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+  }
+}

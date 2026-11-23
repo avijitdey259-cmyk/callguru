@@ -53,6 +53,13 @@ export type NewMember = {
   // এমনিতেই দেখানো হয়, তাই পাবলিক প্রোফাইলে রাখা যায়। নাম/আইডি খোঁজায় মেলাতে লাগে।
   // না থাকলে undefined (পুরোনো প্রোফাইল — লগইনে ব্যাকফিল হয়)।
   referralCode?: string
+  // ম্যাচের জন্য পাবলিক ক্ষেত্র — লিঙ্গ, জেলা, ইন্টারেস্ট, প্রোফাইল ছবির ছোট কপি।
+  // পুরো ঠিকানা + জন্মতারিখ এখানে কখনো থাকে না (শুধু users/{uid} ডকে, ব্যক্তিগত)।
+  // না থাকলে undefined (পুরোনো প্রোফাইল বা ব্যবহারকারী এখনো সেট করেননি)।
+  gender?: string
+  district?: string
+  interests?: string[]
+  photo?: string
 }
 
 // Firestore publicProfiles ডক → NewMember (pure)। ভাঙা/ফাঁকা ক্ষেত্রে নিরাপদ
@@ -61,7 +68,20 @@ export function mapPublicProfile(id: string, data: Record<string, unknown>): New
   const name = typeof data.displayName === 'string' && data.displayName.trim() ? data.displayName.trim() : 'User'
   const colour = typeof data.colour === 'string' && data.colour ? data.colour : colourForUid(id)
   const code = typeof data.referralCode === 'string' && data.referralCode.trim() ? data.referralCode.trim() : undefined
-  return { id, displayName: name, createdAtMs: toCreatedAtMs(data.createdAt), colour, ...(code ? { referralCode: code } : {}) }
+  const gender = data.gender === 'Male' || data.gender === 'Female' ? data.gender : undefined
+  const district = typeof data.district === 'string' && data.district.trim() ? data.district.trim() : undefined
+  const interests = Array.isArray(data.interests)
+    ? (data.interests as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 16)
+    : undefined
+  const photo = typeof data.photo === 'string' && (data.photo.startsWith('data:image/') || data.photo.startsWith('https://')) ? data.photo : undefined
+  return {
+    id, displayName: name, createdAtMs: toCreatedAtMs(data.createdAt), colour,
+    ...(code ? { referralCode: code } : {}),
+    ...(gender ? { gender } : {}),
+    ...(district ? { district } : {}),
+    ...(interests && interests.length > 0 ? { interests } : {}),
+    ...(photo ? { photo } : {}),
+  }
 }
 
 // নিজেকে বাদ দেওয়া — নতুন সদস্যের তালিকায় নিজের প্রোফাইল দেখানো হয় না।

@@ -141,7 +141,9 @@ check('ওয়ালেটে একটাই মোট Pi — আলাদা
   const start = pagesSrc.indexOf('export function WalletPage()')
   const end = pagesSrc.indexOf('// ---------- Friends', start)
   const wallet = pagesSrc.slice(start, end)
-  assert.ok(wallet.includes('Total Pi: <b>{formatPi(totalPi)}</b>'), 'মোট Pi লাইন নেই')
+  assert.ok(wallet.includes('π {formatPi(totalPi)}'), 'একটাই মোট Pi (ব্যালেন্স কার্ড) নেই')
+  assert.ok(!wallet.includes('Total Pi: <b>'), 'Pi Wallet-এ বারবার মোট Pi লাইন আছে')
+  assert.ok(!wallet.includes('Current Pi Balance:'), 'Pi Report-এ বারবার মোট Pi লাইন আছে')
   assert.ok(!wallet.includes('gift Pi'), 'ওয়ালেটে আলাদা গিফট Pi লাইন আছে')
 })
 

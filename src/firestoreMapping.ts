@@ -20,6 +20,7 @@
 //     ডকে থাকে না — সেগুলো শুধু config/public-এ থাকে, নইলে যেকোনো ব্যবহারকারীর
 //     লেখায় অ্যাডমিনের দর মুছে যেত।
 import type { CallRecord, Friend, KycInfo, KycStatus, PiLedgerRow, PiTx, TopUpRequest } from './store'
+import type { Gender } from './profile'
 
 export const SCHEMA_VERSION = 1
 
@@ -70,6 +71,17 @@ export type UserDoc = {
   piDeposits: PiTx[]
   piWithdrawals: PiTx[]
   piLedger: PiLedgerRow[]
+  // প্রোফাইল সেটিংস — জন্মতারিখ/থানা/পুরো ঠিকানা ব্যক্তিগত (শুধু এই ডকে);
+  // লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি পাবলিক প্রোফাইলেও যায় (ম্যাচের জন্য)।
+  profileDob: string
+  gender: Gender
+  district: string
+  thana: string
+  address: string
+  hideAddress: boolean
+  profilePhoto: string
+  galleryPhotos: string[]
+  interests: string[]
 }
 
 // স্টোর থেকে যে স্ন্যাপশট নিয়ে ডক বানানো হয় (দরগুলো এখানে নেই — সেগুলো config/public-এ যায়)।
@@ -106,6 +118,15 @@ export type LocalUserState = {
   piDeposits: PiTx[]
   piWithdrawals: PiTx[]
   piLedger: PiLedgerRow[]
+  profileDob: string
+  gender: Gender
+  district: string
+  thana: string
+  address: string
+  hideAddress: boolean
+  profilePhoto: string
+  galleryPhotos: string[]
+  interests: string[]
 }
 
 // config/public — অ্যাডমিনের দর + পেমেন্টের আসল বিবরণ (গোপন কিছু এখানে নেই)।
@@ -117,7 +138,7 @@ export type PublicConfigDoc = {
   datingRate: number
   liveRate: number
   tvPlaylistUrl: string
-  payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string }
+  payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string }
 }
 
 export type TopUpDoc = {
@@ -199,6 +220,15 @@ export function toUserDoc(s: LocalUserState): UserDoc {
     piDeposits: s.piDeposits,
     piWithdrawals: s.piWithdrawals,
     piLedger: s.piLedger,
+    profileDob: s.profileDob || '',
+    gender: s.gender === 'Male' || s.gender === 'Female' ? s.gender : '',
+    district: s.district || '',
+    thana: s.thana || '',
+    address: s.address || '',
+    hideAddress: s.hideAddress === true,
+    profilePhoto: s.profilePhoto || '',
+    galleryPhotos: Array.isArray(s.galleryPhotos) ? s.galleryPhotos.filter((x): x is string => typeof x === 'string').slice(0, 8) : [],
+    interests: Array.isArray(s.interests) ? s.interests.filter((x): x is string => typeof x === 'string').slice(0, 16) : [],
   }
 }
 
@@ -237,6 +267,15 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   if (Array.isArray(d.piDeposits)) out.piDeposits = d.piDeposits as PiTx[]
   if (Array.isArray(d.piWithdrawals)) out.piWithdrawals = d.piWithdrawals as PiTx[]
   if (Array.isArray(d.piLedger)) out.piLedger = d.piLedger as PiLedgerRow[]
+  if (typeof d.profileDob === 'string') out.profileDob = d.profileDob
+  if (d.gender === 'Male' || d.gender === 'Female') out.gender = d.gender
+  if (typeof d.district === 'string') out.district = d.district
+  if (typeof d.thana === 'string') out.thana = d.thana
+  if (typeof d.address === 'string') out.address = d.address
+  if (typeof d.hideAddress === 'boolean') out.hideAddress = d.hideAddress
+  if (typeof d.profilePhoto === 'string') out.profilePhoto = d.profilePhoto
+  if (Array.isArray(d.galleryPhotos)) out.galleryPhotos = (d.galleryPhotos as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 8)
+  if (Array.isArray(d.interests)) out.interests = (d.interests as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 16)
   // KYC: শুধু নিরাপদ ঘরগুলো ফেরে; idNumber/selfie/selfieVideo ডকে থাকার কথা নয়,
   // থাকলেও এখানে পড়া হয় না (সেগুলো শুধু এই ডিভাইসের localStorage-এ থাকে)।
   // ডকে KYC-র স্ট্যাটাস না থাকলে (পুরোনো ডক) স্ট্যাটাস বদলানো হয় না।
@@ -287,7 +326,7 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
   if (d.payments && typeof d.payments === 'object') {
     const p = d.payments as Record<string, unknown>
     const pay: Record<string, string> = {}
-    for (const k of ['bkash', 'nagad', 'rocket', 'usdtBep20', 'usdtErc20', 'binancePayId', 'piDepositAddress']) {
+    for (const k of ['bkash', 'nagad', 'rocket', 'usdtBep20', 'usdtErc20', 'binancePayId', 'piDepositAddress', 'piTestnetAddress']) {
       if (typeof p[k] === 'string') pay[k] = p[k] as string
     }
     if (Object.keys(pay).length > 0) out.payments = pay as PublicConfigDoc['payments']

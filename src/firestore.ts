@@ -3,7 +3,7 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
@@ -49,20 +49,37 @@ export async function updateUserKyc(uid: string, kyc: UserDoc['kyc']): Promise<b
 }
 
 // ---------- publicProfiles/{uid} — নতুন সদস্য + সব ব্যবহারকারী খোঁজা ----------
-// পাবলিক প্রোফাইলে শুধু এই ক্ষেত্রগুলো: displayName, createdAt, colour, referralCode।
+// পাবলিক প্রোফাইলে শুধু এই ক্ষেত্রগুলো: displayName, createdAt, colour, referralCode,
+// gender, district, interests, photo (প্রোফাইল ছবির ছোট কপি)।
 // referralCode (যেমন cg-abc123) নিজের আইডি কার্ডে এমনিতেই পাবলিক — তাই এখানে
-// রাখা যায়; ইমেইল/ফোন/আইডি নম্বর/KYC/ব্যালেন্স/বন্ধু — কিছুই এখানে লেখা হয় না
-// (users/{uid} ডক ব্যক্তিগতই থাকে, শুধু মালিক পড়তে পারেন)। createdAt শুধু
-// প্রথমবার বসে — পরে নাম/রং/কোড বদলালেও যোগদানের সময় বদলায় না। referralCode
-// পুরোনো প্রোফাইলে না থাকলে merge-এ যোগ হয় (লগইনে ব্যাকফিল)। কখনো throw করে না।
-export async function writePublicProfile(uid: string, displayName: string, referralCode?: string): Promise<boolean> {
+// রাখা যায়; ইমেইল/ফোন/আইডি নম্বর/KYC/ব্যালেন্স/বন্ধু/পুরো ঠিকানা/জন্মতারিখ —
+// কিছুই এখানে লেখা হয় না (users/{uid} ডক ব্যক্তিগতই থাকে, শুধু মালিক পড়তে পারেন)।
+// createdAt শুধু প্রথমবার বসে — পরে নাম/রং/কোড বদলালেও যোগদানের সময় বদলায় না।
+// referralCode পুরোনো প্রোফাইলে না থাকলে merge-এ যোগ হয় (লগইনে ব্যাকফিল)। কখনো throw করে না।
+export type PublicProfileExtra = {
+  gender?: string
+  district?: string
+  interests?: string[]
+  photo?: string
+}
+export async function writePublicProfile(uid: string, displayName: string, referralCode?: string, extraFields?: PublicProfileExtra): Promise<boolean> {
   const d = getDb()
   if (!d) return false
   try {
     const ref = doc(d, 'publicProfiles', uid)
     const snap = await getDoc(ref)
     const code = typeof referralCode === 'string' && referralCode.trim() ? referralCode.trim() : undefined
-    const extra = code ? { referralCode: code } : {}
+    const extra: Record<string, unknown> = {}
+    if (code) extra.referralCode = code
+    if (extraFields) {
+      if (extraFields.gender === 'Male' || extraFields.gender === 'Female') extra.gender = extraFields.gender
+      if (typeof extraFields.district === 'string' && extraFields.district.trim()) extra.district = extraFields.district.trim()
+      if (Array.isArray(extraFields.interests)) {
+        const list = extraFields.interests.filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 16)
+        if (list.length > 0) extra.interests = list
+      }
+      if (typeof extraFields.photo === 'string' && (extraFields.photo.startsWith('data:image/') || extraFields.photo.startsWith('https://'))) extra.photo = extraFields.photo
+    }
     if (snap.exists()) {
       await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra }, { merge: true })
     } else {
@@ -70,6 +87,49 @@ export async function writePublicProfile(uid: string, displayName: string, refer
     }
     return true
   } catch { return false }
+}
+
+// ---------- chats/{roomId}/messages/{msgId} — আসল বন্ধুদের মধ্যে চ্যাট ----------
+// রুমের চাবি দুই UID-র সাজানো জোড়া (chatRoomId) — দুই দিক থেকে একই রুম মেলে।
+// শুধু আসল বন্ধুদের চ্যাট এখানে যায়; ৫ চ্যাট পারসোনা আগের মতোই শুধু এই ডিভাইসে থাকে।
+// localStorage (callguru:chatMsgs) অফলাইন ক্যাশ হিসেবে থাকে। কখনো throw করে না।
+export type ChatMessage = { id: string; fromUid: string; fromName: string; text: string; ts: number }
+
+export function chatRoomId(a: string, b: string): string {
+  return [a, b].sort().join('_')
+}
+
+export async function sendChatMessage(roomId: string, fromUid: string, fromName: string, text: string): Promise<boolean> {
+  const d = getDb()
+  if (!d) return false
+  const t = text.trim()
+  if (!t || !roomId || !fromUid) return false
+  try {
+    await addDoc(collection(d, 'chats', roomId, 'messages'), { fromUid, fromName: fromName || 'User', text: t.slice(0, 2000), ts: Date.now(), createdAt: serverTimestamp() })
+    return true
+  } catch { return false }
+}
+
+// রুমের মেসেজে লাইভ সাবস্ক্রিপশন — নতুন মেসেজ এলে cb ডাকা হয় (সময়ের ক্রমে)।
+// onSnapshot-এর আনসাবস্ক্রাইব ফাংশন ফেরে; Firestore না থাকলে null ফেরে।
+export function subscribeChatMessages(roomId: string, cb: (msgs: ChatMessage[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !roomId) return null
+  try {
+    const q = query(collection(d, 'chats', roomId, 'messages'), orderBy('ts', 'asc'), limit(200))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs.map(s => {
+        const data = s.data() as Record<string, unknown>
+        return {
+          id: s.id,
+          fromUid: typeof data.fromUid === 'string' ? data.fromUid : '',
+          fromName: typeof data.fromName === 'string' ? data.fromName : 'User',
+          text: typeof data.text === 'string' ? data.text : '',
+          ts: typeof data.ts === 'number' ? data.ts : 0,
+        }
+      }))
+    }, () => { /* সাবস্ক্রিপশন ব্যর্থ হলে চ্যাট localStorage ক্যাশেই চলবে */ })
+  } catch { return null }
 }
 
 // নতুন সদস্য — publicProfiles থেকে createdAt অনুযায়ী নতুন থেকে পুরনো, সর্বোচ্চ limitN জন।

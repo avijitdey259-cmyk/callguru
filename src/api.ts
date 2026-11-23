@@ -12,6 +12,8 @@
 //   DELETE /api/live/:id  -> end a live room
 //   POST /api/otp/send    -> { ok:true } or { ok:false, error:'not_configured'|'rate_limited'|'invalid_email' }
 //   POST /api/otp/verify  -> { ok:true } or { ok:false, error:'invalid_code'|'expired'|'too_many_attempts' }
+//   OTP-তে channel:'sms' + phone দিলে SMS-এ কোড যায় (গেটওয়ে থাকলে); গেটওয়ে না
+//   থাকলে 'not_configured' আসে — গেটওয়ে অ্যাডাপ্টার ব্যাকএন্ডের আলাদা কাজ।
 //   GET  /api/call/:code  -> { ok, code, callerName, peers } or 404 (1-to-1 call link)
 //   WebSocket (same host/port): live signalling — join/offer/answer/ice/gift/
 //   chat/leave, viewer-count + host-left broadcasts (see src/live.ts), and
@@ -158,6 +160,21 @@ export function sendEmailOtp(email: string): Promise<OtpResult | null> {
 /** POST /api/otp/verify — কোড মিললে { ok:true }, ভুল/মেয়াদোত্তীর্ণ হলে error। */
 export function verifyEmailOtp(email: string, code: string): Promise<OtpResult | null> {
   return postOtp('/api/otp/verify', { email, code })
+}
+
+// ---------- SMS OTP (৬ সংখ্যার কোড, Railway ব্যাকএন্ড, channel:'sms') ----------
+// ইমেইল OTP-র একই পথ — শুধু channel + phone যায়। গেটওয়ে না থাকলে ব্যাকএন্ড
+// { ok:false, error:'not_configured' } দেয়; এখানে কোনো গেটওয়ে URL/চাবি নেই,
+// কোনো গেটওয়ে SDK নেই — গেটওয়ে অ্যাডাপ্টার ব্যাকএন্ডের আলাদা কাজ, মালিক
+// গেটওয়ে অ্যাকাউন্ট + API key দিলে তখন হবে।
+/** POST /api/otp/send { channel:'sms', phone } — ৬ সংখ্যার কোড SMS-এ পাঠান। */
+export function sendSmsOtp(phone: string): Promise<OtpResult | null> {
+  return postOtp('/api/otp/send', { channel: 'sms', phone })
+}
+
+/** POST /api/otp/verify { channel:'sms', phone, code } — কোড মিললে { ok:true }। */
+export function verifySmsOtp(phone: string, code: string): Promise<OtpResult | null> {
+  return postOtp('/api/otp/verify', { channel: 'sms', phone, code })
 }
 
 // ---------- অ্যাডমিন সেটিংস (সার্ভার-সাইড কপি) ----------

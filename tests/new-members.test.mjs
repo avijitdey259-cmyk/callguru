@@ -116,8 +116,8 @@ check('নিয়ম: users নিজেরই থাকে; publicProfiles �
 // referralCode-সহ লেখা হয় (নতুন ব্যবহারকারী + পুরোনো প্রোফাইলের ব্যাকফিল) —
 // নাম/আইডি খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে।
 check('স্টোর: প্রথম লগইনে পাবলিক প্রোফাইল লেখে; অ্যাডমিন বাদ', () => {
-  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode)'))
-  const i = storeSrc.indexOf('writePublicProfile(uid, user.name, referralCode)')
+  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })'))
+  const i = storeSrc.indexOf('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })')
   const guard = storeSrc.slice(Math.max(0, i - 400), i)
   assert.ok(guard.includes('!== ADMIN_EMAIL'), 'অ্যাডমিন বাদ দেওয়ার শর্ত নেই')
 })

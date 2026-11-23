@@ -152,8 +152,8 @@ check('পাবলিক প্রোফাইলে শুধু নাম/স
 })
 
 check('স্টোর লগইনে referralCode পাবলিক প্রোফাইলে লেখে (নতুন + ব্যাকফিল)', () => {
-  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode)'), 'referralCode-সহ writePublicProfile কল নেই')
-  assert.ok(fsSrc.includes('referralCode: code'), 'firestore.ts referralCode লেখে না')
+  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })'), 'referralCode + প্রোফাইল-সহ writePublicProfile কল নেই')
+  assert.ok(fsSrc.includes('extra.referralCode = code'), 'firestore.ts referralCode লেখে না')
 })
 
 check('দুটো জায়গায় সাজেশন ড্রপডাউন আছে (হেডার সার্চ + Friends)', () => {

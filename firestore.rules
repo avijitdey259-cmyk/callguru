@@ -14,6 +14,10 @@
 //                    লিখতে পারেন শুধু অ্যাডমিন (avijitdey259@gmail.com)।
 //   topups/{id}   — ব্যবহারকারী শুধু নিজের আবেদন তৈরি/পড়তে পারেন;
 //                    অ্যাডমিন সব পড়তে ও স্ট্যাটাস বদলাতে পারেন।
+//   chats/{roomId}/messages/{msgId} — রুমের নামে দুই UID থাকে
+//                    (ছোট UID আগে, '_' দিয়ে জোড়া); শুধু ওই দুই
+//                    ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
+//                    fromUid নিজের UID-ই হতে হবে। আপডেট/মোছা বন্ধ।
 //   বাকি সব — ডিফল্টভাবে বন্ধ।
 // NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
 // সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
@@ -53,6 +57,16 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow update: if isAdmin();
+    }
+
+    // আসল বন্ধুর চ্যাট — রুমের নামে দুই UID থাকে (ছোট UID আগে, '_' দিয়ে
+    // জোড়া); শুধু ওই দুই ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
+    // fromUid নিজের UID-ই হতে হবে। আপডেট/মোছা বন্ধ।
+    match /chats/{roomId}/messages/{msgId} {
+      allow read: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1]);
+      allow create: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1])
+        && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // বাকি সব ডিফল্টভাবে বন্ধ।

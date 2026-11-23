@@ -84,6 +84,15 @@ const sample = {
     { id: 'pl-2', date: '২০/১১/২০২৬', type: 'কল খরচ', label: 'কল — ডা. রাহাত', amount: -1.5 },
     { id: 'pl-3', date: '২০/১১/২০২৬', type: 'রেফারেল', label: 'রেফারেল ওয়েলকাম বোনাস', amount: 1 },
   ],
+  profileDob: '1995-06-10',
+  gender: 'Female',
+  district: 'Chattogram',
+  thana: 'Panchlaish',
+  address: 'House 12, Road 3',
+  hideAddress: true,
+  profilePhoto: 'data:image/jpeg;base64,CCC',
+  galleryPhotos: ['data:image/jpeg;base64,DDD', 'data:image/jpeg;base64,EEE'],
+  interests: ['Music', 'Cricket'],
 }
 
 console.log('Firestore mapping tests:')
@@ -98,6 +107,25 @@ check('ব্যালেন্স/বোনাস/স্ট্রিক/আয�
   assert.equal(doc.lastClaimDate, '2026-11-20')
   assert.equal(doc.referralPiEarned, 1)
   assert.equal(doc.schemaVersion, 1)
+})
+
+check('প্রোফাইল ঘর (জন্মতারিখ/লিঙ্গ/জেলা/থানা/ঠিকানা/ছবি/গ্যালারি/ইন্টারেস্ট) ডকে হুবহু যায়', () => {
+  assert.equal(doc.profileDob, '1995-06-10')
+  assert.equal(doc.gender, 'Female')
+  assert.equal(doc.district, 'Chattogram')
+  assert.equal(doc.thana, 'Panchlaish')
+  assert.equal(doc.address, 'House 12, Road 3')
+  assert.equal(doc.hideAddress, true)
+  assert.equal(doc.profilePhoto, 'data:image/jpeg;base64,CCC')
+  assert.deepEqual(doc.galleryPhotos, ['data:image/jpeg;base64,DDD', 'data:image/jpeg;base64,EEE'])
+  assert.deepEqual(doc.interests, ['Music', 'Cricket'])
+})
+
+check('ভুল লিঙ্গ বাদ যায়, বেশি গ্যালারি/ইন্টারেস্ট কাটা যায় (৮/১৬ সীমা)', () => {
+  const d = M.toUserDoc({ ...sample, gender: 'Other', galleryPhotos: Array(10).fill('x'), interests: Array(20).fill('y') })
+  assert.equal(d.gender, '')
+  assert.equal(d.galleryPhotos.length, 8)
+  assert.equal(d.interests.length, 16)
 })
 
 check('কল হিসাব, বন্ধু, খতিয়ান, জমা ডকে হুবহু যায়', () => {
@@ -117,8 +145,8 @@ check('পুরো NID / সেলফি / লাইভ ভিডিও ডক�
   assert.equal('selfie' in doc.kyc, false)
   assert.equal('selfieVideo' in doc.kyc, false)
   assert.equal(json.includes('1234567890'), false)
-  assert.equal(json.includes('data:image'), false)
-  assert.equal(json.includes('data:video'), false)
+  assert.equal(json.includes('data:image/jpeg;base64,AAA'), false) // KYC সেলফি ডকে যায় না (প্রোফাইল ছবি আলাদা ঘরে যেতে পারে)
+  assert.equal(json.includes('data:video/webm;base64,BBB'), false)
   assert.equal(doc.kyc.idLast4, '7890')
   assert.equal(doc.kyc.status, 'pending')
   assert.equal(doc.kyc.name, 'পরীক্ষা ব্যবহারকারী')
@@ -152,6 +180,11 @@ check('ডক থেকে ফিরে ব্যালেন্স/স্ট্
   assert.equal(back.kycInfo.name, 'পরীক্ষা ব্যবহারকারী')
   assert.equal(back.kycInfo.idLast4, '7890')
   assert.equal(back.kycInfo.dob, '2000-01-15')
+  assert.equal(back.profileDob, '1995-06-10')
+  assert.equal(back.gender, 'Female')
+  assert.equal(back.district, 'Chattogram')
+  assert.equal(back.hideAddress, true)
+  assert.deepEqual(back.interests, ['Music', 'Cricket'])
 })
 
 check('ফেরত KYC-তে NID/সেলফি/ভিডিও নেই (বিষাক্ত ডক হলেও)', () => {
@@ -172,12 +205,14 @@ check('দ্বিতীয় রাউন্ড-ট্রিপ স্থি�
 check('অ্যাডমিন config: দর + পেমেন্ট যায়, গোপন অংশ যায় না', () => {
   const cfg = M.toPublicConfig(
     { piRateBDT: 100, usdtRateBDT: 120, piWithdrawFeePct: 1, datingRate: 0.1, liveRate: 0.05 },
-    { bkash: '01XXXXXXXXX', nagad: '', rocket: '', usdtBep20: '0xabc', usdtErc20: '', binancePayId: 'PICALL-1', piDepositAddress: 'GABC' },
+    { bkash: '01XXXXXXXXX', nagad: '', rocket: '', usdtBep20: '0xabc', usdtErc20: '', binancePayId: 'PICALL-1', piDepositAddress: 'GABC', piTestnetAddress: 'GTEST' },
   )
   assert.equal(cfg.piRateBDT, 100)
   assert.equal(cfg.datingRate, 0.1)
   assert.equal(cfg.payments.bkash, '01XXXXXXXXX')
   assert.equal(cfg.payments.usdtBep20, '0xabc')
+  assert.equal(cfg.payments.piDepositAddress, 'GABC')
+  assert.equal(cfg.payments.piTestnetAddress, 'GTEST')
   const json = JSON.stringify(cfg)
   assert.equal(json.includes('apiKey'), false)
   assert.equal(json.includes('smtp'), false)
@@ -185,6 +220,7 @@ check('অ্যাডমিন config: দর + পেমেন্ট যায
   const backCfg = M.fromPublicConfig(cfg)
   assert.equal(backCfg.piRateBDT, 100)
   assert.equal(backCfg.payments.bkash, '01XXXXXXXXX')
+  assert.equal(backCfg.payments.piTestnetAddress, 'GTEST')
 })
 
 check('ভুল দর config থেকে বাদ যায়', () => {

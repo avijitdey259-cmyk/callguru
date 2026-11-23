@@ -81,3 +81,74 @@ check('buddies.ts: the 5 kept chat personas are untouched', () => {
     assert.ok(buddies.includes(id), `পারসোনা নেই: ${id}`)
   }
 })
+
+const store = read('src/store.tsx')
+const rules = read('firestore.rules')
+const storageRules = read('storage.rules')
+const profile = read('src/profile.ts')
+
+check('pages.tsx: all removed "Demo" user-visible strings are gone', () => {
+  for (const s of [
+    'Demo note: referrals are tracked', 'Demo Pi', 'demo deposit', 'Connect π Pi (Demo)',
+    'Add Demo Pi', 'Demo number', 'Demo ID', 'Demo rate', 'Processing (demo)',
+    'Demo Pi Wallet', 'Demo KYC', 'Demo live', 'PiCall demo Pi address',
+    'Your Pi address (demo)', 'demo Pi are outside', 'in the demo it stays',
+    'in the demo they stay', 'submissions in this demo stay',
+    'the wallet will show demo again', 'If empty, the earlier demo will show',
+    'at demo rate', "', demo'",
+  ]) assert.ok(!pages.includes(s), `"${s}" এখনো আছে`)
+})
+
+check('pages.tsx: honest replacement strings are present', () => {
+  for (const s of [
+    'Referrals are tracked on this device.',
+    'Your submission is reviewed by the admin.',
+    'Live server not connected — check your connection and try again.',
+    'Not set up yet — ask the admin',
+    'Same district', 'Pi Chain', 'Pi Mainnet', 'Pi Testnet',
+    'Profile Settings', '% complete', 'Hide my address from other users',
+    'Video (max 50 MB)', 'Set profile photo',
+  ]) assert.ok(pages.includes(s), `"${s}" নেই`)
+})
+
+check('pages.tsx: Pi Wallet card comes before Top Up; only one Pi total on Wallet', () => {
+  assert.ok(pages.indexOf('π Pi Wallet') !== -1, 'π Pi Wallet কার্ড নেই')
+  assert.ok(pages.indexOf('π Pi Wallet') < pages.indexOf('💰 Top Up'), 'Pi Wallet উপরে নেই — Top Up আগে আছে')
+  assert.ok(!pages.includes('Total Pi: <b>'), 'Pi Wallet-এ "Total Pi:" এখনো আছে')
+  assert.ok(!pages.includes('Current Pi Balance: <b className="text-purple-600">'), 'Pi Report-এ "Current Pi Balance:" এখনো আছে')
+})
+
+check('chat: Firestore chat wiring exists (pages + rules)', () => {
+  for (const s of ['sendChatMessage', 'subscribeChatMessages', 'chatRoomId']) assert.ok(pages.includes(s), `pages.tsx-এ ${s} নেই`)
+  assert.ok(rules.includes('match /chats/{roomId}/messages/{msgId}'), 'firestore.rules-এ chats ব্লক নেই')
+  assert.ok(rules.includes('request.resource.data.fromUid == request.auth.uid'), 'chats নিয়মে fromUid চেক নেই')
+})
+
+check('storage.rules: user uploads only, 50 MB max', () => {
+  assert.ok(storageRules.includes('match /uploads/{userId}/{fileName}'), 'uploads নিয়ম নেই')
+  assert.ok(storageRules.includes('request.resource.size < 50 * 1024 * 1024'), '50 MB সীমা নেই')
+  assert.ok(storageRules.includes('request.auth.uid == userId'), 'নিজের ফোল্ডার চেক নেই')
+})
+
+check('data.ts: no demo payment constants; districts + interests exist', () => {
+  assert.ok(!data.includes('PICALL-DEMO-0000'), 'BINANCE_PAY_ID ডেমো আইডি ফিরে এসেছে')
+  assert.ok(!data.includes('PI_DEPOSIT_ADDRESS'), 'ডেমো Pi ঠিকানা ফিরে এসেছে')
+  for (const d of ['Chattogram', 'Dhaka', 'Sylhet', 'Khulna', 'Barishal', 'Rangpur', 'Mymensingh', 'Rajshahi']) assert.ok(data.includes(d), `জেলা নেই: ${d}`)
+  for (const i of ['Music', 'Movies', 'Travel', 'Cricket', 'Football', 'Cooking', 'Reading', 'Photography', 'Gaming', 'Gardening', 'Fishing', 'Shopping', 'Dance', 'Singing', 'Technology', 'Sports']) assert.ok(data.includes(i), `ইন্টারেস্ট নেই: ${i}`)
+  assert.ok(data.includes('imageUrl'), 'Post-এ imageUrl নেই')
+  assert.ok(data.includes('videoUrl'), 'Post-এ videoUrl নেই')
+})
+
+check('store.tsx: demo Pi helpers gone; profile + chain fields exist', () => {
+  assert.ok(!store.includes('addDemoPi'), 'addDemoPi এখনো আছে')
+  assert.ok(!store.includes('connectPiWallet'), 'connectPiWallet এখনো আছে')
+  assert.ok(store.includes('Deposit recorded'), 'নতুন deposit স্ট্যাটাস নেই')
+  assert.ok(store.includes('profileCompletion'), 'profileCompletion নেই')
+  assert.ok(store.includes('piTestnetAddress'), 'piTestnetAddress নেই')
+  assert.ok(store.includes('chain:'), 'PiTx-এ chain নেই')
+})
+
+check('profile.ts: completion helper exists', () => {
+  assert.ok(profile.includes('export function profileCompletion'), 'profileCompletion নেই')
+  assert.ok(profile.includes('hideAddress'), 'hideAddress নেই')
+})

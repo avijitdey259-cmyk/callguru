@@ -2,29 +2,31 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, sendSmsOtp, verifySmsOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
+import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { sendCallInvite, onInviteResponse } from './presence'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
-import { BUDDIES, getBuddyByName, getBuddyReplyDetail } from './buddies'
+import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
-  REELS, SERVICES, TV_CHANNELS, TOPUP_PACKS,
-  contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
-  BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
+  REELS, SERVICES, TV_CHANNELS, TOPUP_PACKS, DISTRICTS, INTERESTS,
+  contactBanCheck, formatBDT, formatPi, roundPi, takaToPi,
   USDT_NETWORKS, piWithdrawFee,
   type Expert, type DatingProfile, type TvChannel
 } from './data'
 import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPlaylist'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
-import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, getFirebaseApp } from './firebase'
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers } from './firestore'
+import { fetchNewMembers, sendChatMessage, subscribeChatMessages, chatRoomId } from './firestore'
+import { profileCompletion, type Gender } from './profile'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 
@@ -88,7 +90,7 @@ export function InviteCard() {
       <p className="text-sm mt-2">Referral: <b>{referrals} people</b> • Earnings from referrals: <b>π {referralPiEarned} Pi</b></p>
       <p className="text-xs text-amber-600 mt-1">Referral Pi is bonus Pi — it cannot be withdrawn, only used for calls/live gifts.</p>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
-      <p className="text-xs text-gray-400 mt-2">Demo note: referrals are tracked on this device — real cross-device tracking needs a backend.</p>
+      <p className="text-xs text-gray-400 mt-2">Referrals are tracked on this device.</p>
     </Card>
   )
 }
@@ -242,6 +244,11 @@ export function LoginPage() {
   // ইমেইল OTP: কোড পাঠানো হয়েছে কি না + কোড ইনপুট
   const [otpSent, setOtpSent] = useState(false)
   const [otp, setOtp] = useState('')
+  // SMS OTP: মোবাইল নম্বরে ৬ সংখ্যার কোড — গেটওয়ে থাকলে ব্যাকএন্ড পাঠায়,
+  // না থাকলে 'not_configured' আসে আর ইমেইল লগইন ব্যবহার করতে বলা হয়
+  const [phone, setPhone] = useState('')
+  const [smsOtpSent, setSmsOtpSent] = useState(false)
+  const [smsOtp, setSmsOtp] = useState('')
   // লিংক দিয়ে ফিরে এসে সংরক্ষিত ইমেইল না পেলে ইমেইল চাওয়া হয়
   const [linkEmailNeeded, setLinkEmailNeeded] = useState(false)
   const [completingLink, setCompletingLink] = useState(false)
@@ -355,11 +362,56 @@ export function LoginPage() {
     else setMsg('The code is wrong — check and enter it again.')
   }
 
+  const sendSms = async () => {
+    const ph = normalizeBdPhone(phone)
+    if (!ph) { setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
+    setBusy(true); setMsg('')
+    const r = await sendSmsOtp(ph)
+    setBusy(false)
+    if (!r || !r.ok) {
+      if (r && r.error === 'not_configured') {
+        setMsg('SMS login is not set up yet — please use email login for now.')
+      } else if (r && r.error === 'rate_limited') {
+        setMsg('Too many attempts — please try again in a little while.')
+      } else if (r && (r.error === 'invalid_phone' || r.error === 'invalid_email')) {
+        setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).')
+      } else if (!r) {
+        setMsg('Could not reach the server — check your connection and try again.')
+      } else {
+        setMsg('Could not send the code — please try again.')
+      }
+      return
+    }
+    setSmsOtpSent(true)
+    setMsg('A 6-digit code has been sent to your mobile — valid for 10 minutes.')
+  }
+
+  const verifySms = async () => {
+    const code = smsOtp.trim()
+    if (!/^\d{6}$/.test(code)) { setMsg('Enter the 6-digit code.'); return }
+    const ph = normalizeBdPhone(phone)
+    if (!ph) { setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
+    setBusy(true); setMsg('')
+    const r = await verifySmsOtp(ph, code)
+    setBusy(false)
+    if (r && r.ok) {
+      // SMS লগইন — Firebase সেশন নেই (ইমেইল OTP-র মতোই লোকাল-অনলি); ফোন নম্বরই
+      // লগইন শনাক্তকারী হিসেবে থাকে (ইমেইলের ঘরে — user {name, email} আকারে থাকে)
+      login(name.trim() || 'PiCall User', ph)
+      navigate('/feed')
+      return
+    }
+    if (r && r.error === 'expired') setMsg('The code has expired — send OTP again.')
+    else if (r && r.error === 'too_many_attempts') setMsg('Wrong code entered many times — send OTP again.')
+    else if (r && r.error === 'not_configured') setMsg('SMS login is not set up yet — please use email login for now.')
+    else setMsg('The code is wrong — check and enter it again.')
+  }
+
   return (
     <div className="max-w-md mx-auto">
       <Card>
         <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
-        <p className="text-center text-sm text-gray-500 mt-1">Gmail 1-Click Login • Email Link • Email OTP</p>
+        <p className="text-center text-sm text-gray-500 mt-1">Gmail 1-Click Login • Email Link • Email OTP • Mobile OTP</p>
         <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
           <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
           {busy ? 'Logging in…' : '1-Click Login with Gmail'}
@@ -389,6 +441,19 @@ export function LoginPage() {
             <input className="w-full border rounded-lg px-3 py-2 mt-1 text-center tracking-[0.5em] dark:bg-slate-800 dark:border-slate-600" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
             <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
             <Btn className="w-full mt-2" disabled={busy} onClick={verifyOtp}>Verify the code to log in</Btn>
+          </div>
+        )}
+        <div className="my-4 border-t" />
+        <p className="text-sm font-medium text-center">Or log in with mobile number</p>
+        <label className="text-sm font-medium mt-3 block">Mobile Number</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={phone} onChange={e => setPhone(e.target.value)} placeholder="01XXXXXXXXX" inputMode="tel" />
+        <Btn variant="ghost" className="w-full mt-2" disabled={busy} onClick={sendSms}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
+        {smsOtpSent && (
+          <div className="mt-3">
+            <label className="text-sm font-medium">6-digit code</label>
+            <input className="w-full border rounded-lg px-3 py-2 mt-1 text-center tracking-[0.5em] dark:bg-slate-800 dark:border-slate-600" value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
+            <Btn className="w-full mt-2" disabled={busy} onClick={verifySms}>Verify the code to log in</Btn>
           </div>
         )}
         {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
@@ -467,7 +532,7 @@ function NewMembersSection() {
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi } = useStore()
+  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [postTitle, setPostTitle] = useState('')
@@ -481,6 +546,61 @@ export function Feed() {
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [tvShareMsg, setTvShareMsg] = useState('')
+  // কম্পোজার মিডিয়া — একই জায়গায় ছবি + ভিডিও (ভিডিও পোস্ট রিলও হয়) + প্রোফাইল ছবি
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
+  const profilePhotoInputRef = useRef<HTMLInputElement>(null)
+  const [composerPhoto, setComposerPhoto] = useState<string | null>(null)
+  const [composerVideoUrl, setComposerVideoUrl] = useState<string | null>(null)
+  const [uploadingVideo, setUploadingVideo] = useState(false)
+  const [composerErr, setComposerErr] = useState('')
+  const [profilePhotoMsg, setProfilePhotoMsg] = useState('')
+  function onComposerPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const img = new Image()
+      img.onload = () => { const d = downscaleImage(img, img.width, img.height, 800); if (d) { setComposerPhoto(d); setComposerErr('') } }
+      img.src = String(r.result)
+    }
+    r.readAsDataURL(f)
+  }
+  async function onComposerVideo(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    if (f.size > 50 * 1024 * 1024) { setComposerErr('Video is too big — maximum 50 MB.'); return }
+    const app = getFirebaseApp()
+    if (!app || !uid) { setComposerErr('Video upload needs login — please log in again.'); return }
+    setUploadingVideo(true); setComposerErr('')
+    try {
+      const storage = getStorage(app)
+      const path = `uploads/${uid}/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      const snap = await uploadBytes(storageRef(storage, path), f)
+      const url = await getDownloadURL(snap.ref)
+      setComposerVideoUrl(url)
+    } catch {
+      setComposerErr('Video upload failed — check your connection and try again.')
+    } finally { setUploadingVideo(false) }
+  }
+  function onComposerProfilePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const img = new Image()
+      img.onload = () => { const d = downscaleImage(img, img.width, img.height, 400); if (d) { updateProfile({ profilePhoto: d }); setProfilePhotoMsg('✅ Profile photo updated.') } }
+      img.src = String(r.result)
+    }
+    r.readAsDataURL(f)
+  }
+  function resetComposer() {
+    setComposerOpen(false); setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false)
+    setComposerPhoto(null); setComposerVideoUrl(null); setComposerErr('')
+  }
   const navigate = useNavigate()
   const locState = useLocation().state as { postId?: string } | null
   // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
@@ -559,12 +679,35 @@ export function Feed() {
         {composerOpen ? (
           <>
             <div className="flex items-center gap-2">
-              <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>
+              <button onClick={() => profilePhotoInputRef.current?.click()} title="Set profile photo">
+                {profilePhoto
+                  ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover" />
+                  : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>}
+              </button>
               <p className="font-medium">{user?.name || 'You'}</p>
             </div>
             <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postTitle} onChange={e => setPostTitle(e.target.value)} placeholder="Title (optional)" />
             <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Write something…" />
             <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postLocation} onChange={e => setPostLocation(e.target.value)} placeholder="Add location (optional)" />
+            {composerPhoto && <div className="relative mt-2">
+              <img src={composerPhoto} alt="Photo to post" className="rounded-xl w-full max-h-80 object-cover" />
+              <button onClick={() => setComposerPhoto(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
+            </div>}
+            {uploadingVideo && <p className="text-sm text-gray-500 mt-2">Uploading video…</p>}
+            {composerVideoUrl && <div className="relative mt-2">
+              <video src={composerVideoUrl} controls playsInline className="rounded-xl w-full max-h-80 bg-black" />
+              <button onClick={() => setComposerVideoUrl(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
+            </div>}
+            <div className="flex gap-2 mt-2 flex-wrap">
+              <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">📷 Photo</button>
+              <button onClick={() => videoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">🎥 Video (max 50 MB)</button>
+              <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">🖼️ Set profile photo</button>
+            </div>
+            <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerPhoto} />
+            <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={onComposerVideo} />
+            <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerProfilePhoto} />
+            {composerErr && <p className="text-sm text-red-500 mt-2">{composerErr}</p>}
+            {profilePhotoMsg && <p className="text-sm text-green-600 mt-2">{profilePhotoMsg}</p>}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className="text-xs text-gray-400">Share to</span>
               {(['Public', 'Friends'] as const).map(a => (
@@ -573,21 +716,23 @@ export function Feed() {
               <button onClick={() => setBoostPost(b => !b)} className={`ml-auto px-3 py-1 rounded-full text-xs font-medium ${boostPost ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>🚀 Boost Post (0.1 π)</button>
             </div>
             <div className="flex justify-end gap-2 mt-2">
-              <Btn variant="ghost" onClick={() => { setComposerOpen(false); setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false) }}>Cancel</Btn>
-              <Btn disabled={!text.trim()} onClick={() => {
+              <Btn variant="ghost" onClick={resetComposer}>Cancel</Btn>
+              <Btn disabled={(!text.trim() && !composerPhoto && !composerVideoUrl) || uploadingVideo} onClick={() => {
                 let boosted = false
                 if (boostPost) {
                   if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
                   addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
                 }
-                setPosts([{ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED' }, ...posts])
-                setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false); setComposerOpen(false)
+                setPosts([{ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined }, ...posts])
+                resetComposer()
               }}>Post</Btn>
             </div>
           </>
         ) : (
           <button onClick={() => setComposerOpen(true)} className="flex items-center gap-3 w-full text-left">
-            <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>
+            {profilePhoto
+              ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover shrink-0" />
+              : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>}
             <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">What's on your mind?</span>
           </button>
         )}
@@ -646,6 +791,8 @@ export function Feed() {
           </div>
           {p.title && <p className="mt-3 font-bold">{p.title}</p>}
           <p className={`text-sm ${p.title ? 'mt-1' : 'mt-3'}`}>{p.text}</p>
+          {p.imageUrl && <img src={p.imageUrl} alt="Post photo" className="rounded-xl mt-3 w-full max-h-96 object-cover" />}
+          {p.videoUrl && <video src={p.videoUrl} controls playsInline className="rounded-xl mt-3 w-full max-h-96 bg-black" />}
           <div className="flex mt-3 pt-1 border-t text-sm text-gray-500 dark:text-gray-300">
             <button className={`flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium ${liked[p.id] ? 'text-pink-600 font-bold' : ''}`} onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} Likes ({p.likes + (liked[p.id] ? 1 : 0)})</button>
             <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium">💬 Comments ({p.comments})</button>
@@ -1344,7 +1491,7 @@ const TYPE_LABELS: Record<string, string> = {
   'রেফারেল': 'Referral', 'লাইভ আয়': 'Live Earnings', 'গিফট বক্স': 'Gift Box',
   'ইন্সটল বোনাস': 'Install Bonus', 'কল খরচ': 'Call Cost', 'লাইভ দেখা': 'Watching Live',
   'গিফট দেওয়া': 'Gifts Sent', 'বুস্ট': 'Boost', 'সুপার লাইক': 'Super Like',
-  'সমন্বয়': 'Adjustment', 'ডেমো Pi': 'Demo Pi',
+  'সমন্বয়': 'Adjustment',
 }
 // Old rows stored before the English switch keep Bengali types — TYPE_LABELS
 // shows them in English; sum() below also counts both spellings.
@@ -1366,9 +1513,8 @@ function PiReportCard() {
         <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">Total earnings (bonus+referral+live+gift box)</p><p className="font-bold text-green-600">{formatPi(totalIncome)}</p></div>
         <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">Total spent (calls+live+gifts)</p><p className="font-bold text-red-600">{formatPi(totalExpense)}</p></div>
       </div>
-      <p className="text-center mt-3">Current Pi Balance: <b className="text-purple-600">{formatPi(totalPi)}</b></p>
       <p className="text-center text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Bonus Pi: <b>{formatPi(bonusPi)}</b> <span className="text-gray-500">(usable only for calls/live gifts, cannot be withdrawn)</span></p>
-      <p className="text-xs text-gray-400 mt-1">Buying Pi and demo Pi are outside income-expense — they are on separate ledger lines.</p>
+      <p className="text-xs text-gray-400 mt-1">Buying Pi is outside income-expense — it is on a separate ledger line.</p>
       {rows.length === 0
         ? <p className="text-sm text-gray-500 mt-3">No transactions yet.</p>
         : <div className="mt-3 space-y-2">
@@ -1391,7 +1537,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
+  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -1405,6 +1551,8 @@ export function WalletPage() {
   const [wdMsg, setWdMsg] = useState('')
   const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
+  const [depChain, setDepChain] = useState('Pi Mainnet')
+  const [wdChain, setWdChain] = useState('Pi Mainnet')
   const isUsdt = method === 'USDT'
   const isBinance = method === 'Binance Pay'
   const isUsdtAmount = isUsdt || isBinance
@@ -1412,12 +1560,13 @@ export function WalletPage() {
   const net = USDT_NETWORKS.find(n => n.id === usdtNetwork) || USDT_NETWORKS[1]
   // টপ-আপের অটো Pi রূপান্তর — ফর্মেই দেখা যায় কত Pi পাওয়া যাবে (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর)
   const previewPi = topUpPi(Number(amount) || 0, isUsdtAmount ? 'USDT' : 'BDT', piRateBDT, usdtRateBDT)
-  const DEMO_NUMBERS: Record<string, string> = { bKash: '01XXXXXXXXX', Nagad: '01XXXXXXXXX', Rocket: '01XXXXXXXXX' }
-  // অ্যাডমিন সেটিংসে আসল নম্বর/ঠিকানা বসানো থাকলে সেটাই দেখাবে; না থাকলে ডেমো
+  // অ্যাডমিন সেটিংসে আসল নম্বর/ঠিকানা বসানো থাকলে সেটাই দেখাবে; না থাকলে
+  // "Not set up yet — ask the admin" দেখাবে — কোনো ডেমো নম্বর/ঠিকানা দেখানো হয় না
   const savedPayNumber = method === 'bKash' ? adminSettings.payments.bkash : method === 'Nagad' ? adminSettings.payments.nagad : method === 'Rocket' ? adminSettings.payments.rocket : ''
   const savedUsdtAddress = usdtNetwork === 'BEP20' ? adminSettings.payments.usdtBep20 : adminSettings.payments.usdtErc20
   const savedBinanceId = adminSettings.payments.binancePayId
   const savedPiAddress = adminSettings.payments.piDepositAddress
+  const savedPiTestnetAddress = adminSettings.payments.piTestnetAddress || ''
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
     // সব টপ-আপ ম্যানুয়াল — আবেদন জমা হয়, অ্যাডমিন অনুমোদন দিলে Pi যোগ হয়
@@ -1429,19 +1578,19 @@ export function WalletPage() {
     const m = Number(depAmount)
     if (!Number.isFinite(m) || m <= 0) { setDepMsg('Enter a valid amount.'); return }
     if (!depRef.trim()) { setDepMsg('Enter the Transaction / Memo reference.'); return }
-    depositPi(m, depRef)
-    setDepMsg(`✅ ${formatPi(m)} demo deposit added.`)
+    depositPi(m, depRef, depChain)
+    setDepMsg(`✅ ${formatPi(m)} deposit recorded (${depChain}).`)
     setDepAmount(''); setDepRef('')
   }
   function doWithdraw() {
     const m = Number(wdAmount)
     const a = wdAddress.trim()
     if (a.length !== 56 || !a.startsWith('G')) { setWdMsg('Invalid address — a Pi address starts with G and is 56 characters.'); return }
-    if (!Number.isFinite(m) || m < piMinWithdraw) { setWdMsg(`Minimum withdraw: Pi equal to 10 USDT (at demo rate ${formatPi(piMinWithdraw)}).`); return }
+    if (!Number.isFinite(m) || m < piMinWithdraw) { setWdMsg(`Minimum withdraw: Pi equal to 10 USDT (${formatPi(piMinWithdraw)}).`); return }
     if (m > totalPi) { setWdMsg('Not enough Pi balance.'); return }
     if (m > piBalance) { setWdMsg('Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.'); return }
-    if (!withdrawPi(m, a)) { setWdMsg('Could not withdraw — check the amount and address again.'); return }
-    setWdMsg('✅ Withdraw request submitted — ⏳ processing (demo).')
+    if (!withdrawPi(m, a, wdChain)) { setWdMsg('Could not withdraw — check the amount and address again.'); return }
+    setWdMsg('✅ Withdraw request submitted — ⏳ Processing.')
     setWdAddress(''); setWdAmount('')
   }
   const wdAmt = Number(wdAmount) || 0
@@ -1460,6 +1609,52 @@ export function WalletPage() {
         <p className="text-xs text-gray-400 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
       </Card>
       <Card>
+        <h2 className="font-bold">π Pi Wallet</h2>
+        <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin)</p>
+        <div className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">π Pi Deposit</p>
+          <label className="text-sm block mt-2">Pi Chain</label>
+          <div className="flex gap-2 flex-wrap mt-1">{(['Pi Mainnet', 'Pi Testnet'] as const).map(c => (
+            <button key={c} onClick={() => setDepChain(c)} className={`px-3 py-1.5 rounded-full text-sm border ${depChain === c ? 'bg-fb-blue text-white' : ''}`}>{c === 'Pi Mainnet' ? 'Pi Mainnet (real Pi)' : 'Pi Testnet (test Pi, no value)'}</button>
+          ))}</div>
+          {depChain === 'Pi Mainnet'
+            ? savedPiAddress
+              ? <><p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <code className="break-all">{savedPiAddress}</code></p>
+                <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiAddress, 'Pi Deposit Address')}>📋 Copy Address</Btn></>
+              : <p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <b className="text-gray-400">Not set up yet — ask the admin</b></p>
+            : savedPiTestnetAddress
+              ? <><p className="text-sm mt-2">PiCall Pi address (Pi Testnet): <code className="break-all">{savedPiTestnetAddress}</code></p>
+                <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiTestnetAddress, 'Pi Testnet Address')}>📋 Copy Address</Btn></>
+              : <p className="text-sm mt-2">PiCall Pi address (Pi Testnet): <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
+          {depChain === 'Pi Testnet' && <p className="text-xs text-amber-600 mt-1">Test Pi has no value — for testing only.</p>}
+          <label className="text-sm block mt-2">Amount of Pi Sent</label>
+          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="e.g. 5" />
+          <label className="text-sm block mt-2">Transaction / Memo Reference</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depRef} onChange={e => setDepRef(e.target.value)} placeholder="e.g. PI-TX-..." />
+          <Btn variant="green" className="w-full mt-3" onClick={doDeposit}>Confirm Deposit</Btn>
+          {depMsg && <p className="text-sm mt-2">{depMsg}</p>}
+          {piDeposits.length > 0 && <div className="mt-2">{piDeposits.map(d => <p key={d.id} className="text-sm text-gray-500">{formatPi(d.amount)} • {d.ref}{d.chain ? ` • ${d.chain}` : ''} • {d.date} • {d.status}</p>)}</div>}
+        </div>
+        <div className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">π Pi Withdraw</p>
+          <label className="text-sm block mt-2">Pi Chain</label>
+          <div className="flex gap-2 flex-wrap mt-1">{(['Pi Mainnet', 'Pi Testnet'] as const).map(c => (
+            <button key={c} onClick={() => setWdChain(c)} className={`px-3 py-1.5 rounded-full text-sm border ${wdChain === c ? 'bg-fb-blue text-white' : ''}`}>{c === 'Pi Mainnet' ? 'Pi Mainnet (real Pi)' : 'Pi Testnet (test Pi, no value)'}</button>
+          ))}</div>
+          {wdChain === 'Pi Testnet' && <p className="text-xs text-amber-600 mt-1">Test Pi has no value — for testing only.</p>}
+          <p className="text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Minimum withdraw: Pi equal to 10 USDT ({formatPi(piMinWithdraw)}) • Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)}</p>
+          <label className="text-sm block mt-2">Your Pi address (starts with G, 56 characters)</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAddress} onChange={e => setWdAddress(e.target.value)} placeholder="G..." />
+          <label className="text-sm block mt-2">Amount (Pi)</label>
+          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAmount} onChange={e => setWdAmount(e.target.value)} placeholder={`Minimum ${formatPi(piMinWithdraw)}`} />
+          {wdAmt >= piMinWithdraw && <p className="text-sm mt-2">Withdraw amount: {formatPi(wdAmt)} • Fee ({piWithdrawFeePct}%): {formatPi(wdFee)} • You will get: {formatPi(wdReceive)}</p>}
+          <Btn variant="green" className="w-full mt-3" onClick={doWithdraw}>Withdraw Pi</Btn>
+          {wdMsg && <p className="text-sm mt-2">{wdMsg}</p>}
+          {piWithdrawals.length > 0 && <div className="mt-2">{piWithdrawals.map(w => <p key={w.id} className="text-sm text-gray-500">{formatPi(w.amount)} • Fee {formatPi(w.fee)} • Will get {formatPi(w.received)}{w.chain ? ` • ${w.chain}` : ''} • {shortPiAddress(w.address)} • {w.date} • {w.status}</p>)}</div>}
+        </div>
+        <p className="text-xs text-gray-400 mt-3">Real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>
+      </Card>
+            <Card>
         <h2 className="font-bold">💰 Top Up</h2>
         {!isUsdtAmount && <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>}
         <label className="text-sm block mt-3">Amount ({isUsdtAmount ? 'USDT' : 'Tk'})</label>
@@ -1476,8 +1671,7 @@ export function WalletPage() {
           {savedPayNumber
             ? <><p>{method} Number: <b>{savedPayNumber}</b></p>
               <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPayNumber, method)}>📋 Copy Number</Btn></>
-            : <><p>{method} Number (demo): <b>{DEMO_NUMBERS[method]}</b> <span className="text-xs text-gray-400">Demo number — the admin will set the real number</span></p>
-              <Btn variant="ghost" className="mt-1" onClick={() => copyText(DEMO_NUMBERS[method], method)}>📋 Copy Number</Btn></>}
+            : <p>{method} Number: <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
         </div>}
         {isUsdt && <div className="mt-3">
           <label className="text-sm block">Choose Network</label>
@@ -1485,8 +1679,10 @@ export function WalletPage() {
             <span className="font-bold block">{n.name}{n.cheapest ? ' • Cheapest' : ''}</span>
             <span className="text-xs opacity-80">{n.feeHint}</span>
           </button>)}</div>
-          <p className="text-sm mt-2">Address ({net.id}{savedUsdtAddress ? '' : ', demo'}): <code className="break-all">{savedUsdtAddress || net.address}</code></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedUsdtAddress || net.address, 'USDT')}>📋 Copy Address</Btn>
+          {savedUsdtAddress
+            ? <><p className="text-sm mt-2">Address ({net.id}): <code className="break-all">{savedUsdtAddress}</code></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedUsdtAddress, 'USDT')}>📋 Copy Address</Btn></>
+            : <p className="text-sm mt-2">Address ({net.id}): <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
           <p className="text-xs text-red-600 mt-2">⚠️ You must send on the network you chose — sending on the wrong network will lose the money.</p>
           <p className="text-xs text-gray-400 mt-1">Fee is approximate and may change.</p>
         </div>}
@@ -1494,8 +1690,7 @@ export function WalletPage() {
           {savedBinanceId
             ? <><p>Binance Pay ID: <b>{savedBinanceId}</b></p>
               <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedBinanceId, 'Binance Pay')}>📋 Copy ID</Btn></>
-            : <><p>Binance Pay ID (demo): <b>{BINANCE_PAY_ID}</b> <span className="text-xs text-gray-400">Demo ID — the admin will set the real ID</span></p>
-              <Btn variant="ghost" className="mt-1" onClick={() => copyText(BINANCE_PAY_ID, 'Binance Pay')}>📋 Copy ID</Btn></>}
+            : <p>Binance Pay ID: <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
         </div>}
         {copied && <p className="text-xs text-green-600 mt-1">✅ {copied} Copied.</p>}
         <><label className="text-sm block mt-3">{isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay reference' : 'TrxID'}</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder={isUsdt ? 'e.g. 0x...' : isBinance ? 'e.g. BP-...' : 'e.g. 9HX7...'} /><p className="text-xs text-gray-400 mt-1">The same reference cannot be used twice.</p></>
@@ -1510,44 +1705,7 @@ export function WalletPage() {
           {doneList.map(t => <p key={t.id} className="text-sm mt-1 text-gray-500">{t.method} — {t.currency === 'USDT' ? `${t.amount} USDT` : formatBDT(t.amount)} • {t.status === 'approved' ? '✅ Approved' : '❌ Rejected'} • {t.date}</p>)}
         </div>}
       </Card>
-      <Card>
-        <h2 className="font-bold">π Pi Wallet</h2>
-        <p className="text-sm mt-1">Total Pi: <b>{formatPi(totalPi)}</b> (Withdrawable: {formatPi(piBalance)} • Bonus: {formatPi(bonusPi)})</p>
-        <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin) • Demo rate: Tk 100 = 1 Pi</p>
-        {piWalletAddress
-          ? <p className="text-sm mt-2">Your Pi address (demo): <code className="break-all">{piWalletAddress}</code></p>
-          : <Btn variant="ghost" className="mt-2" onClick={connectPiWallet}>Connect π Pi (Demo)</Btn>}
-        <div className="mt-3">
-          <p className="text-sm font-bold">Add Demo Pi (for testing)</p>
-          <div className="flex gap-2 flex-wrap mt-2">{[0.1, 0.5, 1].map(a => <button key={a} onClick={() => addDemoPi(a)} className="px-3 py-1.5 rounded-lg border font-bold bg-gray-50 dark:bg-slate-800">+{formatPi(a)}</button>)}</div>
-        </div>
-        <div className="mt-4 border-t pt-3">
-          <p className="text-sm font-bold">π Pi Deposit</p>
-          <p className="text-sm mt-1">{savedPiAddress ? 'PiCall Pi address:' : 'PiCall demo Pi address:'} <code className="break-all">{savedPiAddress || PI_DEPOSIT_ADDRESS}</code></p>
-          <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPiAddress || PI_DEPOSIT_ADDRESS, 'Pi Deposit Address')}>📋 Copy Address</Btn>
-          <label className="text-sm block mt-2">Amount of Pi Sent</label>
-          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depAmount} onChange={e => setDepAmount(e.target.value)} placeholder="e.g. 5" />
-          <label className="text-sm block mt-2">Transaction / Memo Reference</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={depRef} onChange={e => setDepRef(e.target.value)} placeholder="e.g. PI-TX-..." />
-          <Btn variant="green" className="w-full mt-3" onClick={doDeposit}>Confirm Deposit</Btn>
-          {depMsg && <p className="text-sm mt-2">{depMsg}</p>}
-          {piDeposits.length > 0 && <div className="mt-2">{piDeposits.map(d => <p key={d.id} className="text-sm text-gray-500">{formatPi(d.amount)} • {d.ref} • {d.date} • {d.status}</p>)}</div>}
-        </div>
-        <div className="mt-4 border-t pt-3">
-          <p className="text-sm font-bold">π Pi Withdraw</p>
-          <p className="text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Minimum withdraw: Pi equal to 10 USDT (at demo rate {formatPi(piMinWithdraw)}) • Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)}</p>
-          <label className="text-sm block mt-2">Your Pi address (starts with G, 56 characters)</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAddress} onChange={e => setWdAddress(e.target.value)} placeholder="G..." />
-          <label className="text-sm block mt-2">Amount (Pi)</label>
-          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={wdAmount} onChange={e => setWdAmount(e.target.value)} placeholder={`Minimum ${formatPi(piMinWithdraw)}`} />
-          {wdAmt >= piMinWithdraw && <p className="text-sm mt-2">Withdraw amount: {formatPi(wdAmt)} • Fee ({piWithdrawFeePct}%): {formatPi(wdFee)} • You will get: {formatPi(wdReceive)}</p>}
-          <Btn variant="green" className="w-full mt-3" onClick={doWithdraw}>Withdraw Pi</Btn>
-          {wdMsg && <p className="text-sm mt-2">{wdMsg}</p>}
-          {piWithdrawals.length > 0 && <div className="mt-2">{piWithdrawals.map(w => <p key={w.id} className="text-sm text-gray-500">{formatPi(w.amount)} • Fee {formatPi(w.fee)} • Will get {formatPi(w.received)} • {shortPiAddress(w.address)} • {w.date} • {w.status}</p>)}</div>}
-        </div>
-        <p className="text-xs text-gray-400 mt-3">Demo Pi Wallet — real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>
-      </Card>
-      <PiReportCard />
+            <PiReportCard />
       <DailyBonusCard />
       <InviteCard />
       <Card>
@@ -1659,13 +1817,13 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, soundSettings, setSoundSettings } = useStore()
+  const { user, friends, soundSettings, setSoundSettings, uid } = useStore()
   const location = useLocation()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'Rima')
   // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
   // বন্ধুরা নিজে থেকে প্রথমে লেখে না — চ্যাট খালি দিয়ে শুরু, ব্যবহারকারী লিখলেই উত্তর আসে
-  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string }[]>>(() => {
+  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string; fsId?: string }[]>>(() => {
     const seed: Record<string, { from: string; text: string }[]> = {}
     try {
       const raw = localStorage.getItem('callguru:chatMsgs')
@@ -1699,14 +1857,50 @@ export function ChatPage() {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
   }, [msgs])
   useEffect(() => () => { typingTimersRef.current.forEach(t => window.clearTimeout(t)) }, [])
+  const activeFriend = friends.find(f => f.name === active)
+  const isRealUser = !!activeFriend && !!uid && !isBuddyId(activeFriend.id) && activeFriend.id !== uid
+  const roomId = isRealUser && uid && activeFriend ? chatRoomId(uid, activeFriend.id) : null
+  const knownFsIdsRef = useRef<Set<string>>(new Set())
+  const subscribedRoomsRef = useRef<Set<string>>(new Set())
+  // আসল বন্ধুর চ্যাট Firestore-এ যায় — অন্য অ্যাকাউন্টে খুললেই মেসেজ পৌঁছায়।
+  // ৫ জন চ্যাট পারসোনা আগের মতোই লোকাল থাকে। OTP লগইন (Firebase সেশন নেই)
+  // থাকলে Firestore লেখা যায় না — তখন মেসেজ শুধু এই ডিভাইসেই থাকে।
+  useEffect(() => {
+    if (!roomId || !uid || !activeFriend) return
+    const fromName = activeFriend.name
+    const first = !subscribedRoomsRef.current.has(roomId)
+    if (first) subscribedRoomsRef.current.add(roomId)
+    const unsub = subscribeChatMessages(roomId, (list) => {
+      const fresh = list.filter(m => !knownFsIdsRef.current.has(m.id))
+      fresh.forEach(m => knownFsIdsRef.current.add(m.id))
+      if (fresh.length === 0) return
+      setMsgs(prev => {
+        const cur = prev[fromName] || []
+        const have = new Set(cur.map(m => m.fsId).filter(Boolean))
+        const add = fresh.filter(m => !have.has(m.id)).map(m => ({ from: m.fromUid === uid ? (user?.name || 'You') : m.fromName, text: m.text, fsId: m.id }))
+        return add.length === 0 ? prev : { ...prev, [fromName]: [...cur, ...add] }
+      })
+      if (!first && fresh.some(m => m.fromUid !== uid)) playChatSound(soundSettings)
+    })
+    return () => { if (unsub) unsub() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId])
   function send() {
     const err = contactBanCheck(draft)
     if (err) { setBan(err + ' Repeated attempts will raise more warnings.'); setWarn(w => w + 1); return }
     if (!draft.trim()) return
     const text = draft
     const to = active
-    setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text }] }))
     setDraft(''); setBan('')
+    // আসল বন্ধু — Firestore-এ লিখি; সাবস্ক্রিপশন থেকেই মেসেজ ফিরে এসে দেখাবে।
+    // সার্ভারে না পৌঁছালে মেসেজ শুধু এই ডিভাইসে থাকে।
+    if (isRealUser && roomId && uid) {
+      sendChatMessage(roomId, uid, user?.name || 'You', text).then(id => {
+        if (!id) setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text }] }))
+      })
+      return
+    }
+    setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text }] }))
     const buddy = getBuddyByName(to)
     if (buddy) {
       setTyping(t => ({ ...t, [to]: true }))
@@ -1766,8 +1960,8 @@ function ageFromDob(dobStr: string): number | null {
 }
 
 // সেলফি ছোট আকারে নামানো হয় (সর্বোচ্চ ৩২০px, JPEG ০.৭) — অ্যাডমিন দেখে মিলাতে পারবেন, আর localStorage-এ জায়গাও কম লাগবে
-function downscaleImage(source: HTMLVideoElement | HTMLImageElement, w: number, h: number): string {
-  const scale = Math.min(1, 320 / w)
+function downscaleImage(source: HTMLVideoElement | HTMLImageElement, w: number, h: number, maxPx = 320): string {
+  const scale = Math.min(1, maxPx / Math.max(w, h))
   const c = document.createElement('canvas')
   c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale))
   const ctx = c.getContext('2d')
@@ -1959,17 +2153,17 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
           </select>
           <label className="text-sm font-medium mt-3 block">ID Number</label>
           <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder={idType === 'NID' ? 'NID Number — 10 or 17 digits' : 'Enter ID number'} />
-          <p className="text-xs text-gray-400 mt-1">🔒 The full NID number is stored — it is not shared with other users and is not uploaded anywhere (in the demo it stays only on this device).</p>
+          <p className="text-xs text-gray-400 mt-1">🔒 The full NID number is stored — it is not shared with other users and is not uploaded anywhere (it stays only on this device).</p>
           <p className="text-xs text-amber-600 mt-1">⚠️ A full NID is extremely sensitive information — in real production it cannot be kept in plain text; it must be encrypted and handled through a verified KYC service.</p>
           {err && <p className="text-sm text-red-500 mt-2">{err}</p>}
           <Btn className="w-full mt-4" onClick={submitIdentity}>Next Step →</Btn>
-          <p className="text-xs text-gray-400 mt-3 text-center">Demo KYC — real verification needs a verified KYC service.</p>
+          <p className="text-xs text-gray-400 mt-3 text-center">Your submission is reviewed by the admin. Real verification needs a verified KYC service.</p>
         </div>
       )}
       {step === 2 && (
         <div className="mt-4 text-center">
           <p className="text-sm font-medium">📸 Take Live Selfie</p>
-          <p className="text-xs text-gray-400 mt-1">Take your live photo with the front camera — a ~3-second live video clip will also be recorded with the photo. Photo and video are kept for verification only. They are not shared with other users and are not uploaded anywhere (in the demo they stay only on this device).</p>
+          <p className="text-xs text-gray-400 mt-1">Take your live photo with the front camera — a ~3-second live video clip will also be recorded with the photo. Photo and video are kept for verification only. They are not shared with other users and are not uploaded anywhere (they stay only on this device).</p>
           {!captured && <video ref={videoRef} className="w-full aspect-[3/4] bg-black rounded-xl mt-3 object-cover" autoPlay playsInline muted />}
           {captured && <img src={captured} alt="Live Selfie" className="w-full aspect-[3/4] object-cover rounded-xl mt-3" />}
           {recording && <p className="text-sm text-red-500 mt-2 font-medium">🎥 Recording live video… wait ~3 seconds</p>}
@@ -2027,7 +2221,7 @@ function DatingKycBlocked() {
 function compatFor(p: DatingProfile) { return p.compat ?? 86 }
 
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
+  const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, kycVerified, district: myDistrict, interests: myInterests, uid } = useStore()
   const navigate = useNavigate()
   // KYC একবার সম্পন্ন হলে আর দেখানো হয় না; সফলতার স্ক্রিনটি দেখানোর জন্য স্থানীয় অবস্থা
   const [kycSuccess, setKycSuccess] = useState(false)
@@ -2044,6 +2238,26 @@ export function DatingPage() {
     fetchLiveRooms().then(r => { if (r) { setRealRooms(r); setLiveServerOk(true) } else { setLiveServerOk(false) } })
   }
   useEffect(() => { refreshLiveRooms() }, [])
+  // আসল ডেটিং প্রার্থী — publicProfiles থেকে (নিজেকে বাদ); একই জেলা আগে, তারপর
+  // মিলে যাওয়া ইন্টারেস্ট বেশি যার সে আগে
+  const [candidates, setCandidates] = useState<NewMember[]>([])
+  useEffect(() => {
+    let on = true
+    fetchNewMembers().then(list => { if (on) setCandidates(list) }).catch(() => { /* খালি থাকবে */ })
+    return () => { on = false }
+  }, [])
+  const myInterestSet = useMemo(() => new Set(myInterests), [myInterests])
+  const sharedCount = (c: NewMember) => (c.interests ?? []).filter(i => myInterestSet.has(i)).length
+  const sortedCandidates = useMemo(() => {
+    const list = candidates.filter(c => c.id !== uid)
+    return [...list].sort((a, b) => {
+      const aSame = myDistrict && a.district === myDistrict ? 1 : 0
+      const bSame = myDistrict && b.district === myDistrict ? 1 : 0
+      if (aSame !== bSame) return bSame - aSame
+      return sharedCount(b) - sharedCount(a)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidates, uid, myDistrict, myInterests])
   // KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না — প্রোফাইল, লাইভ, ম্যাচ, কল — সব বন্ধ
   if (!kycVerified || kycSuccess) {
     return <KycPage onComplete={() => setKycSuccess(true)} onEnter={() => setKycSuccess(false)} />
@@ -2113,36 +2327,41 @@ export function DatingPage() {
         <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
-        {DATING_PROFILES.filter(p => !dismissed[p.id]).length === 0 && <p className="text-sm text-gray-500 col-span-2">No profiles yet — check back later.</p>}
-        {DATING_PROFILES.filter(p => !dismissed[p.id]).map(p => (
-          <div key={p.id} className="rounded-2xl overflow-hidden shadow-sm relative" style={{ background: p.color }}>
+        {sortedCandidates.filter(p => !dismissed[p.id]).length === 0 && <p className="text-sm text-gray-500 col-span-2">No profiles yet — check back later.</p>}
+        {sortedCandidates.filter(p => !dismissed[p.id]).map(p => {
+          const sameDistrict = !!myDistrict && p.district === myDistrict
+          const shared = (p.interests ?? []).filter(i => myInterestSet.has(i))
+          return (
+          <div key={p.id} className="rounded-2xl overflow-hidden shadow-sm relative" style={{ background: p.colour ?? '#7C3AED' }}>
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
             <div className="relative p-4 pt-24 text-white">
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <p className="font-extrabold text-xl">{p.name}, {p.age}</p>
-                  <p className="text-sm opacity-80">📍 {p.city}</p>
-                  <p className="text-sm mt-1 opacity-90">{p.about}</p>
+                  <p className="font-extrabold text-xl">{p.displayName}</p>
+                  {p.district && <p className="text-sm opacity-80">📍 {p.district}</p>}
+                  {sameDistrict && <span className="inline-block mt-1 text-[11px] font-bold bg-white text-pink-600 px-2 py-0.5 rounded-full">Same district</span>}
+                  {shared.length > 0 && <div className="flex gap-1 flex-wrap mt-2">{shared.map(i => <span key={i} className="text-[11px] bg-white/20 px-2 py-0.5 rounded-full">{i}</span>)}</div>}
+                  {shared.length === 0 && p.interests && p.interests.length > 0 && <div className="flex gap-1 flex-wrap mt-2">{p.interests.slice(0, 4).map(i => <span key={i} className="text-[11px] bg-white/20 px-2 py-0.5 rounded-full">{i}</span>)}</div>}
                 </div>
-                <span className="shrink-0 w-14 h-14 rounded-full bg-white/15 backdrop-blur flex items-center justify-center" title={`${compatFor(p)}% compatible`}>
-                  <svg viewBox="0 0 36 36" className="w-12 h-12 -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="3" /><circle cx="18" cy="18" r="15.5" fill="none" stroke="#EC4899" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${compatFor(p) * 0.974} 97.4`} /><text x="18" y="22" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#fff" transform="rotate(90 18 18)">{compatFor(p)}%</text></svg>
-                </span>
+                {p.photo
+                  ? <img src={p.photo} alt={p.displayName} className="shrink-0 w-14 h-14 rounded-full object-cover border-2 border-white/60" />
+                  : <span className="shrink-0 w-14 h-14 rounded-full bg-white/15 backdrop-blur flex items-center justify-center text-xl font-bold">{p.displayName.slice(0, 1)}</span>}
               </div>
               <div className="flex gap-2 mt-4">
                 <button onClick={() => setDismissed(v => ({ ...v, [p.id]: true }))} className="flex-1 py-2.5 rounded-full bg-white/20 backdrop-blur font-bold text-lg" aria-label="Pass">✕</button>
-                <Btn disabled={!!likedIds[p.id]} className="!bg-white !text-pink-600 font-bold flex-1 !py-2.5 !rounded-full" onClick={() => { if (!useLike()) { alert('Today\'s 30 free likes are over — get Premium.'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ Like</Btn>
-                <button onClick={() => { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }} className="flex-1 py-2.5 rounded-full pb-gradient font-bold text-sm">⭐ Super Like (0.15 π)</button>
+                <Btn disabled={!!likedIds[p.id]} className="!bg-white !text-pink-600 font-bold flex-1 !py-2.5 !rounded-full" onClick={() => { if (!useLike()) { alert('Today\'s 30 free likes are over — get Premium.'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.displayName); setMatchedId(p.id) }}>❤️ Like</Btn>
+                <button onClick={() => { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.displayName}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.displayName); setMatchedId(p.id) }} className="flex-1 py-2.5 rounded-full pb-gradient font-bold text-sm">⭐ Super Like (0.15 π)</button>
               </div>
               <button onClick={() => alert('This profile has been reported — moderation will review it.')} className="text-xs opacity-70 mt-2 underline">🚩 Report</button>
               {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 Video Call (prepaid {formatPi(datingRate)}/minute)</Btn>}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
 }
-
 // ---------- ডেটিং লাইভ ----------
 // ডেমো লাইভ হোস্ট সরানো হয়েছে — শুধু আসল লাইভ রুম দেখাবে
 const DATING_LIVE_HOSTS: { id: string; viewers: number }[] = []
@@ -2368,7 +2587,7 @@ export function DatingLivePage() {
             <p>The live will stop itself when the Pi balance ends.</p>
             <p>Your Pi: <b>π {formatPi(totalPi)}</b> — you need Pi to send gifts on live.</p>
           </div>
-          <p className="text-xs text-gray-400 mt-2">🔴 This live too is covered by admin-only recording — only the admin can view it for appeals/disputes. {realRoom ? '🟢 Live server connected — real broadcast.' : 'Demo live — a live server is needed for real broadcasting.'}</p>
+          <p className="text-xs text-gray-400 mt-2">🔴 This live too is covered by admin-only recording — only the admin can view it for appeals/disputes. {realRoom ? '🟢 Live server connected — real broadcast.' : 'Live server not connected — check your connection and try again.'}</p>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ You cannot watch live without a Pi balance. Prepaid — buy Pi first.</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ Start Watching Live</Btn>
@@ -2642,7 +2861,7 @@ export function DatingGoLivePage() {
               <button onClick={() => setFacingBoth('environment')} className={`flex-1 py-2 rounded-lg text-sm font-bold ${facing === 'environment' ? 'bg-fb-blue text-white' : 'bg-slate-700 text-white'}`}>📷 Back Camera</button>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-3">🔴 This live is covered by admin-only recording — only the admin can view it for appeals/disputes. When the live starts, PiCall live server will broadcast for real; if the server is unreachable, a demo live will run.</p>
+          <p className="text-xs text-gray-400 mt-3">🔴 This live is covered by admin-only recording — only the admin can view it for appeals/disputes. When the live starts, PiCall live server will broadcast for real; if the server is unreachable, nobody can watch yet.</p>
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" onClick={() => setStarted(true)}>🔴 Start Live</Btn>
           </div>
@@ -2821,7 +3040,7 @@ export function GroupsPage() {
 }
 
 export function ReelsPage() {
-  const { reelShares, totalShares, recordShare } = useStore()
+  const { reelShares, totalShares, recordShare, posts } = useStore()
   const [shareMsg, setShareMsg] = useState('')
   async function shareReel(r: { id: string; title: string; creator: string }) {
     const url = `${INVITE_BASE_URL}reels?reel=${r.id}`
@@ -2831,18 +3050,31 @@ export function ReelsPage() {
       setShareMsg(res === 'shared' ? '✅ Reel shared!' : '✅ Reel link copied — send it!')
     }
   }
+  // ভিডিও পোস্টও রিল — ফিডে ভিডিও দিলে সেটা এখানেও চালানো যায়
+  const videoReels = posts.filter(p => p.videoUrl).map(p => ({ id: 'post-' + p.id, title: (p.title || p.text || 'Video').slice(0, 60), creator: p.author, videoUrl: p.videoUrl as string }))
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">🎬 Reels & Monetization</h1>
       <p className="text-sm text-gray-500">Total share: <b>↗️ {totalShares}</b> • If you like it, share — friends will join PiCall!</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
-        {REELS.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
+        {REELS.length === 0 && videoReels.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
         {REELS.map(r => (
           <Card key={r.id}>
             <div className="text-4xl">🎬</div>
             <p className="font-bold mt-2">{r.title}</p>
             <p className="text-sm text-gray-500">{r.views} Views • {r.creator}</p>
+            <div className="flex gap-2 mt-3 items-center">
+              <Btn variant="ghost" onClick={() => shareReel(r)}>↗️ Share</Btn>
+              <span className="text-sm text-gray-500">↗️ {reelShares[r.id] ?? 0} shares</span>
+            </div>
+          </Card>
+        ))}
+        {videoReels.map(r => (
+          <Card key={r.id}>
+            <video src={r.videoUrl} controls playsInline className="w-full aspect-[9/16] object-cover rounded-xl bg-black" />
+            <p className="font-bold mt-2">{r.title}</p>
+            <p className="text-sm text-gray-500">{r.creator}</p>
             <div className="flex gap-2 mt-3 items-center">
               <Btn variant="ghost" onClick={() => shareReel(r)}>↗️ Share</Btn>
               <span className="text-sm text-gray-500">↗️ {reelShares[r.id] ?? 0} shares</span>
@@ -2926,17 +3158,17 @@ function AdminSettingsTab() {
     const cleaned = {
       bkash: pay.bkash.trim(), nagad: pay.nagad.trim(), rocket: pay.rocket.trim(),
       usdtBep20: pay.usdtBep20.trim(), usdtErc20: pay.usdtErc20.trim(),
-      binancePayId: pay.binancePayId.trim(), piDepositAddress: pay.piDepositAddress.trim(),
+      binancePayId: pay.binancePayId.trim(), piDepositAddress: pay.piDepositAddress.trim(), piTestnetAddress: (pay.piTestnetAddress || '').trim(),
     }
     setPay(cleaned)
     setAdminSettings({ ...adminSettings, payments: cleaned })
     setPayMsg('✅ Payment details saved — the wallet top-up and Pi deposit cards will now show the real numbers/addresses.')
   }
   function clearPay() {
-    const cleared = { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '' }
+    const cleared = { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '' }
     setPay(cleared)
     setAdminSettings({ ...adminSettings, payments: cleared })
-    setPayMsg('Payment details deleted — the wallet will show demo again.')
+    setPayMsg('Payment details deleted — the wallet will show "Not set up yet" until you set them again.')
   }
   const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
   return (
@@ -2984,7 +3216,7 @@ function AdminSettingsTab() {
       <p className="text-xs text-amber-600 mt-2">The server copy will be deleted on a Railway restart — then you must save again. Permanent way: set SMTP_* env vars in Railway.</p>
 
       <h3 className="font-bold mt-6 pt-4 border-t">💰 Real Payment Details</h3>
-      <p className="text-xs text-gray-500 mt-1">The numbers/addresses set here will show on the wallet top-up and Pi deposit cards. If empty, the earlier demo will show.</p>
+      <p className="text-xs text-gray-500 mt-1">The numbers/addresses set here will show on the wallet top-up and Pi deposit cards. If empty, the wallet shows “Not set up yet — ask the admin”.</p>
       <label className="text-sm block mt-2">bKash Number</label>
       <input className={inputCls} value={pay.bkash} onChange={e => { setPay({ ...pay, bkash: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
       <label className="text-sm block mt-2">Nagad Number</label>
@@ -2999,6 +3231,9 @@ function AdminSettingsTab() {
       <input className={inputCls} value={pay.binancePayId} onChange={e => { setPay({ ...pay, binancePayId: e.target.value }); setPayMsg('') }} placeholder="Binance Pay ID" />
       <label className="text-sm block mt-2">Pi Deposit Address</label>
       <input className={inputCls} value={pay.piDepositAddress} onChange={e => { setPay({ ...pay, piDepositAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
+      <label className="text-sm block mt-2">Pi Testnet Address (test Pi only — no value)</label>
+      <input className={inputCls} value={pay.piTestnetAddress || ''} onChange={e => { setPay({ ...pay, piTestnetAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
+      <p className="text-xs text-gray-400 mt-1">Only set this if you have a separate test Pi address. If empty, Testnet shows “Not set up yet”.</p>
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={savePay}>Save</Btn>
         <Btn variant="ghost" onClick={clearPay}>Delete</Btn>
@@ -3173,7 +3408,7 @@ export function AdminPage() {
       </Card>}
       {tab === 'kyc' && <Card>
         <h2 className="font-bold">🛡️ Dating KYC Verification — Admin</h2>
-        <p className="text-xs text-gray-400 mt-1">Match the name, age, ID (with full number) and selfie/live video, then approve or reject. Approval opens Dating for that user. Demo KYC — real verification needs a verified KYC service; submissions in this demo stay only on this device.</p>
+        <p className="text-xs text-gray-400 mt-1">Match the name, age, ID (with full number) and selfie/live video, then approve or reject. Approval opens Dating for that user. Your submission is reviewed by the admin. Real verification needs a verified KYC service; submissions stay only on this device.</p>
         <p className="text-xs text-amber-600 mt-1">⚠️ A full NID number is extremely sensitive personal information — view it only for admin verification, do not share it with anyone. In real production, a full NID cannot be stored in plain text; it must be encrypted and handled through a verified KYC service.</p>
         {kycStatus === 'none' && <p className="text-sm mt-3">No KYC submitted.</p>}
         {kycInfo && (<div className="mt-3">
@@ -3255,18 +3490,133 @@ export function AdminPage() {
   )
 }
 
-export function MenuPage() {
-  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode, login, friends, posts } = useStore()
-  const [editingName, setEditingName] = useState(false)
-  const [nameDraft, setNameDraft] = useState('')
-  const myPosts = posts.filter(p => p.author === 'You').slice(0, 3)
-  async function saveName() {
-    const name = nameDraft.trim()
-    if (!name || !user) return
-    try { const a = getFirebaseAuth(); if (a?.currentUser) await updateProfile(a.currentUser, { displayName: name }) } catch { /* Firebase নাম না বদলালেও লোকাল নাম বদলাবে */ }
-    login(name, user.email)
-    setEditingName(false)
+
+// ---------- প্রোফাইল সেটিংস ----------
+// অ্যাকাউন্ট করার পর ব্যবহারকারী নিজের প্রোফাইল সাজায় — নাম, জন্মতারিখ, লিঙ্গ,
+// জেলা, থানা, ঠিকানা (+ লুকানোর অপশন), প্রোফাইল ছবি, গ্যালারি ছবি (সর্বোচ্চ ৮),
+// ইন্টারেস্ট। সম্পূর্ণতার হিসাব: নাম ১৫%, ছবি ১৫%, জন্মতারিখ ১০%, লিঙ্গ ১০%,
+// জেলা ১০%, থানা+ঠিকানা ১০%, গ্যালারি ১৫% (৬+ ছবিতে পুরো), ইন্টারেস্ট ১৫%।
+// ঠিকানা + জন্মতারিখ শুধু users/{uid} ডকে থাকে — publicProfiles-এ যায় না।
+function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
+  const { user, login, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, updateProfile: saveProfile, kycInfo } = useStore()
+  const [name, setName] = useState(user?.name ?? '')
+  const [dob, setDob] = useState(profileDob || kycInfo?.dob || '')
+  const [gen, setGen] = useState<Gender>(gender)
+  const [dist, setDist] = useState(district)
+  const [th, setTh] = useState(thana)
+  const [addr, setAddr] = useState(address)
+  const [hide, setHide] = useState(hideAddress)
+  const [photo, setPhoto] = useState(profilePhoto)
+  const [gallery, setGallery] = useState<string[]>(galleryPhotos)
+  const [ints, setInts] = useState<string[]>(interests)
+  const [saved, setSaved] = useState('')
+  const photoRef = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
+  const pct = profileCompletion(name, { profileDob: dob, gender: gen, district: dist, thana: th, address: addr, hideAddress: hide, profilePhoto: photo, galleryPhotos: gallery, interests: ints })
+  function pickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const img = new Image()
+      img.onload = () => { const d = downscaleImage(img, img.width, img.height, 400); if (d) setPhoto(d) }
+      img.src = String(r.result)
+    }
+    r.readAsDataURL(f)
   }
+  function pickGallery(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    for (const f of files) {
+      const r = new FileReader()
+      r.onload = () => {
+        const img = new Image()
+        img.onload = () => { const d = downscaleImage(img, img.width, img.height, 400); if (d) setGallery(g => [...g, d].slice(0, 8)) }
+        img.src = String(r.result)
+      }
+      r.readAsDataURL(f)
+    }
+  }
+  async function save() {
+    const n = name.trim()
+    if (n && user && n !== user.name) {
+      try { const a = getFirebaseAuth(); if (a?.currentUser) await updateProfile(a.currentUser, { displayName: n }) } catch { /* Firebase নাম না বদলালেও লোকাল নাম বদলাবে */ }
+      login(n, user.email)
+    }
+    saveProfile({ profileDob: dob, gender: gen, district: dist, thana: th, address: addr, hideAddress: hide, profilePhoto: photo, galleryPhotos: gallery, interests: ints })
+    setSaved('✅ Profile saved.')
+  }
+  const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
+  return (
+    <Card>
+      <div className="flex justify-between items-center">
+        <h2 className="font-bold">⚙️ Profile Settings</h2>
+        <button onClick={onClose} className="text-gray-400 px-2">✕</button>
+      </div>
+      <div className="mt-3">
+        <div className="flex justify-between text-sm"><span>Profile {pct}% complete</span><span>{pct}%</span></div>
+        <div className="h-2 bg-gray-200 dark:bg-slate-700 rounded-full mt-1"><div className="h-2 rounded-full pb-gradient" style={{ width: pct + '%' }} /></div>
+      </div>
+      <label className="text-sm font-medium mt-4 block">Display Name</label>
+      <input className={inputCls} value={name} onChange={e => setName(e.target.value)} placeholder="Your name" maxLength={40} />
+      <label className="text-sm font-medium mt-3 block">Date of Birth</label>
+      <input type="date" max={new Date().toISOString().slice(0, 10)} className={inputCls} value={dob} onChange={e => setDob(e.target.value)} />
+      <label className="text-sm font-medium mt-3 block">Gender</label>
+      <div className="flex gap-2 mt-1">{(['Male', 'Female'] as const).map(g => (
+        <button key={g} onClick={() => setGen(g)} className={`px-4 py-2 rounded-full text-sm font-medium ${gen === g ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{g}</button>
+      ))}</div>
+      <label className="text-sm font-medium mt-3 block">District</label>
+      <select className={inputCls} value={dist} onChange={e => setDist(e.target.value)}>
+        <option value="">— Choose district —</option>
+        {DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <label className="text-sm font-medium mt-3 block">Thana</label>
+      <input className={inputCls} value={th} onChange={e => setTh(e.target.value)} placeholder="Your thana" />
+      <label className="text-sm font-medium mt-3 block">Full Address</label>
+      <input className={inputCls} value={addr} onChange={e => setAddr(e.target.value)} placeholder="House, road, area" />
+      <div className="flex items-center justify-between gap-2 mt-3 text-sm">
+        <span>Hide my address from other users</span>
+        <button onClick={() => setHide(h => !h)} className={`px-3 py-1.5 rounded-full font-bold ${hide ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{hide ? 'Hidden' : 'Visible'}</button>
+      </div>
+      <p className="text-xs text-gray-400 mt-1">When hidden, your thana and address are not shown to others. Your district is still used for matching.</p>
+      <label className="text-sm font-medium mt-4 block">Profile Photo</label>
+      <div className="flex items-center gap-3 mt-1">
+        {photo
+          ? <img src={photo} alt="Profile photo" className="w-16 h-16 rounded-full object-cover" />
+          : <span className="w-16 h-16 rounded-full bg-gray-200 dark:bg-slate-700 flex items-center justify-center text-2xl">👤</span>}
+        <div className="flex gap-2 flex-wrap">
+          <Btn variant="ghost" onClick={() => photoRef.current?.click()}>📷 {photo ? 'Change Photo' : 'Upload Photo'}</Btn>
+          {photo && <Btn variant="ghost" onClick={() => setPhoto('')}>Remove</Btn>}
+        </div>
+      </div>
+      <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={pickPhoto} />
+      <label className="text-sm font-medium mt-4 block">Gallery Photos ({gallery.length}/8)</label>
+      <p className="text-xs text-gray-400 mt-1">Add up to 8 photos — 6 or more completes this part of your profile.</p>
+      <div className="flex gap-2 flex-wrap mt-2">
+        {gallery.map((g, i) => (
+          <div key={i} className="relative">
+            <img src={g} alt={`Gallery ${i + 1}`} className="w-16 h-16 rounded-lg object-cover" />
+            <button onClick={() => setGallery(gg => gg.filter((_, j) => j !== i))} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-black/70 text-white text-xs">✕</button>
+          </div>
+        ))}
+        {gallery.length < 8 && <button onClick={() => galleryRef.current?.click()} className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-slate-700 text-2xl">+</button>}
+      </div>
+      <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={pickGallery} />
+      <label className="text-sm font-medium mt-4 block">Interests</label>
+      <div className="flex gap-2 flex-wrap mt-2">{INTERESTS.map(i => (
+        <button key={i} onClick={() => setInts(v => v.includes(i) ? v.filter(x => x !== i) : [...v, i])} className={`px-3 py-1.5 rounded-full text-xs font-medium ${ints.includes(i) ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{i}</button>
+      ))}</div>
+      <Btn className="w-full mt-5" onClick={save}>Save Profile</Btn>
+      {saved && <p className="text-sm text-green-600 mt-2">{saved}</p>}
+    </Card>
+  )
+}
+
+export function MenuPage() {
+  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode, friends, posts, profilePhoto } = useStore()
+  const [showProfileSettings, setShowProfileSettings] = useState(false)
+  const myPosts = posts.filter(p => p.author === 'You').slice(0, 3)
   const navigate = useNavigate()
   const [pushMsg, setPushMsg] = useState('')
   const [pushBusy, setPushBusy] = useState(false)
@@ -3295,22 +3645,16 @@ export function MenuPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card>
         <div className="flex items-center gap-3">
-          <span className="w-16 h-16 rounded-full pb-gradient text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
+          {profilePhoto
+            ? <img src={profilePhoto} alt="Profile photo" className="w-16 h-16 rounded-full object-cover" />
+            : <span className="w-16 h-16 rounded-full pb-gradient text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>}
           <div><p className="font-bold text-lg">{user ? user.name : 'Guest user'}</p><p className="text-sm text-gray-500">{user?.email || 'Log in'}</p></div>
           <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
         </div>
-        {user && (editingName ? (
-          <div className="flex gap-2 mt-3">
-            <input className="flex-1 border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600" value={nameDraft} onChange={e => setNameDraft(e.target.value)} placeholder="Your name" maxLength={40} />
-            <Btn onClick={saveName}>Save</Btn>
-            <Btn variant="ghost" onClick={() => setEditingName(false)}>Cancel</Btn>
-          </div>
-        ) : (
-          <div className="flex gap-2 mt-3">
-            <Btn variant="ghost" onClick={() => { setNameDraft(user.name); setEditingName(true) }}>✏️ Edit Profile</Btn>
-            <Btn variant="ghost" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
-          </div>
-        ))}
+        {user && <div className="flex gap-2 mt-3">
+          <Btn variant="ghost" onClick={() => setShowProfileSettings(s => !s)}>⚙️ Profile Settings</Btn>
+          <Btn variant="ghost" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
+        </div>}
         {!user && <Btn className="mt-3" onClick={() => navigate('/login')}>Log in</Btn>}
         <div className="grid grid-cols-3 gap-2 mt-3">
           <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{friends.length}</p><p className="text-xs text-gray-400">Friends</p></div>
@@ -3318,6 +3662,7 @@ export function MenuPage() {
           <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{formatPi(totalPi)}</p><p className="text-xs text-gray-400">Pi balance</p></div>
         </div>
       </Card>
+      {showProfileSettings && <ProfileSettingsForm onClose={() => setShowProfileSettings(false)} />}
       <Card>
         <div className="flex justify-between items-center">
           <h2 className="font-bold">Activity</h2>

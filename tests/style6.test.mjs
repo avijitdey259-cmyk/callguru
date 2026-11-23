@@ -77,9 +77,9 @@ check('Post type carries title / location / audience / boosted', () => {
 })
 
 // ---------- Dating ----------
-check('Dating: dark full-bleed cards with compatibility ring + X pass', () => {
+check('Dating: dark full-bleed cards with Same-district badge + X pass', () => {
   assert.ok(data.includes('compat?: number'), 'DatingProfile.compat নেই')
-  assert.ok(pages.includes('compatFor(p)'), 'compatFor নেই')
+  assert.ok(pages.includes('Same district'), 'Same district ব্যাজ নেই')
   assert.ok(pages.includes('bg-gradient-to-t from-black/80'), 'dark full-bleed overlay নেই')
   assert.ok(pages.includes('aria-label="Pass"'), 'X pass বোতাম নেই')
   assert.ok(pages.includes('setDismissed'), 'dismissed state নেই')
@@ -106,9 +106,10 @@ check('Call + Live: floating glass controls and panels', () => {
 })
 
 // ---------- Profile card ----------
-check('MenuPage profile card: Edit Profile + stats + Activity feed', () => {
-  assert.ok(pages.includes('✏️ Edit Profile'), 'Edit Profile বোতাম নেই')
-  assert.ok(pages.includes('saveName'), 'saveName নেই')
+check('MenuPage profile card: Profile Settings + stats + Activity feed', () => {
+  assert.ok(pages.includes('⚙️ Profile Settings'), 'Profile Settings বোতাম নেই')
+  assert.ok(pages.includes('ProfileSettingsForm'), 'ProfileSettingsForm নেই')
+  assert.ok(pages.includes('Save Profile'), 'Save Profile বোতাম নেই')
   assert.ok(pages.includes('>Friends</p>'), 'Friends stat নেই')
   assert.ok(pages.includes('>Posts</p>'), 'Posts stat নেই')
   assert.ok(pages.includes('>Pi balance</p>'), 'Pi balance stat নেই')

@@ -50,7 +50,7 @@ const KEPT = [
   'ID Type', // ধাপ ১: আইডির ধরনের ঘর
   'ID Number', // ধাপ ১: আইডি নম্বরের ঘর
   'You must be at least 18 years old for Dating.', // ১৮+ যাচাই
-  '🔒 The full NID number is stored — it is not shared with other users and is not uploaded anywhere (in the demo it stays only on this device).', // NID-র গোপনীয়তার নোট
+  '🔒 The full NID number is stored — it is not shared with other users and is not uploaded anywhere (it stays only on this device).', // NID-র গোপনীয়তার নোট
   'Photo and video are kept for verification only.', // সেলফির নির্দেশনা
   '🎥 Your Live Video Clip</p>', // ভিডিও ক্লিপের ক্যাপশন
   '📤 Submit KYC</Btn>', // জমা দিন বাটন

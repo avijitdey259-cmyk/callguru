@@ -93,7 +93,7 @@ export type DatingProfile = { id: string; name: string; age: number; city: strin
 // ডেটিং প্রোফাইল সিড সরানো হয়েছে (ডেমো ডেটা) — ডেটিং তালিকা খালি থাকবে, যতক্ষণ না আসল প্রোফাইল আসে।
 export const DATING_PROFILES: DatingProfile[] = []
 
-export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean }
+export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string }
 // সিড পোস্ট সরানো হয়েছে (ডেমো ডেটা) — ফিডে শুধু ব্যবহারকারীর নিজের পোস্ট থাকে।
 export const SEED_POSTS: Post[] = []
 
@@ -133,13 +133,31 @@ export const takaToPi = (taka: number) => roundPi(taka / 100)
 export const PI_MIN_WITHDRAW_USDT = 10 // Pi তুলতে কমপক্ষে ১০ USDT সমান Pi লাগবে
 export const piMinWithdraw = (piRateBDT: number, usdtRateBDT: number) => roundPi((PI_MIN_WITHDRAW_USDT * usdtRateBDT) / piRateBDT) // ডিফল্ট দরে ১২ π
 export const piWithdrawFee = (amount: number, feePct: number) => Math.max(0.1, roundPi((amount * feePct) / 100)) // ফি: feePct%, সর্বনিম্ন ০.১ π
-// ম্যানুয়াল টপ-আপের ডেমো ঠিকানা/আইডি — আসল ঠিকানা নয়, ডেমো; অ্যাডমিন আসলগুলো বসাবেন
-export const BINANCE_PAY_ID = 'PICALL-DEMO-0000'
+// ম্যানুয়াল টপ-আপের পদ্ধতি — আসল নম্বর/ঠিকানা অ্যাডমিন সেটিংসে বসান; না বসানো
+// থাকলে ওয়ালেটে "Not set up yet" দেখাবে — কোনো ভুয়া নম্বর/ঠিকানা দেখানো হয় না।
 export const MANUAL_TOPUP_METHODS = ['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay']
-// USDT নেটওয়ার্ক — দুটিই ম্যানুয়াল (TRC20 নেই); প্রতিটির আলাদা ডেমো ঠিকানা (ফি আনুমানিক, পরিবর্তন হতে পারে)
+// USDT নেটওয়ার্ক — দুটিই ম্যানুয়াল (TRC20 নেই); ফি আনুমানিক, পরিবর্তন হতে পারে
 export const USDT_NETWORKS = [
-  { id: 'BEP20', name: 'BEP20 (BNB Smart Chain)', address: '0xd40cca85f0f54f30445a3577e18a0a5abcca95bf', feeHint: 'Fee approx. ~0.01 USDT (from Binance) — cheapest', cheapest: true },
-  { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'Fee approx. ~0.6 USDT', cheapest: false },
+  { id: 'BEP20', name: 'BEP20 (BNB Smart Chain)', feeHint: 'Fee approx. ~0.01 USDT (from Binance) — cheapest', cheapest: true },
+  { id: 'ERC20', name: 'ERC20 (Ethereum)', feeHint: 'Fee approx. ~0.6 USDT', cheapest: false },
 ]
-export const PI_DEPOSIT_ADDRESS = 'G6NBQ4XDRDLSB7VTNDAOO6DKUYADIUNNQF34OTCOWBFG5L2ZD7REPL65'
+
+// বাংলাদেশের ৬৪ জেলা — প্রোফাইল সেটিংসে জেলা বাছাই + এলাকা-ভিত্তিক ম্যাচে ব্যবহৃত হয়।
+export const DISTRICTS = [
+  'Bagerhat', 'Bandarban', 'Barguna', 'Barishal', 'Bhola', 'Bogura', 'Brahmanbaria', 'Chandpur',
+  'Chapainawabganj', 'Chattogram', 'Chuadanga', "Cox's Bazar", 'Cumilla', 'Dhaka', 'Dinajpur', 'Faridpur',
+  'Feni', 'Gaibandha', 'Gazipur', 'Gopalganj', 'Habiganj', 'Jamalpur', 'Jashore', 'Jhalokati',
+  'Jhenaidah', 'Joypurhat', 'Khagrachari', 'Khulna', 'Kishoreganj', 'Kurigram', 'Kushtia', 'Lakshmipur',
+  'Lalmonirhat', 'Madaripur', 'Magura', 'Manikganj', 'Meherpur', 'Moulvibazar', 'Munshiganj', 'Mymensingh',
+  'Naogaon', 'Narail', 'Narayanganj', 'Narsingdi', 'Natore', 'Netrokona', 'Nilphamari', 'Noakhali',
+  'Pabna', 'Panchagarh', 'Patuakhali', 'Pirojpur', 'Rajbari', 'Rajshahi', 'Rangamati', 'Rangpur',
+  'Satkhira', 'Shariatpur', 'Sherpur', 'Sirajganj', 'Sunamganj', 'Sylhet', 'Tangail', 'Thakurgaon',
+]
+
+// প্রোফাইল ইন্টারেস্ট — ব্যবহারকারী একাধিক বাছতে পারেন; এলাকা-ভিত্তিক ম্যাচে
+// একই ইন্টারেস্ট গোনা হয়। তালিকাটি নির্দিষ্ট — নতুন ইন্টারেস্ট যোগ করতে এখানেই বাড়াতে হয়।
+export const INTERESTS = [
+  'Music', 'Movies', 'Travel', 'Cricket', 'Football', 'Cooking', 'Reading', 'Photography',
+  'Gaming', 'Gardening', 'Fishing', 'Shopping', 'Dance', 'Singing', 'Technology', 'Sports',
+]
 
