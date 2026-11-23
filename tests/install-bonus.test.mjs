@@ -117,23 +117,23 @@ check('স্টোরে giftPi + installBonusClaimed + appinstalled/standalone
   assert.ok(storeSrc.includes("window.addEventListener('appinstalled'"))
   assert.ok(storeSrc.includes("display-mode: standalone"))
   assert.ok(storeSrc.includes('totalPi: roundPi(piBalance + bonusPi + giftPi)'))
-  assert.ok(storeSrc.includes('গিফট Pi থেকে'))
-  assert.ok(storeSrc.includes("recordPi('ইন্সটল বোনাস'"))
+  assert.ok(storeSrc.includes('from gift Pi'))
+  assert.ok(storeSrc.includes("recordPi('Install Bonus'"))
 })
 
 // ---- গিফট পাঠানো spendGiftPi দিয়ে হয় ----
 check('লাইভ গিফট spendGiftPi দিয়ে যায়', () => {
-  assert.ok(pagesSrc.includes("spendGiftPi(g.pi, 'গিফট দেওয়া'"))
+  assert.ok(pagesSrc.includes("spendGiftPi(g.pi, 'Gifts Sent'"))
 })
 
 // ---- হোম ব্যানার: স্টোরি স্ট্রিপের উপরে, দাবির পর ছোট লাইন ----
 check('হোমে ইন্সটল ব্যানার স্টোরির উপরে; দাবির পর ছোট লাইন', () => {
-  const banner = pagesSrc.indexOf('অ্যাপ ইন্সটল করলে ৫ π ফ্রি!')
-  const stories = pagesSrc.indexOf('তোমার স্টোরি')
+  const banner = pagesSrc.indexOf('Install the app and get 5 π free!')
+  const stories = pagesSrc.indexOf('Your Story')
   assert.ok(banner > 0 && stories > 0 && banner < stories, 'ব্যানার স্টোরির উপরে নেই')
-  assert.ok(pagesSrc.includes('শুধু গিফট কেনা যাবে।'))
-  assert.ok(pagesSrc.includes('ইন্সটল বোনাস পেয়েছো — ৫ π গিফট Pi যোগ হয়েছে'))
-  assert.ok(compSrc.includes('অ্যাপ ইন্সটল করলে ৫ π বোনাস — শুধু গিফট কেনা যাবে।'))
+  assert.ok(pagesSrc.includes('Install and get a 5 π bonus — gifts only.'))
+  assert.ok(pagesSrc.includes('Install bonus received — 5 π gift Pi added'))
+  assert.ok(compSrc.includes('Install the app for a 5 π bonus — gifts only.'))
 })
 
 // ---- ওয়ালেট: একটাই মোট Pi, আলাদা গিফট Pi লাইন নেই ----
@@ -141,8 +141,8 @@ check('ওয়ালেটে একটাই মোট Pi — আলাদা
   const start = pagesSrc.indexOf('export function WalletPage()')
   const end = pagesSrc.indexOf('// ---------- Friends', start)
   const wallet = pagesSrc.slice(start, end)
-  assert.ok(wallet.includes('মোট Pi: <b>{formatPi(totalPi)}</b>'), 'মোট Pi লাইন নেই')
-  assert.ok(!wallet.includes('গিফট Pi'), 'ওয়ালেটে আলাদা গিফট Pi লাইন আছে')
+  assert.ok(wallet.includes('Total Pi: <b>{formatPi(totalPi)}</b>'), 'মোট Pi লাইন নেই')
+  assert.ok(!wallet.includes('gift Pi'), 'ওয়ালেটে আলাদা গিফট Pi লাইন আছে')
 })
 
 console.log(`\n${passed}/11 passed`)

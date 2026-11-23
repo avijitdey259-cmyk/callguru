@@ -8,11 +8,11 @@ import { formatPi } from './data'
 // কম্পিউটারে হেডারের মাঝে, মোবাইলে হেডারের নিচের ট্যাব সারিতে)। Facebook-এর
 // মতো আইকন + নাম, সক্রিয় ট্যাবে নীল রং + নিচে নীল দাগ।
 const CENTER_NAV = [
-  { to: '/feed', label: 'হোম', icon: '🏠' },
-  { to: '/friends', label: 'বন্ধুরা', icon: '👥' },
-  { to: '/reels', label: 'ভিডিও', icon: '▶️' },
-  { to: '/dating', label: 'ডেটিং', icon: '❤️' },
-  { to: '/live-tv', label: 'লাইভ টিভি', icon: '📺' },
+  { to: '/feed', label: 'Home', icon: '🏠' },
+  { to: '/friends', label: 'Friends', icon: '👥' },
+  { to: '/reels', label: 'Video', icon: '▶️' },
+  { to: '/dating', label: 'Dating', icon: '❤️' },
+  { to: '/live-tv', label: 'Live TV', icon: '📺' },
 ]
 
 export function TopBar() {
@@ -31,12 +31,12 @@ export function TopBar() {
           ))}
         </div>
         <div className="flex-1 md:hidden" />
-        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi ব্যালেন্স">π {formatPi(totalPi)}</button>
-        <button onClick={() => setMobileSearchOpen(o => !o)} className="md:hidden w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="খুঁজুন">🔍</button>
+        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">π {formatPi(totalPi)}</button>
+        <button onClick={() => setMobileSearchOpen(o => !o)} className="md:hidden w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Search">🔍</button>
         <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? '☀️' : '🌙'}</button>
-        <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="মেসেঞ্জার">💬</button>
+        <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger">💬</button>
         <InstallButton compact />
-        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold shrink-0" title="প্রোফাইল">{user ? user.name.slice(0, 1) : '👤'}</button>
+        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : '👤'}</button>
       </div>
       {/* মোবাইলে 🔍 চাপলে লোগোর নিচে পুরো চওড়া সার্চ বাক্স খোলে — একই HeaderSearch, একই আচরণ */}
       {mobileSearchOpen && (
@@ -59,28 +59,28 @@ export function TopBar() {
 export function Sidebar() {
   const { user, isAdmin } = useStore()
   const links = [
-    { to: '/feed', label: '📰 ফিড' }, { to: '/friends', label: '👥 বন্ধুরা' },
-    { to: '/dating', label: '❤️ ডেটিং ১৮+' }, { to: '/live-tv', label: '📺 লাইভ টিভি' },
-    { to: '/wallet', label: '💰 ওয়ালেট' },
-    { to: '/services', label: '🏠 হোম সার্ভিস' }, { to: '/groups', label: '👥 গ্রুপ ও পেজ' },
-    { to: '/reels', label: '🎬 রিলস' }, { to: '/ads', label: '📢 বিজ্ঞাপন দিন' },
-    { to: '/call-history', label: '📞 কল হিস্ট্রি' },
-    { to: '/menu', label: '⚙️ সেটিংস' },
+    { to: '/feed', label: '📰 Feed' }, { to: '/friends', label: '👥 Friends' },
+    { to: '/dating', label: '❤️ Dating 18+' }, { to: '/live-tv', label: '📺 Live TV' },
+    { to: '/wallet', label: '💰 Wallet' },
+    { to: '/services', label: '🏠 Home Service' }, { to: '/groups', label: '👥 Groups & Pages' },
+    { to: '/reels', label: '🎬 Reels' }, { to: '/ads', label: '📢 Place an Ad' },
+    { to: '/call-history', label: '📞 Call History' },
+    { to: '/menu', label: '⚙️ Settings' },
     // অ্যাডমিন লিংক শুধু অ্যাডমিনের সাইডবারে দেখায় — সাধারণ ব্যবহারকারী কোথাও অ্যাডমিন লিংক দেখেন না
-    ...(isAdmin ? [{ to: '/admin', label: '🛡️ অ্যাডমিন' }] : [])
+    ...(isAdmin ? [{ to: '/admin', label: '🛡️ Admin' }] : [])
   ]
   return (
     <aside className="hidden md:block w-60 shrink-0">
       <div className="sticky top-[64px] space-y-1 p-2">
         <Link to="/menu" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-fb-card font-medium">
           <span className="w-9 h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
-          {user ? user.name : 'অতিথি ব্যবহারকারী'}
+          {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
           <NavLink key={l.to} to={l.to} className={({ isActive }) => `block px-3 py-2 rounded-lg text-sm ${isActive ? 'bg-white dark:bg-fb-card font-bold text-fb-blue' : 'hover:bg-white dark:hover:bg-fb-card'}`}>{l.label}</NavLink>
         ))}
         <div className="mt-4 p-3 bg-blue-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
-          <b className="text-fb-blue">প্রথম কলের প্রথম ১ মিনিট ফ্রি</b><br />শুধু প্রথম ব্যবহারকারী / প্রথম বন্ধুর জন্য। ২ মিনিট ফ্রি নয়।
+          <b className="text-fb-blue">First call's first 1 minute free</b><br />Only for the first user / first friend. Not 2 minutes free.
         </div>
       </div>
     </aside>
@@ -93,8 +93,8 @@ export function SponsoredCard() {
   return (
     <div className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm">
       <h3 className="font-bold text-gray-500 text-sm mb-2">Sponsored</h3>
-      <p className="text-sm">PiCall প্রিমিয়াম — ডেটিংয়ে আনলিমিটেড লাইক, কে লাইক দিয়েছে দেখুন। মাত্র ৳৯৯/মাস।</p>
-      <Link to="/dating" className="text-fb-blue text-sm font-medium">বিস্তারিত →</Link>
+      <p className="text-sm">PiCall Premium — unlimited likes in Dating, see who liked you. Only Tk 99/month.</p>
+      <Link to="/dating" className="text-fb-blue text-sm font-medium">Details →</Link>
     </div>
   )
 }
@@ -104,8 +104,8 @@ export function ContactsCard() {
   const navigate = useNavigate()
   return (
     <div className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm">
-      <h3 className="font-bold text-gray-500 text-sm mb-2">Contacts • অনলাইন</h3>
-      {friends.length === 0 && <p className="text-sm text-gray-500">এখনো কোনো বন্ধু নেই।</p>}
+      <h3 className="font-bold text-gray-500 text-sm mb-2">Contacts • Online</h3>
+      {friends.length === 0 && <p className="text-sm text-gray-500">No friends yet.</p>}
       {friends.map(f => (
         <button key={f.id} onClick={() => navigate('/chat', { state: { with: f.name } })} className="flex items-center gap-2 py-1.5 px-1 text-sm w-full text-left rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700">
           <span className="relative w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0" style={{ background: f.color }}>{f.name.slice(0, 1)}{f.online && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />}</span>
@@ -161,24 +161,24 @@ export function InstallButton({ compact = false, showOffer = true }: { compact?:
       await deferred.prompt()
       const choice = await deferred.userChoice
       setDeferred(null)
-      setMsg(choice.outcome === 'accepted' ? '✅ ইন্সটল শুরু হয়েছে — হোম স্ক্রিনে PiCall আইকন দেখুন।' : 'ইন্সটল বাতিল হয়েছে — পরে আবার চেষ্টা করুন।')
+      setMsg(choice.outcome === 'accepted' ? '✅ Install started — look for the PiCall icon on your home screen.' : 'Install cancelled — please try again later.')
     } else {
       setShowHelp(s => !s)
     }
   }
   return (
     <span className={compact ? '' : 'block'}>
-      <button onClick={install} title="অ্যাপ ইন্সটল করুন" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-fb-blue text-white'}>
-        📲 {compact ? '' : 'অ্যাপ ইন্সটল করুন'}
+      <button onClick={install} title="Install App" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-fb-blue text-white'}>
+        📲 {compact ? '' : 'Install App'}
       </button>
-      {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90">📲 অ্যাপ ইন্সটল করলে ৫ π বোনাস — শুধু গিফট কেনা যাবে।</p>}
+      {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90">📲 Install the app for a 5 π bonus — gifts only.</p>}
       {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
       {showHelp && (
         <div className="mt-2 text-left bg-blue-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
-          <p className="font-bold">📲 ফোনে PiCall অ্যাপ বসানোর নিয়ম</p>
-          <p><b>Android (Chrome):</b> ব্রাউজারের ⋮ মেনু → “Install app” / “Add to Home screen” চাপুন।</p>
-          <p><b>iPhone (Safari):</b> নিচের Share ⬆️ বোতাম → “Add to Home Screen” চাপুন।</p>
-          <p className="text-gray-500">ইন্সটল হলে PiCall আইকন হোম স্ক্রিনে আসবে, অ্যাপের মতো খুলবে।</p>
+          <p className="font-bold">📲 How to Install the PiCall App on Your Phone</p>
+          <p><b>Android (Chrome):</b> Tap the browser ⋮ menu → “Install app” / “Add to Home screen”.</p>
+          <p><b>iPhone (Safari):</b> Tap the Share ⬆️ button below → “Add to Home Screen”.</p>
+          <p className="text-gray-500">After installing, the PiCall icon will appear on your home screen and open like an app.</p>
         </div>
       )}
     </span>

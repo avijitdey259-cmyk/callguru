@@ -35,13 +35,13 @@ export function toCreatedAtMs(v: unknown): number | null {
   return null
 }
 
-// যোগদানের সময় বাংলায় — "আজ", "গতকাল", "N দিন আগে", না জানা গেলে "সম্প্রতি"।
+// যোগদানের সময় বাংলায় — "Today", "Yesterday", "N দিন আগে", না জানা গেলে "Recently"।
 export function formatJoinTime(createdAtMs: number | null, nowMs: number = Date.now()): string {
-  if (createdAtMs == null) return 'সম্প্রতি'
+  if (createdAtMs == null) return 'Recently'
   const days = Math.floor((nowMs - createdAtMs) / 86400000)
-  if (days <= 0) return 'আজ'
-  if (days === 1) return 'গতকাল'
-  return `${days.toLocaleString('bn-BD')} দিন আগে`
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  return `${days.toLocaleString('en-GB')} days ago`
 }
 
 export type NewMember = {
@@ -58,7 +58,7 @@ export type NewMember = {
 // Firestore publicProfiles ডক → NewMember (pure)। ভাঙা/ফাঁকা ক্ষেত্রে নিরাপদ
 // ডিফল্ট — কখনো throw করে না, ভুয়া কাউকে বানায় না।
 export function mapPublicProfile(id: string, data: Record<string, unknown>): NewMember {
-  const name = typeof data.displayName === 'string' && data.displayName.trim() ? data.displayName.trim() : 'ব্যবহারকারী'
+  const name = typeof data.displayName === 'string' && data.displayName.trim() ? data.displayName.trim() : 'User'
   const colour = typeof data.colour === 'string' && data.colour ? data.colour : colourForUid(id)
   const code = typeof data.referralCode === 'string' && data.referralCode.trim() ? data.referralCode.trim() : undefined
   return { id, displayName: name, createdAtMs: toCreatedAtMs(data.createdAt), colour, ...(code ? { referralCode: code } : {}) }

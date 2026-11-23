@@ -21,11 +21,11 @@ export type BuddyPersona = {
 }
 
 export const BUDDIES: BuddyPersona[] = [
-  { id: 'bd-rima', name: 'রিমা', color: '#E91E63', online: true, about: 'হাসিখুশি — কথায় কথায় মজা করে', voice: 'funny' },
-  { id: 'bd-shakil', name: 'শাকিল', color: '#1877F2', online: true, about: 'মন দিয়ে শোনে, সবসময় পাশে থাকে', voice: 'caring' },
-  { id: 'bd-fahim', name: 'ফাহিম', color: '#27AE60', online: true, about: 'সব প্রশ্নের উত্তর দিতে ভালোবাসে', voice: 'helpful' },
-  { id: 'bd-mim', name: 'মিম', color: '#9C27B0', online: true, about: 'গান আর আড্ডা ভালোবাসে', voice: 'music' },
-  { id: 'bd-asha', name: 'আশা', color: '#FF9800', online: true, about: 'স্বপ্ন দেখতে ভালোবাসে, সবসময় আশার কথা বলে', voice: 'dreamy' },
+  { id: 'bd-rima', name: 'Rima', color: '#E91E63', online: true, about: 'Cheerful — always joking around', voice: 'funny' },
+  { id: 'bd-shakil', name: 'Shakil', color: '#1877F2', online: true, about: 'Listens with heart, always there for you', voice: 'caring' },
+  { id: 'bd-fahim', name: 'Fahim', color: '#27AE60', online: true, about: 'Loves answering every question', voice: 'helpful' },
+  { id: 'bd-mim', name: 'Mim', color: '#9C27B0', online: true, about: 'Loves songs and chats', voice: 'music' },
+  { id: 'bd-asha', name: 'Asha', color: '#FF9800', online: true, about: 'Loves dreaming, always talks of hope', voice: 'dreamy' },
 ]
 
 export function isBuddyId(id: string): boolean {

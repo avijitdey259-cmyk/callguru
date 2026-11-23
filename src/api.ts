@@ -72,8 +72,8 @@ export function mergeExperts(apiExperts: ApiExpert[]): Expert[] {
   for (const a of apiExperts) {
     if (!merged.some(e => e.id === a.id)) {
       merged.push({
-        id: a.id, name: a.name, title: 'এক্সপার্ট', category: 'স্বাস্থ্য', rate: a.rate,
-        rating: 4.8, calls: 0, online: a.online, langs: ['বাংলা'], about: '', avatarColor: '#1877F2'
+        id: a.id, name: a.name, title: 'Expert', category: 'Health', rate: a.rate,
+        rating: 4.8, calls: 0, online: a.online, langs: ['Bengali'], about: '', avatarColor: '#1877F2'
       })
     }
   }

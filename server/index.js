@@ -82,9 +82,9 @@ const pushIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 30 })
 const liveIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 60 })
 
 const experts = [
-  { id: 'exp-1', name: 'ডা. রাহাত হোসেন', rate: 15, online: true },
-  { id: 'exp-2', name: 'অ্যাডভোকেট নুসরাত জাহান', rate: 25, online: true },
-  { id: 'exp-4', name: 'মেহজাবিন চৌধুরী', rate: 10, online: true }
+  { id: 'exp-1', name: 'Dr. Rahat Hossain', rate: 15, online: true },
+  { id: 'exp-2', name: 'Advocate Nusrat Jahan', rate: 25, online: true },
+  { id: 'exp-4', name: 'Mehjabin Chowdhury', rate: 10, online: true }
 ]
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.0.0' }))
@@ -174,8 +174,8 @@ app.post('/api/otp/send', otpSendIpLimit, async (req, res) => {
     await mailer.transport.sendMail({
       from: mailer.from,
       to: email,
-      subject: 'PiCall লগইন কোড',
-      text: `আপনার PiCall লগইন কোড: ${code}\nকোডটি ১০ মিনিটের জন্য বৈধ। কাউকে এই কোড দেবেন না।`,
+      subject: 'PiCall login code',
+      text: `Your PiCall login code: ${code}\nThe code is valid for 10 minutes. Do not share it with anyone.`,
     })
     res.json({ ok: true })
   } catch {
@@ -270,7 +270,7 @@ app.get('/api/call/:code', (req, res) => {
   const room = callRooms.get(`call-${code}`)
   if (!room) return res.status(404).json({ ok: false, error: 'not_found' })
   const caller = [...room.peers.values()].find(p => p.role === 'caller')
-  res.json({ ok: true, code, callerName: caller ? caller.name : 'কলার', peers: room.peers.size })
+  res.json({ ok: true, code, callerName: caller ? caller.name : 'Caller', peers: room.peers.size })
 })
 
 // ---------- Web Push (ইনকামিং কলের নোটিফিকেশন — লক স্ক্রিনেও দেখায়) ----------
@@ -303,11 +303,11 @@ async function sendCallPush(userId, invite) {
   const wp = await getWebPush()
   if (!wp) return false
   const payload = JSON.stringify({
-    title: `📞 ${invite.fromName} কল করছেন`,
-    body: 'ধরতে ট্যাপ করুন — PiCall ভিডিও কল',
+    title: `📞 ${invite.fromName} is calling`,
+    body: 'Tap to answer — PiCall video call',
     tag: `picall-call-${invite.code}`,
     data: { code: invite.code, fromId: invite.fromId, fromName: invite.fromName, url: `/call/${invite.code}` },
-    actions: [{ action: 'answer', title: '📞 ধরো' }, { action: 'decline', title: '❌ কাটো' }],
+    actions: [{ action: 'answer', title: '📞 Answer' }, { action: 'decline', title: '❌ Decline' }],
   })
   try { await wp.sendNotification(sub, payload); return true }
   catch (e) {
@@ -383,9 +383,9 @@ app.get('/api/live', (_req, res) => {
 // মালিক (ownerUid) টোকেনের uid — পরে DELETE শুধু মালিক/অ্যাডমিন পারেন।
 app.post('/api/live', liveIpLimit, requireAuth, (req, res) => {
   const { hostName, title } = req.body || {}
-  const name = typeof hostName === 'string' && hostName.trim() ? hostName.trim().slice(0, 60) : 'লাইভ হোস্ট'
+  const name = typeof hostName === 'string' && hostName.trim() ? hostName.trim().slice(0, 60) : 'Live host'
   const id = `live-${Date.now().toString(36)}-${++liveSeq}`
-  const room = { id, hostName: name, title: typeof title === 'string' ? title.slice(0, 80) : 'ডেটিং লাইভ', startedAt: Date.now(), host: null, viewers: new Map(), ownerUid: req.auth.uid }
+  const room = { id, hostName: name, title: typeof title === 'string' ? title.slice(0, 80) : 'Dating Live', startedAt: Date.now(), host: null, viewers: new Map(), ownerUid: req.auth.uid }
   liveRooms.set(id, room)
   res.status(201).json(publicRoom(room))
 })
@@ -428,7 +428,7 @@ wss.on('connection', (ws) => {
       const prev = presence.get(userId)
       if (prev && prev !== ws) { try { prev.close() } catch { /* ignore */ } }
       presence.set(userId, ws)
-      ws._presence = { userId, name: auth.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'ব্যবহারকারী') }
+      ws._presence = { userId, name: auth.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'User') }
       ws._auth = auth
       send(ws, { type: 'presence-registered', userId })
       return
@@ -442,7 +442,7 @@ wss.on('connection', (ws) => {
       // পরিচয় শুধু যাচাই করা presence থেকেই — ক্লায়েন্টের পাঠানো
       // fromId/fromName-এ আর ভরসা করা হয় না (presence ছাড়া ইনভাইট যায় না)।
       const fromId = ws._presence.userId
-      const fromName = ws._presence.name || 'কলার'
+      const fromName = ws._presence.name || 'Caller'
       if (!fromId) return
       const payload = {
         type: 'call-invite',
@@ -497,7 +497,7 @@ wss.on('connection', (ws) => {
       }
       if (room.peers.size >= 2) { send(ws, { type: 'call-error', roomId: code, error: 'room-full' }); return }
       const peerId = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-      const name = joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি')
+      const name = joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'Guest')
       const role = m.role === 'callee' ? 'callee' : 'caller'
       room.peers.set(peerId, { ws, name, role })
       ws._call = { roomId: code, peerId, name, role }
@@ -553,7 +553,7 @@ wss.on('connection', (ws) => {
         }
         ws._auth = joinAuth
       }
-      ws._live = { roomId: room.id, role: m.role, name: joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি'), viewerId: null }
+      ws._live = { roomId: room.id, role: m.role, name: joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'Guest'), viewerId: null }
       if (m.role === 'host') {
         if (room.host && room.host !== ws) send(room.host, { type: 'host-left', roomId: room.id, reason: 'replaced' })
         room.host = ws

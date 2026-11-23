@@ -9,7 +9,7 @@ export type Expert = {
 // ব্যাকএন্ড (/api/experts) থেকে; সার্ভার না পেলে মার্কেটপ্লেস খালি দেখাবে।
 export const EXPERTS: Expert[] = []
 
-export const CATEGORIES = ['সবগুলো', 'স্বাস্থ্য', 'আইন', 'শিক্ষা', 'ক্যারিয়ার', 'ব্যবসা']
+export const CATEGORIES = ['All', 'Health', 'Law', 'Education', 'Career', 'Business']
 
 export type TvChannel = { id: string; name: string; category: string; streamUrl: string; officialUrl: string }
 const HLS = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
@@ -36,22 +36,22 @@ export const TV_CATEGORIES = ['All', 'News', 'Entertainment', 'Sports']
 
 export type Service = { id: string; title: string; price: number; category: string; provider: string; rating: number; desc: string }
 export const SERVICES: Service[] = [
-  { id: 'srv-1', title: 'বাসা পরিষ্কার (২ বেডরুম)', price: 800, category: 'হোম সার্ভিস', provider: 'CleanHome BD', rating: 4.8, desc: 'প্রফেশনাল ক্লিনিং টিম, নিজস্ব সরঞ্জামসহ।' },
-  { id: 'srv-2', title: 'এসি সার্ভিসিং', price: 1200, category: 'হোম সার্ভিস', provider: 'CoolCare', rating: 4.7, desc: 'গ্যাস চেক, ফিল্টার ক্লিন ও সাধারণ মেরামত।' },
-  { id: 'srv-3', title: 'প্লাম্বার — বাসায় সার্ভিস', price: 500, category: 'হোম সার্ভিস', provider: 'FixIt', rating: 4.6, desc: 'লিক, ট্যাপ ও পাইপ মেরামত।' },
-  { id: 'srv-4', title: 'ইলেকট্রিশিয়ান', price: 600, category: 'হোম সার্ভিস', provider: 'PowerFix', rating: 4.8, desc: 'ওয়্যারিং, সুইচ ও ফ্যান মেরামত।' },
-  { id: 'srv-5', title: 'অনলাইন গণিত টিউশন (১ মাস)', price: 1500, category: 'শিক্ষা', provider: 'মেহজাবিন চৌধুরী', rating: 4.9, desc: 'সপ্তাহে ৩ দিন, ১ ঘণ্টা করে লাইভ ক্লাস।' },
-  { id: 'srv-6', title: 'লোগো ডিজাইন', price: 2000, category: 'ডিজাইন', provider: 'PixelStudio', rating: 4.7, desc: '৩টি কনসেপ্ট, সোর্স ফাইলসহ।' }
+  { id: 'srv-1', title: 'Home Cleaning (2 Bedrooms)', price: 800, category: 'Home Service', provider: 'CleanHome BD', rating: 4.8, desc: 'Professional cleaning team, with their own equipment.' },
+  { id: 'srv-2', title: 'AC Servicing', price: 1200, category: 'Home Service', provider: 'CoolCare', rating: 4.7, desc: 'Gas check, filter cleaning and general repair.' },
+  { id: 'srv-3', title: 'Plumber — Home Service', price: 500, category: 'Home Service', provider: 'FixIt', rating: 4.6, desc: 'Leak, tap and pipe repair.' },
+  { id: 'srv-4', title: 'Electrician', price: 600, category: 'Home Service', provider: 'PowerFix', rating: 4.8, desc: 'Wiring, switch and fan repair.' },
+  { id: 'srv-5', title: 'Online Math Tuition (1 Month)', price: 1500, category: 'Education', provider: 'Mehjabin Chowdhury', rating: 4.9, desc: '3 days a week, 1 hour live classes.' },
+  { id: 'srv-6', title: 'Logo Design', price: 2000, category: 'Design', provider: 'PixelStudio', rating: 4.7, desc: '3 concepts, with source files.' }
 ]
 
 export type DatingProfile = { id: string; name: string; age: number; city: string; about: string; color: string }
 export const DATING_PROFILES: DatingProfile[] = [
-  { id: 'dt-1', name: 'তানিয়া', age: 24, city: 'ঢাকা', about: 'বই পড়তে ভালোবাসি, ভ্রমণ পছন্দ করি।', color: '#E91E63' },
-  { id: 'dt-2', name: 'রাকিব', age: 27, city: 'চট্টগ্রাম', about: 'ফটোগ্রাফি আর ক্রিকেট — দুটোই ভালোবাসি।', color: '#2196F3' },
-  { id: 'dt-3', name: 'সুমাইয়া', age: 23, city: 'সিলেট', about: 'রান্না আর গান — আমার দুই ভালোবাসা।', color: '#9C27B0' },
-  { id: 'dt-4', name: 'আরিফ', age: 26, city: 'খুলনা', about: 'স্টার্টআপ নিয়ে কাজ করছি, নতুন মানুষ চিনতে ভালো লাগে।', color: '#009688' },
-  { id: 'dt-5', name: 'নুসরাত', age: 25, city: 'ঢাকা', about: 'শিক্ষকতা করি, সিনেমা দেখতে ভালোবাসি।', color: '#FF5722' },
-  { id: 'dt-6', name: 'সজীব', age: 28, city: 'রাজশাহী', about: 'ব্যাংকার, সপ্তাহান্তে ঘুরতে যাই।', color: '#607D8B' }
+  { id: 'dt-1', name: 'Tania', age: 24, city: 'Dhaka', about: 'I love reading books and travelling.', color: '#E91E63' },
+  { id: 'dt-2', name: 'Rakib', age: 27, city: 'Chattogram', about: 'Photography and cricket — I love both.', color: '#2196F3' },
+  { id: 'dt-3', name: 'Sumaiya', age: 23, city: 'Sylhet', about: 'Cooking and music — my two loves.', color: '#9C27B0' },
+  { id: 'dt-4', name: 'Arif', age: 26, city: 'Khulna', about: 'Working on a startup, I love meeting new people.', color: '#009688' },
+  { id: 'dt-5', name: 'Nusrat', age: 25, city: 'Dhaka', about: 'I teach, and I love watching movies.', color: '#FF5722' },
+  { id: 'dt-6', name: 'Sajib', age: 28, city: 'Rajshahi', about: 'Banker, I travel on weekends.', color: '#607D8B' }
 ]
 
 export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string }
@@ -67,20 +67,20 @@ export const REELS = []
 export const FRIEND_SUGGESTIONS = []
 
 export const FRIEND_RATE = 0.1 // π/min flat for friend calls (সব কল Pi-তে)
-export const FREE_MINUTES_NOTE = 'শুধু প্রথম কলের প্রথম ১ মিনিট ফ্রি (প্রথম ব্যবহারকারী / প্রথম বন্ধু)। ২ মিনিট ফ্রি নয়।'
+export const FREE_MINUTES_NOTE = 'Only the first call\'s first 1 minute is free (first user / first friend). Not 2 minutes free.'
 export const TOPUP_PACKS = [100, 200, 500, 1000]
 
 // Contact-ban: phone numbers, WhatsApp/Facebook/Telegram links, emails.
 export function contactBanCheck(text: string): string | null {
   const t = text.toLowerCase()
-  if (/(01[3-9]\d{8})|(\+?8801[3-9]\d{8})/.test(text.replace(/[\s-]/g, ''))) return 'ফোন নম্বর শেয়ার করা যাবে না।'
-  if (/whatsapp|wa\.me|facebook\.com|fb\.com|fb\.me|telegram|t\.me|imo|viber/.test(t)) return 'অন্য যোগাযোগ মাধ্যমের লিংক শেয়ার করা যাবে না।'
-  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/.test(t)) return 'ইমেইল ঠিকানা শেয়ার করা যাবে না।'
-  if (/\b\d{10,}\b/.test(text.replace(/[\s-]/g, ''))) return 'নম্বর শেয়ার করা যাবে না।'
+  if (/(01[3-9]\d{8})|(\+?8801[3-9]\d{8})/.test(text.replace(/[\s-]/g, ''))) return 'You cannot share phone numbers.'
+  if (/whatsapp|wa\.me|facebook\.com|fb\.com|fb\.me|telegram|t\.me|imo|viber/.test(t)) return 'You cannot share links to other contact channels.'
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/.test(t)) return 'You cannot share email addresses.'
+  if (/\b\d{10,}\b/.test(text.replace(/[\s-]/g, ''))) return 'You cannot share numbers.'
   return null
 }
 
-export function formatBDT(n: number): string { return `৳${Math.round(n).toLocaleString('en-IN')}` }
+export function formatBDT(n: number): string { return `Tk ${Math.round(n).toLocaleString('en-IN')}` }
 
 // অ্যাপের একমাত্র মুদ্রা Pi (π) — কল, লাইভ, গিফট, বোনাস, রেফারেল সব Pi-তে
 // দরগুলোর ডিফল্ট মান — আসল দর অ্যাডমিন নির্ধারণ করেন (স্টোরে piRateBDT/usdtRateBDT), এখানে শুধু ডিফল্ট
@@ -99,7 +99,7 @@ export const BINANCE_PAY_ID = 'PICALL-DEMO-0000'
 export const MANUAL_TOPUP_METHODS = ['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay']
 // USDT নেটওয়ার্ক — দুটিই ম্যানুয়াল (TRC20 নেই); প্রতিটির আলাদা ডেমো ঠিকানা (ফি আনুমানিক, পরিবর্তন হতে পারে)
 export const USDT_NETWORKS = [
-  { id: 'BEP20', name: 'BEP20 (BNB Smart Chain)', address: '0xd40cca85f0f54f30445a3577e18a0a5abcca95bf', feeHint: 'ফি আনুমানিক ~০.০১ USDT (Binance থেকে) — সবচেয়ে কম খরচ', cheapest: true },
-  { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'ফি আনুমানিক ~০.৬ USDT', cheapest: false },
+  { id: 'BEP20', name: 'BEP20 (BNB Smart Chain)', address: '0xd40cca85f0f54f30445a3577e18a0a5abcca95bf', feeHint: 'Fee approx. ~0.01 USDT (from Binance) — cheapest', cheapest: true },
+  { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'Fee approx. ~0.6 USDT', cheapest: false },
 ]
 export const PI_DEPOSIT_ADDRESS = 'G6NBQ4XDRDLSB7VTNDAOO6DKUYADIUNNQF34OTCOWBFG5L2ZD7REPL65'

@@ -55,7 +55,7 @@ export function SearchSuggestions({ suggestions, onPick }: { suggestions: Search
       {suggestions.map(p => (
         <button key={p.id} onClick={() => onPick(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
           <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}</span></span>
+          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
         </button>
       ))}
     </div>
@@ -107,29 +107,29 @@ export function HeaderSearch() {
           if (e.key === 'Enter') submit()
           if (e.key === 'Escape') { setShowSugg(false); (e.target as HTMLInputElement).blur() }
         }}
-        placeholder="খুঁজুন — নাম, আইডি বা পোস্ট…"
+        placeholder="Search — name, ID or post…"
       />
       {hasSugg && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
-          {peopleSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">👥 বন্ধু</p>}
+          {peopleSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">👥 Friends</p>}
           {peopleSuggestions.map(p => (
             <button key={p.id} onClick={() => pickPerson(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
               <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-              <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}</span></span>
+              <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
             </button>
           ))}
-          {postSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">📝 পোস্ট</p>}
+          {postSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">📝 Post</p>}
           {postSuggestions.map(p => (
             <button key={p.id} onClick={() => pickPost(p)} className="block w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
               <span className="font-medium text-sm block truncate">{p.author}</span>
               <span className="block text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{p.text}</span>
             </button>
           ))}
-          <button onClick={submit} className="block w-full text-left px-3 py-2 text-sm font-medium text-fb-blue border-t dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700">🔍 “{feedQuery.trim()}” — সব ফলাফল দেখুন</button>
+          <button onClick={submit} className="block w-full text-left px-3 py-2 text-sm font-medium text-fb-blue border-t dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700">🔍 “{feedQuery.trim()}” — See all results</button>
         </div>
       )}
       {showEmpty && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg px-3 py-2 text-sm text-gray-500">কিছু পাওয়া যায়নি — নাম বা আইডি ঠিক আছে কি না দেখুন।</div>
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg px-3 py-2 text-sm text-gray-500">Nothing found — check whether the name or ID is correct.</div>
       )}
     </div>
   )

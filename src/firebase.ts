@@ -78,7 +78,7 @@ export async function signInWithGoogle(): Promise<{ name: string; email: string 
   const user = result.user
   if (!user.email) return null
   return {
-    name: user.displayName || user.email.split('@')[0] || 'Gmail ব্যবহারকারী',
+    name: user.displayName || user.email.split('@')[0] || 'Gmail user',
     email: user.email,
   }
 }
@@ -124,7 +124,7 @@ export async function completeEmailLink(emailArg?: string): Promise<{ name: stri
     if (!user.email) return null
     try { localStorage.removeItem(EMAIL_FOR_SIGN_IN_KEY) } catch { /* ignore */ }
     return {
-      name: user.displayName || user.email.split('@')[0] || 'ইমেইল ব্যবহারকারী',
+      name: user.displayName || user.email.split('@')[0] || 'Email user',
       email: user.email,
     }
   } catch {

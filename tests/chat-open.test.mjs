@@ -38,8 +38,8 @@ check('ChatPage-এ সরানো ডেমো নাম কোথাও ন�
   }
 })
 
-check('চ্যাটের ডিফল্ট প্রথম বন্ধু (রিমা), হার্ডকোড ডেমো নাম নয়', () => {
-  assert.ok(pagesSrc.includes("friends[0]?.name ?? 'রিমা'"), 'ডিফল্ট active পাওয়া যায়নি')
+check('Chat default first friend (Rima), not a hardcoded demo name', () => {
+  assert.ok(pagesSrc.includes("friends[0]?.name ?? 'Rima'"), 'ডিফল্ট active পাওয়া যায়নি')
 })
 
 check('বন্ধুর চ্যাটে ওপেনার/আগাম মেসেজের সিড নেই', () => {
@@ -47,19 +47,19 @@ check('বন্ধুর চ্যাটে ওপেনার/আগাম ম
   assert.ok(pagesSrc.includes('const seed: Record<string, { from: string; text: string }[]> = {}'), 'খালি সিড পাওয়া যায়নি')
 })
 
-check('চ্যাট খুললে রিমার ঘরে শূন্য মেসেজ; এক মেসেজে ঠিক এক উত্তর', () => {
+check("Chat opens in Rima's room empty; one message gets exactly one reply", () => {
   // খালি চ্যাট (সিড খালি) — ব্যবহারকারী প্রথমে লেখে
   const msgs = []
   assert.equal(msgs.length, 0)
   const userText = 'হাই'
   msgs.push({ from: 'আপনি', text: userText })
-  const buddy = M.getBuddyByName('রিমা')
-  assert.ok(buddy, 'রিমা বন্ধু হিসেবে আছে')
+  const buddy = M.getBuddyByName('Rima')
+  assert.ok(buddy, 'Rima is there as a friend')
   const reply = M.getBuddyReplyDetail(buddy.id, userText)
   assert.ok(reply.text.length > 0)
   msgs.push({ from: buddy.name, text: reply.text })
   assert.equal(msgs.length, 2)
-  assert.equal(msgs[1].from, 'রিমা')
+  assert.equal(msgs[1].from, 'Rima')
 })
 
 console.log(`\n${passed}/4 passed`)

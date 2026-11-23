@@ -15,8 +15,8 @@ function AdminBlocked() {
   const navigate = useNavigate()
   return (
     <div className="max-w-xl mx-auto py-10 px-4 text-center">
-      <p className="font-bold text-lg">⛔ শুধুমাত্র অ্যাডমিনের জন্য — এই পেজটি শুধু অ্যাডমিন দেখতে পারেন।</p>
-      <button onClick={() => navigate('/feed')} className="mt-4 px-4 py-2 rounded-lg font-medium text-sm bg-fb-blue text-white">ফিডে ফিরুন</button>
+      <p className="font-bold text-lg">⛔ Admins only — only the admin can see this page.</p>
+      <button onClick={() => navigate('/feed')} className="mt-4 px-4 py-2 rounded-lg font-medium text-sm bg-fb-blue text-white">Back to Feed</button>
     </div>
   )
 }

@@ -45,19 +45,19 @@ check('ব্যবহারকারীর KYC স্ক্রিনে "অ্
 
 // ---- বিস্তারিত (ফর্ম, নির্দেশনা, অবস্থা) সব আগের মতোই আছে ----
 const KEPT = [
-  'পুরো নাম', // ধাপ ১: নামের ঘর
-  'জন্ম তারিখ', // ধাপ ১: জন্ম তারিখের ঘর
-  'আইডির ধরন', // ধাপ ১: আইডির ধরনের ঘর
-  'আইডি নম্বর', // ধাপ ১: আইডি নম্বরের ঘর
-  'ডেটিংয়ের জন্য বয়স কমপক্ষে ১৮ বছর হতে হবে।', // ১৮+ যাচাই
-  '🔒 পুরো NID নম্বর সংরক্ষণ করা হয় — অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না', // NID-র গোপনীয়তার নোট
-  'ছবি ও ভিডিও শুধু যাচাইয়ের জন্য রাখা হয়।', // সেলফির নির্দেশনা
-  '🎥 আপনার লাইভ ভিডিও ক্লিপ</p>', // ভিডিও ক্লিপের ক্যাপশন
-  '📤 KYC জমা দিন</Btn>', // জমা দিন বাটন
-  'আপনার KYC জমা হয়েছে', // অপেক্ষার অবস্থা
-  'আপনার KYC বাতিল হয়েছে।', // বাতিলের অবস্থা
-  '⏳ KYC পর্যালোচনাধীন', // অপেক্ষার শিরোনাম
-  '📸 ছবি তুলুন', // সেলফি তোলার বাটন
+  'Full Name', // ধাপ ১: নামের ঘর
+  'Date of Birth', // ধাপ ১: জন্ম তারিখের ঘর
+  'ID Type', // ধাপ ১: আইডির ধরনের ঘর
+  'ID Number', // ধাপ ১: আইডি নম্বরের ঘর
+  'You must be at least 18 years old for Dating.', // ১৮+ যাচাই
+  '🔒 The full NID number is stored — it is not shared with other users and is not uploaded anywhere (in the demo it stays only on this device).', // NID-র গোপনীয়তার নোট
+  'Photo and video are kept for verification only.', // সেলফির নির্দেশনা
+  '🎥 Your Live Video Clip</p>', // ভিডিও ক্লিপের ক্যাপশন
+  '📤 Submit KYC</Btn>', // জমা দিন বাটন
+  'Your KYC has been submitted', // অপেক্ষার অবস্থা
+  'Your KYC has been rejected.', // বাতিলের অবস্থা
+  '⏳ KYC Under Review', // অপেক্ষার শিরোনাম
+  '📸 Take Photo', // সেলফি তোলার বাটন
 ]
 for (const phrase of KEPT) {
   check(`থাকে: "${phrase}"`, () => assert.ok(kycUserUi.includes(phrase), `নেই: ${phrase}`))
@@ -71,7 +71,7 @@ check('জমা দেওয়ার ফ্লো অপরিবর্তি�
 
 // অ্যাডমিনের KYC যাচাই ট্যাব অপরিবর্তিত — ওটা অ্যাডমিনের স্ক্রিন, ব্যবহারকারীর নয়।
 check('অ্যাডমিনের KYC যাচাই ট্যাব অপরিবর্তিত', () => {
-  assert.ok(pagesSrc.includes('🛡️ ডেটিং KYC যাচাই — অ্যাডমিন'), 'অ্যাডমিন KYC ট্যাবের শিরোনাম নেই')
+  assert.ok(pagesSrc.includes('🛡️ Dating KYC Verification — Admin'), 'অ্যাডমিন KYC ট্যাবের শিরোনাম নেই')
 })
 
 console.log(`\n${passed} passed`)

@@ -42,18 +42,18 @@ check('হেডার সার্চই আসল সার্চ — লো�
   const topBar = compSrc.slice(compSrc.indexOf('export function TopBar()'), compSrc.indexOf('export function Sidebar()'))
   assert.ok(topBar.indexOf('PiCall') < topBar.indexOf('<HeaderSearch />'), 'লোগোর পাশে সার্চ নেই')
   assert.ok(searchUISrc.includes('export function HeaderSearch'), 'searchUI-তে HeaderSearch নেই')
-  // '🔍 বন্ধু খুঁজুন' এখন শুধু Friends পেজে ১ বার (ফিডের কার্ড সরানো হয়েছে)
-  const count = (pagesSrc.match(/🔍 বন্ধু খুঁজুন/g) || []).length
-  assert.equal(count, 1, `🔍 বন্ধু খুঁজুন ${count} বার — Friends পেজে ১ বার হওয়ার কথা`)
-  assert.ok(!feedSpan().includes('🔍 বন্ধু খুঁজুন'), 'ফিডে এখনো সার্চ কার্ড আছে')
+  // '🔍 Find Friends' এখন শুধু Friends পেজে ১ বার (ফিডের কার্ড সরানো হয়েছে)
+  const count = (pagesSrc.match(/🔍 Find Friends/g) || []).length
+  assert.equal(count, 1, `🔍 Find Friends ${count} বার — Friends পেজে ১ বার হওয়ার কথা`)
+  assert.ok(!feedSpan().includes('🔍 Find Friends'), 'ফিডে এখনো সার্চ কার্ড আছে')
 })
 
 check('হেডার সার্চে বন্ধু + পোস্ট সাজেশন (বন্ধু ৫ + পোস্ট ৩)', () => {
   assert.ok(searchUISrc.includes("searchPosts(posts, feedQuery).slice(0, 3)"), 'পোস্ট সাজেশন ৩টি নয়')
   assert.ok(searchUISrc.includes('suggestions.slice(0, 5)'), 'বন্ধু সাজেশন ৫টি নয়')
-  assert.ok(searchUISrc.includes('👥 বন্ধু'), 'বন্ধু সেকশন নেই')
-  assert.ok(searchUISrc.includes('📝 পোস্ট'), 'পোস্ট সেকশন নেই')
-  assert.ok(searchUISrc.includes('সব ফলাফল দেখুন'), 'সব-ফলাফল বোতাম নেই')
+  assert.ok(searchUISrc.includes('👥 Friends'), 'বন্ধু সেকশন নেই')
+  assert.ok(searchUISrc.includes('📝 Post'), 'পোস্ট সেকশন নেই')
+  assert.ok(searchUISrc.includes('See all results'), 'সব-ফলাফল বোতাম নেই')
   assert.ok(searchUISrc.includes("setShowSugg(false)"), 'ট্যাপে ড্রপডাউন লুকায় না')
   assert.ok(searchUISrc.includes("e.key === 'Enter'"), 'Enter-এ খোঁজা যায় না')
 })
@@ -66,10 +66,10 @@ check('ফিডের ক্রম: ব্যানার → স্টোর�
     return i
   }
   const order = [
-    idx('🎁 অ্যাপ ইন্সটল করলে'),
-    idx('তোমার স্টোরি'),
-    idx('মনে কী আছে?'),
-    idx('👥 বন্ধু ('),
+    idx('🎁 Install the app and get 5 π free!'),
+    idx('Your Story'),
+    idx("What's on your mind?"),
+    idx('👥 Friends ('),
     idx('<NewMembersSection />'),
     idx('posts.map('),
   ]
@@ -81,8 +81,8 @@ check('স্টোরি Facebook-এর মতো কার্ড, পোস�
   assert.ok(f.includes('w-28 h-44'), 'স্টোরি কার্ড w-28 h-44 নয়')
   assert.ok(f.includes('ring-4 ring-[#1877F2]'), 'স্টোরি অ্যাভাটারে নীল রিং নেই')
   assert.ok(f.includes('flex-1 py-1.5 rounded-lg hover:bg-gray-100'), 'পোস্ট অ্যাকশন তিন সমান বোতাম নয়')
-  assert.ok(f.includes('💬 কমেন্ট'), 'কমেন্ট বোতাম নেই')
-  assert.ok(f.includes('↗️ শেয়ার'), 'শেয়ার বোতাম নেই')
+  assert.ok(f.includes('💬 Comments'), 'কমেন্ট বোতাম নেই')
+  assert.ok(f.includes('↗️ Share'), 'শেয়ার বোতাম নেই')
 })
 
 check('হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচের নেভ বার নেই', () => {

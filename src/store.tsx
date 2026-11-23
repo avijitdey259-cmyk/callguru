@@ -304,20 +304,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [piDeposits, setPiDeposits] = useState<PiTx[]>(() => load('piDeposits', []))
   const [piWithdrawals, setPiWithdrawals] = useState<PiTx[]>(() => load('piWithdrawals', []))
   // π Pi রিপোর্টের খতিয়ান — প্রথমবার পুরোনো হিসাব (জমা/তোলা/কল/লাইভ আয়/গিফট/রেফারেল) থেকে বানানো হয়;
-  // যা থেকে বানানো যায় না (যেমন আগের ডেইলি বোনাস) তা 'সমন্বয়' লাইনে ধরা হয়, যাতে যোগফল বর্তমান ব্যালেন্সের সঙ্গে মেলে।
+  // যা থেকে বানানো যায় না (যেমন আগের ডেইলি বোনাস) তা 'Adjustment' লাইনে ধরা হয়, যাতে যোগফল বর্তমান ব্যালেন্সের সঙ্গে মেলে।
   // কোনো পরিমাণ বানানো হয় না — খতিয়ানে শুধু সংরক্ষিত হিসাবেরই অঙ্ক থাকে।
   const [piLedger, setPiLedger] = useState<PiLedgerRow[]>(() => {
     const saved = load<PiLedgerRow[] | null>('piLedger', null)
     if (saved && saved.length > 0) return saved
     const rows: PiLedgerRow[] = []
-    piDeposits.forEach(d => rows.push({ id: d.id, date: d.date, type: 'জমা', label: `Pi জমা${d.ref ? ' — ' + d.ref : ''}`, amount: roundPi(d.amount) }))
-    piWithdrawals.forEach(w => rows.push({ id: w.id, date: w.date, type: 'তোলা', label: `Pi তোলা — ফি ${formatPi(w.fee ?? 0)}`, amount: -roundPi(w.amount) }))
-    calls.filter(c => c.cost > 0).forEach(c => rows.push({ id: c.id, date: c.time, type: 'কল খরচ', label: `কল — ${c.name} (${c.type === 'Expert' ? 'এক্সপার্ট' : c.type === 'Dating' ? 'ডেটিং' : 'বন্ধু'})`, amount: -roundPi(c.cost) }))
-    if (liveEarnings > 0) rows.push({ id: 'le-mig', date: '—', type: 'লাইভ আয়', label: 'লাইভ আয় (আগের মোট)', amount: roundPi(liveEarnings) })
-    if (giftsSentPi > 0) rows.push({ id: 'gs-mig', date: '—', type: 'গিফট দেওয়া', label: 'লাইভ গিফট (আগের মোট)', amount: -roundPi(giftsSentPi) })
-    if (referralPiEarned > 0) rows.push({ id: 'ref-mig', date: '—', type: 'রেফারেল', label: 'রেফারেল আয় (আগের মোট)', amount: roundPi(referralPiEarned) })
+    piDeposits.forEach(d => rows.push({ id: d.id, date: d.date, type: 'Deposit', label: `Pi deposit${d.ref ? ' — ' + d.ref : ''}`, amount: roundPi(d.amount) }))
+    piWithdrawals.forEach(w => rows.push({ id: w.id, date: w.date, type: 'Withdraw', label: `Pi withdrawal — fee ${formatPi(w.fee ?? 0)}`, amount: -roundPi(w.amount) }))
+    calls.filter(c => c.cost > 0).forEach(c => rows.push({ id: c.id, date: c.time, type: 'Call Cost', label: `Call — ${c.name} (${c.type === 'Expert' ? 'Expert' : c.type === 'Dating' ? 'Dating' : 'Friend'})`, amount: -roundPi(c.cost) }))
+    if (liveEarnings > 0) rows.push({ id: 'le-mig', date: '—', type: 'Live Earnings', label: 'Live earnings (earlier total)', amount: roundPi(liveEarnings) })
+    if (giftsSentPi > 0) rows.push({ id: 'gs-mig', date: '—', type: 'Gifts Sent', label: 'Live gifts (earlier total)', amount: -roundPi(giftsSentPi) })
+    if (referralPiEarned > 0) rows.push({ id: 'ref-mig', date: '—', type: 'Referral', label: 'Referral earnings (earlier total)', amount: roundPi(referralPiEarned) })
     const residual = roundPi(piBalance - rows.reduce((s, r) => s + r.amount, 0))
-    if (residual !== 0) rows.push({ id: 'open-mig', date: '—', type: 'সমন্বয়', label: 'আগের লেনদেনের সমন্বয়', amount: residual })
+    if (residual !== 0) rows.push({ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: residual })
     return rows
   })
   // π Pi দর — অ্যাডমিন নির্ধারিত (ডিফল্ট ১ π = ৳১০০, ১ USDT = ৳১২০); তোলার সর্বনিম্ন এই দর থেকেই হিসাব হয়
@@ -509,7 +509,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPiWalletAddress(null)
     setPiDeposits([])
     setPiWithdrawals([])
-    setPiLedger([{ id: 'open-mig', date: '—', type: 'সমন্বয়', label: 'আগের লেনদেনের সমন্বয়', amount: 20 }])
+    setPiLedger([{ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: 20 }])
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
     setPiWithdrawFeePctState(DEFAULT_PI_WITHDRAW_FEE_PCT)
@@ -631,7 +631,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const recordPi = (type: string, label: string, amount: number) => {
     const m = roundPi(amount)
     if (!Number.isFinite(m) || m === 0) return
-    setPiLedger(prev => [{ id: 'pl-' + Date.now() + '-' + Math.floor(Math.random() * 1000), date: new Date().toLocaleString('bn-BD'), type, label, amount: m }, ...prev])
+    setPiLedger(prev => [{ id: 'pl-' + Date.now() + '-' + Math.floor(Math.random() * 1000), date: new Date().toLocaleString('en-GB'), type, label, amount: m }, ...prev])
   }
 
   // খরচের মুহূর্তের সর্বশেষ ব্যালেন্স (হ্যান্ডলারে পুরোনো ক্লোজার না ধরে)
@@ -662,9 +662,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (plan.fromBonus > 0) setBonusPi(b => roundPi(b - plan.fromBonus))
     if (plan.fromMain > 0) setPiBalance(b => roundPi(b - plan.fromMain))
     if (type) {
-      if (plan.fromGift > 0) recordPi(type, `${label || type} — গিফট Pi থেকে ${formatPi(plan.fromGift)}`, -plan.fromGift)
-      if (plan.fromBonus > 0) recordPi(type, `${label || type} — বোনাস Pi থেকে ${formatPi(plan.fromBonus)}`, -plan.fromBonus)
-      if (plan.fromMain > 0) recordPi(type, `${label || type} — Pi ব্যালেন্স থেকে ${formatPi(plan.fromMain)}`, -plan.fromMain)
+      if (plan.fromGift > 0) recordPi(type, `${label || type} — from gift Pi ${formatPi(plan.fromGift)}`, -plan.fromGift)
+      if (plan.fromBonus > 0) recordPi(type, `${label || type} — from bonus Pi ${formatPi(plan.fromBonus)}`, -plan.fromBonus)
+      if (plan.fromMain > 0) recordPi(type, `${label || type} — from Pi balance ${formatPi(plan.fromMain)}`, -plan.fromMain)
     }
     return true
   }
@@ -678,7 +678,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!canClaimInstallBonus(installBonusClaimed)) return false
     setInstallBonusClaimed(true)
     setGiftPi(g => roundPi(g + INSTALL_BONUS_PI))
-    recordPi('ইন্সটল বোনাস', 'অ্যাপ ইন্সটল বোনাস — শুধু গিফট কেনা যাবে', INSTALL_BONUS_PI)
+    recordPi('Install Bonus', 'App install bonus — gifts only', INSTALL_BONUS_PI)
     return true
   }
 
@@ -696,7 +696,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // পুরনো টাকা ব্যালেন্স একবার Pi-তে রূপান্তর — এই পরিবর্তনের পর টাকার ব্যালেন্স আর কোথাও থাকে না;
-  // সংরক্ষিত টাকা থাকলে তা Pi হয়ে Pi ব্যালেন্সে যোগ হয়, খতিয়ানে 'সমন্বয়' লাইন পড়ে, আর টাকার হিসাব শূন্য করে দেওয়া হয়।
+  // সংরক্ষিত টাকা থাকলে তা Pi হয়ে Pi ব্যালেন্সে যোগ হয়, খতিয়ানে 'Adjustment' লাইন পড়ে, আর টাকার হিসাব শূন্য করে দেওয়া হয়।
   const migratedBdtRef = useRef(false)
   useEffect(() => {
     if (migratedBdtRef.current) return
@@ -704,7 +704,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const old = load<number>('balance', 0)
     if (old > 0) {
       const pi = topUpPi(old, 'BDT', piRateBDT, usdtRateBDT)
-      if (pi > 0) { setPiBalance(b => roundPi(b + pi)); recordPi('সমন্বয়', 'সমন্বয় — পুরনো টাকা ব্যালেন্স Pi-তে রূপান্তর', pi) }
+      if (pi > 0) { setPiBalance(b => roundPi(b + pi)); recordPi('Adjustment', 'Adjustment — old money balance converted to Pi', pi) }
       save('balance', 0)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -726,7 +726,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),
     calls,
-    addCall: (c) => setCalls(prev => [{ ...c, id: 'call-' + Date.now(), time: new Date().toLocaleString('bn-BD') }, ...prev]),
+    addCall: (c) => setCalls(prev => [{ ...c, id: 'call-' + Date.now(), time: new Date().toLocaleString('en-GB') }, ...prev]),
     friends,
     feedQuery,
     setFeedQuery,
@@ -777,8 +777,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     liveRate,
     setLiveRate: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 0.01) setLiveRateState(n) },
     liveEarnings,
-    // লাইভ আয় (হোস্টের ৭০% শেয়ার) — Pi ব্যালেন্সেও যোগ হয়, যাতে আয় তোলা যায়; খতিয়ানে 'লাইভ আয়' লাইন পড়ে
-    addLiveEarnings: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) { setLiveEarnings(e => roundPi(e + m)); setPiBalance(b => roundPi(b + m)); recordPi('লাইভ আয়', 'লাইভ আয় (৭০%)', m) } },
+    // লাইভ আয় (হোস্টের ৭০% শেয়ার) — Pi ব্যালেন্সেও যোগ হয়, যাতে আয় তোলা যায়; খতিয়ানে 'Live Earnings' লাইন পড়ে
+    addLiveEarnings: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) { setLiveEarnings(e => roundPi(e + m)); setPiBalance(b => roundPi(b + m)); recordPi('Live Earnings', 'Live earnings (70%)', m) } },
     kycStatus,
     kycVerified: kycStatus === 'approved',
     kycInfo,
@@ -795,8 +795,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const c = (code || '').trim()
       if (!c || c === referralCode || refWelcomeClaimed) return
       setReferrer(c); setRefWelcomeClaimed(true); setBonusPi(b => roundPi(b + REF_WELCOME_PI))
-      recordPi('রেফারেল', 'রেফারেল ওয়েলকাম বোনাস (বোনাস Pi — শুধু কল/লাইভ গিফটে ব্যবহারযোগ্য, তোলা যাবে না)', REF_WELCOME_PI)
-      setRefNotice(`🎉 বন্ধুর লিংকে এসেছেন — ${REF_WELCOME_PI} π বোনাস পেয়েছেন!`)
+      recordPi('Referral', 'Referral welcome bonus (bonus Pi — usable only for calls/live gifts, cannot be withdrawn)', REF_WELCOME_PI)
+      setRefNotice(`🎉 You came through a friend's link — you got ${REF_WELCOME_PI} π bonus!`)
     },
     referralRewarded,
     referralPiEarned,
@@ -813,7 +813,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const day = ((nextStreak - 1) % 7) + 1
       const reward = DAILY_BONUS_REWARDS[day - 1]
       setStreak(nextStreak); setLastClaimDate(today); setPiBalance(b => roundPi(b + reward))
-      recordPi('ডেইলি বোনাস', `ডেইলি বোনাস — দিন ${day}`, reward)
+      recordPi('Daily Bonus', `Daily bonus — Day ${day}`, reward)
       return { day, pi: reward }
     },
     giftBoxCycle,
@@ -827,7 +827,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const prize = jackpot ? GIFT_BOX_PI : GIFT_BOX_CONSOLATION[Math.floor(Math.random() * GIFT_BOX_CONSOLATION.length)]
       setGiftBoxClaimedCycle(giftBoxCycle)
       setPiBalance(b => roundPi(b + prize))
-      recordPi('গিফট বক্স', jackpot ? 'গিফট বক্স — জ্যাকপট!' : 'গিফট বক্স', prize)
+      recordPi('Gift Box', jackpot ? 'Gift box — Jackpot!' : 'Gift Box', prize)
       return { pi: prize, jackpot }
     },
     totalShares,
@@ -846,15 +846,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < 55; i++) a += alpha[Math.floor(Math.random() * alpha.length)]
       setPiWalletAddress(a)
     },
-    addDemoPi: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) { setPiBalance(b => roundPi(b + m)); recordPi('ডেমো Pi', 'ডেমো Pi যোগ', m) } },
+    addDemoPi: (n) => { const m = roundPi(Number(n)); if (Number.isFinite(m) && m > 0) { setPiBalance(b => roundPi(b + m)); recordPi('Demo Pi', 'Add demo Pi', m) } },
     piDeposits,
     piWithdrawals,
     depositPi: (amount, ref) => {
       const m = roundPi(Number(amount))
       if (!Number.isFinite(m) || m <= 0) return
       setPiBalance(b => roundPi(b + m))
-      recordPi('জমা', `Pi জমা${ref.trim() ? ' — ' + ref.trim() : ''}`, m)
-      setPiDeposits(prev => [{ id: 'dep-' + Date.now(), amount: m, ref: ref.trim(), date: new Date().toLocaleString('bn-BD'), status: '✅ ডেমো জমা সম্পূর্ণ' }, ...prev])
+      recordPi('Deposit', `Pi deposit${ref.trim() ? ' — ' + ref.trim() : ''}`, m)
+      setPiDeposits(prev => [{ id: 'dep-' + Date.now(), amount: m, ref: ref.trim(), date: new Date().toLocaleString('en-GB'), status: '✅ Demo deposit complete' }, ...prev])
     },
     withdrawPi: (amount, address) => {
       const m = roundPi(Number(amount))
@@ -863,8 +863,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const fee = piWithdrawFee(m, piWithdrawFeePct)
       const received = roundPi(m - fee)
       setPiBalance(b => roundPi(b - m))
-      recordPi('তোলা', `Pi তোলা — ফি ${formatPi(fee)}`, -m)
-      setPiWithdrawals(prev => [{ id: 'wd-' + Date.now(), amount: m, fee, received, address, date: new Date().toLocaleString('bn-BD'), status: '⏳ প্রক্রিয়াধীন (ডেমো)' }, ...prev])
+      recordPi('Withdraw', `Pi withdrawal — fee ${formatPi(fee)}`, -m)
+      setPiWithdrawals(prev => [{ id: 'wd-' + Date.now(), amount: m, fee, received, address, date: new Date().toLocaleString('en-GB'), status: '⏳ Processing (demo)' }, ...prev])
       return true
     },
     piRateBDT,
@@ -879,10 +879,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     submitManualTopUp: (method, amount, trxId, currency = 'BDT', network) => {
       const m = currency === 'USDT' ? roundPi(Number(amount)) : Math.round(Number(amount))
       const t = (trxId || '').trim()
-      if (!Number.isFinite(m) || m <= 0) return 'সঠিক পরিমাণ দিন।'
-      if (!t) return 'রেফারেন্স দিন।'
-      if (pendingTopUps.some(x => x.trxId.toLowerCase() === t.toLowerCase())) return 'এই রেফারেন্স আগেই ব্যবহার হয়েছে।'
-      const req: TopUpRequest = { id: 'tu-' + Date.now(), method, network, amount: m, currency, trxId: t, date: new Date().toLocaleString('bn-BD'), status: 'pending' }
+      if (!Number.isFinite(m) || m <= 0) return 'Enter a valid amount.'
+      if (!t) return 'Enter the reference.'
+      if (pendingTopUps.some(x => x.trxId.toLowerCase() === t.toLowerCase())) return 'This reference has already been used.'
+      const req: TopUpRequest = { id: 'tu-' + Date.now(), method, network, amount: m, currency, trxId: t, date: new Date().toLocaleString('en-GB'), status: 'pending' }
       setPendingTopUps(prev => [req, ...prev])
       // Firestore চালু থাকলে আবেদনটা topups কালেকশনেও যায় (অ্যাডমিন অন্য ডিভাইস থেকে দেখেন)
       if (fsState === 'on' && uid) writeTopUpDoc(req.id, toTopUpDoc(req, uid)).catch(() => { /* localStorage ক্যাশেই থাকে */ })
@@ -893,17 +893,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!req || req.status !== 'pending') return
       setPendingTopUps(prev => prev.map(x => x.id === id ? { ...x, status: 'approved' } : x))
       if (fsState === 'on') updateTopUpStatus(id, 'approved').catch(() => { /* ignore */ })
-      // অনুমোদনে টপ-আপ অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
+      // অনুমোদনে টপ-আপ অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর), খতিয়ানে 'Deposit' লাইন পড়ে
       const pi = topUpPi(req.amount, req.currency, piRateBDT, usdtRateBDT)
       if (pi > 0) {
         setPiBalance(b => roundPi(b + pi))
-        recordPi('জমা', `জমা — ${req.currency === 'USDT' ? `${req.amount} USDT` : formatBDT(req.amount)} → ${formatPi(pi)}`, pi)
+        recordPi('Deposit', `Deposit — ${req.currency === 'USDT' ? `${req.amount} USDT` : formatBDT(req.amount)} → ${formatPi(pi)}`, pi)
       }
       if (referrer && !referralRewarded && !hasToppedUp) {
         setReferralRewarded(true)
         setReferrals(r => r + 1)
         setReferralPiEarned(c => c + REF_INVITER_PI)
-        if (referrer === referralCode) { setBonusPi(b => roundPi(b + REF_INVITER_PI)); recordPi('রেফারেল', 'রেফারেল পুরস্কার — বন্ধুর প্রথম টপ-আপ (বোনাস Pi — তোলা যাবে না)', REF_INVITER_PI) }
+        if (referrer === referralCode) { setBonusPi(b => roundPi(b + REF_INVITER_PI)); recordPi('Referral', 'Referral reward — friend\'s first top-up (bonus Pi — cannot be withdrawn)', REF_INVITER_PI) }
       }
       setHasToppedUp(true)
     },

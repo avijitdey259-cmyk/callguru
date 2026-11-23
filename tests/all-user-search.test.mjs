@@ -164,16 +164,16 @@ check('দুটো জায়গায় সাজেশন ড্রপড�
   assert.ok(pagesSrc.includes('useAllUserSearch(friends, query)'), 'useAllUserSearch ব্যবহার হয়নি')
   assert.ok(pagesSrc.includes('setShowSugg(false)'), 'ট্যাপে ড্রপডাউন লুকায় না')
   assert.ok(searchUISrc.includes('export function HeaderSearch'), 'HeaderSearch নেই')
-  assert.ok(searchUISrc.includes('👥 বন্ধু'), 'হেডার ড্রপডাউনে বন্ধু সেকশন নেই')
-  assert.ok(searchUISrc.includes('📝 পোস্ট'), 'হেডার ড্রপডাউনে পোস্ট সেকশন নেই')
-  assert.ok(searchUISrc.includes('সব ফলাফল দেখুন'), 'হেডার ড্রপডাউনে সব-ফলাফল বোতাম নেই')
+  assert.ok(searchUISrc.includes('👥 Friends'), 'হেডার ড্রপডাউনে বন্ধু সেকশন নেই')
+  assert.ok(searchUISrc.includes('📝 Post'), 'হেডার ড্রপডাউনে পোস্ট সেকশন নেই')
+  assert.ok(searchUISrc.includes('See all results'), 'হেডার ড্রপডাউনে সব-ফলাফল বোতাম নেই')
   assert.ok(searchUISrc.includes('setShowSugg(false)'), 'হেডার ড্রপডাউন ট্যাপে লুকায় না')
   assert.ok(searchUISrc.includes('fetchAllPublicProfiles(100)'), '১০০ সীমা নেই')
 })
 
 check('ফলে Firebase uid দেখানো হয় না — referralCode বা লোকাল id দেখায়', () => {
-  assert.ok(!pagesSrc.includes('আইডি: {p.id}'), 'ফলে এখনো p.id দেখানো হয়')
-  assert.ok(pagesSrc.includes('আইডি: {p.referralCode ?? p.id}'), 'referralCode ?? id দেখানো হয় না')
+  assert.ok(!pagesSrc.includes('ID: {p.id}'), 'ফলে এখনো p.id দেখানো হয়')
+  assert.ok(pagesSrc.includes('ID: {p.referralCode ?? p.id}'), 'referralCode ?? id দেখানো হয় না')
 })
 
 check('মোবাইল ও কম্পিউটারে একই — সার্চ/সাজেশনে ডিভাইস-ভেদ নেই', () => {

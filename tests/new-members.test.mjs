@@ -39,19 +39,19 @@ const DAY = 86400000
 const now = new Date('2026-11-23T12:00:00+06:00').getTime()
 
 // ---- যোগদানের সময় বাংলায় ----
-check('আজ জয়েন করলে "আজ"', () => {
-  assert.equal(M.formatJoinTime(now, now), 'আজ')
-  assert.equal(M.formatJoinTime(now - 3600000, now), 'আজ')
+check('Joins today → "Today"', () => {
+  assert.equal(M.formatJoinTime(now, now), 'Today')
+  assert.equal(M.formatJoinTime(now - 3600000, now), 'Today')
 })
-check('গতকাল জয়েন করলে "গতকাল"', () => {
-  assert.equal(M.formatJoinTime(now - DAY, now), 'গতকাল')
+check('Joins yesterday → "Yesterday"', () => {
+  assert.equal(M.formatJoinTime(now - DAY, now), 'Yesterday')
 })
-check('২/৫ দিন আগে জয়েন করলে বাংলায় দিন সংখ্যা', () => {
-  assert.equal(M.formatJoinTime(now - 2 * DAY, now), '২ দিন আগে')
-  assert.equal(M.formatJoinTime(now - 5 * DAY, now), '৫ দিন আগে')
+check('Joins 2/5 days ago → day count in English', () => {
+  assert.equal(M.formatJoinTime(now - 2 * DAY, now), '2 days ago')
+  assert.equal(M.formatJoinTime(now - 5 * DAY, now), '5 days ago')
 })
-check('সময় না জানা গেলে "সম্প্রতি"', () => {
-  assert.equal(M.formatJoinTime(null, now), 'সম্প্রতি')
+check('Unknown time → "Recently"', () => {
+  assert.equal(M.formatJoinTime(null, now), 'Recently')
 })
 
 // ---- createdAt রূপান্তর ----
@@ -126,13 +126,13 @@ check('স্টোর: প্রথম লগইনে পাবলিক প�
 check('হোমে "নতুন সদস্য" সেকশন: সার্চের নিচে, RefWelcomeBanner-এর উপরে', () => {
   const feedStart = pagesSrc.indexOf('export function Feed()')
   const feed = pagesSrc.slice(feedStart)
-  const searchEnd = feed.indexOf('কোনো পোস্ট পাওয়া যায়নি')
+  const searchEnd = feed.indexOf('No posts found.')
   const banner = feed.indexOf('<RefWelcomeBanner />')
   const section = feed.indexOf('<NewMembersSection />')
-  const h = pagesSrc.indexOf('🆕 নতুন সদস্য')
+  const h = pagesSrc.indexOf('🆕 New Members')
   assert.ok(feedStart > 0 && h > 0 && searchEnd > 0 && banner > 0 && section > 0)
   assert.ok(searchEnd < section && section < banner, 'সেকশনের জায়গা ঠিক নেই')
-  assert.ok(pagesSrc.includes('এখনো নতুন কেউ জয়েন করেনি — তোমার বন্ধুকে আমন্ত্রণ জানাও!'))
+  assert.ok(pagesSrc.includes('Nobody new has joined yet — invite your friend!'))
   assert.ok(pagesSrc.includes('fetchNewMembers(10)'))
   assert.ok(pagesSrc.includes("formatJoinTime(m.createdAtMs)"))
 })

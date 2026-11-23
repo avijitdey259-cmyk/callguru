@@ -64,9 +64,9 @@ export async function writePublicProfile(uid: string, displayName: string, refer
     const code = typeof referralCode === 'string' && referralCode.trim() ? referralCode.trim() : undefined
     const extra = code ? { referralCode: code } : {}
     if (snap.exists()) {
-      await setDoc(ref, { displayName: displayName || 'ব্যবহারকারী', colour: colourForUid(uid), ...extra }, { merge: true })
+      await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra }, { merge: true })
     } else {
-      await setDoc(ref, { displayName: displayName || 'ব্যবহারকারী', createdAt: serverTimestamp(), colour: colourForUid(uid), ...extra })
+      await setDoc(ref, { displayName: displayName || 'User', createdAt: serverTimestamp(), colour: colourForUid(uid), ...extra })
     }
     return true
   } catch { return false }
