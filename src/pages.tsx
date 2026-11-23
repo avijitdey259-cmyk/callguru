@@ -409,14 +409,20 @@ const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দ�
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user } = useStore()
+  const { friends, user, addFriend } = useStore()
   const [posts, setPosts] = useState(SEED_POSTS)
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
+  const [query, setQuery] = useState('')
+  const [sent, setSent] = useState<Record<string, boolean>>({})
   const navigate = useNavigate()
+  const searching = query.trim() !== ''
+  // বন্ধু খোঁজা — Friends পেজের মতোই: বন্ধু + People You May Know + চ্যাট পারসোনা
+  const searchable = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
+  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
@@ -445,10 +451,6 @@ export function Feed() {
           </div>
         </div>
       )}
-      <RefWelcomeBanner />
-      <DailyBonusCard />
-      <InviteCard />
-      <LeaderboardCard />
       <Card>
         {composerOpen ? (
           <>
@@ -469,6 +471,32 @@ export function Feed() {
           </button>
         )}
       </Card>
+      <Card>
+        <h2 className="font-bold">🔍 বন্ধু খুঁজুন</h2>
+        <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => setQuery(e.target.value)} placeholder="নাম বা আইডি লিখুন…" />
+        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে।</p>
+      </Card>
+      {searching && (
+        <Card>
+          <h2 className="font-bold">🔍 {results.length} জন পাওয়া গেছে</h2>
+          {results.length === 0 && <p className="text-sm text-gray-500 mt-1">কাউকে পাওয়া যায়নি — নাম বা আইডি ঠিক আছে কি না দেখুন।</p>}
+          {results.map(p => (
+            <div key={p.id} className="flex items-center gap-3 py-2">
+              <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
+              {p.isFriend
+                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 চ্যাট</Btn>
+                : sent[p.id]
+                  ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
+                  : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true }) }}>Add Friend</Btn>}
+            </div>
+          ))}
+        </Card>
+      )}
+      <RefWelcomeBanner />
+      <DailyBonusCard />
+      <InviteCard />
+      <LeaderboardCard />
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         {REELS.map(r => (
           <div key={r.id} onClick={() => navigate('/reels')} className="shrink-0 w-36 rounded-xl bg-slate-900 text-white p-3 cursor-pointer">
