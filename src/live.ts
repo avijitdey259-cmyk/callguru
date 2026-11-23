@@ -9,7 +9,8 @@
 // before real users, or calls behind strict NATs / mobile networks will
 // fail. The credentials below are public test credentials, not secrets.
 // Small audience (roughly 5-8 viewers); a big audience needs an SFU later.
-import { API_BASE, API_TIMEOUT_MS } from './api'
+import { API_BASE, API_TIMEOUT_MS, authHeaders } from './api'
+import { getIdToken } from './firebase'
 
 export type LiveRoom = { id: string; hostName: string; title: string; viewers: number; startedAt: number }
 
@@ -36,12 +37,14 @@ export function getWsBase(): string | null {
   }
 }
 
-async function liveFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
+async function liveFetch<T>(path: string, init?: RequestInit, auth = false): Promise<T | null> {
   if (!API_BASE) return null
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
   try {
-    const res = await fetch(`${API_BASE}${path}`, { ...init, signal: ctrl.signal })
+    const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) || {}) }
+    if (auth) Object.assign(headers, await authHeaders())
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: ctrl.signal })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
@@ -56,17 +59,17 @@ export function fetchLiveRooms(): Promise<LiveRoom[] | null> {
   return liveFetch<LiveRoom[]>('/api/live')
 }
 
-/** POST /api/live — null when the backend is unreachable. */
+/** POST /api/live — null when the backend is unreachable. লগইন লাগবে (সার্ভার যাচাই করে)। */
 export function createLiveRoom(hostName: string, title: string): Promise<LiveRoom | null> {
   return liveFetch<LiveRoom>('/api/live', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hostName, title })
-  })
+  }, true)
 }
 
-/** DELETE /api/live/:id — best effort, failures are ignored. */
+/** DELETE /api/live/:id — best effort, failures are ignored. শুধু রুমের মালিক/অ্যাডমিন পারেন। */
 export async function endLiveRoom(id: string): Promise<void> {
-  await liveFetch(`/api/live/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await liveFetch(`/api/live/${encodeURIComponent(id)}`, { method: 'DELETE' }, true)
 }
 
 export type LiveGift = { icon: string; name: string; pi: number }
@@ -90,8 +93,12 @@ export function connectLive(roomId: string, role: 'host' | 'viewer', name: strin
   const base = getWsBase()
   if (!base) return null
   const ws = new WebSocket(base)
-  ws.onopen = () => {
-    try { ws.send(JSON.stringify({ type: 'join', roomId, role, name })) } catch { /* ignore */ }
+  ws.onopen = async () => {
+    // হোস্ট হিসেবে ঢুকতে সার্ভার ID token যাচাই করে — দর্শক হিসেবে লাগে না।
+    try {
+      const idToken = role === 'host' ? await getIdToken() : null
+      ws.send(JSON.stringify({ type: 'join', roomId, role, name, ...(idToken ? { idToken } : {}) }))
+    } catch { /* ignore */ }
     h.onOpen?.()
   }
   ws.onmessage = (ev) => {

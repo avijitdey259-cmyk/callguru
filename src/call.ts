@@ -9,6 +9,7 @@
 // the app must never fake a connected call.
 import { API_BASE, API_TIMEOUT_MS } from './api'
 import { getWsBase, sendSignal, ICE_SERVERS } from './live'
+import { getIdToken } from './firebase'
 import { INVITE_BASE_URL } from './store'
 
 /** Short call code — 6 chars, no 0/o/1/l so it is easy to read aloud. */
@@ -69,8 +70,13 @@ export function connectCall(code: string, role: 'caller' | 'callee', name: strin
   const base = getWsBase()
   if (!base) return null
   const ws = new WebSocket(base)
-  ws.onopen = () => {
-    try { ws.send(JSON.stringify({ type: 'call-join', roomId: `call-${code}`, role, name })) } catch { /* ignore */ }
+  ws.onopen = async () => {
+    // লগইন থাকলে টোকেন পাঠানো হয় — সার্ভার পরিচয় বাঁধে; না থাকলে আগের
+    // মতো অতিথি হিসেবে ঢোকা যায় (কল-বাই-লিংক লগইন ছাড়াও চলে)।
+    try {
+      const idToken = await getIdToken()
+      ws.send(JSON.stringify({ type: 'call-join', roomId: `call-${code}`, role, name, ...(idToken ? { idToken } : {}) }))
+    } catch { /* ignore */ }
     h.onOpen?.()
   }
   ws.onmessage = (ev) => {

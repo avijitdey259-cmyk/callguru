@@ -35,20 +35,51 @@ import express from 'express'
 import http from 'http'
 import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
+import { verifyIdToken, requireAuth, requireAdmin, rateLimit, ADMIN_EMAIL } from './auth.js'
 
 const app = express()
 app.use(express.json())
-// Minimal CORS for the demo API: the Netlify frontend runs on a different
-// origin, so browsers would block cross-origin calls without these headers.
-// No credentials, no secrets — the demo API takes no auth.
+// ---------- সুরক্ষা হেডার (সব উত্তরে) ----------
+// CSP ইচ্ছা করে বসানো হয়নি — লাইভ TV-র HLS/CDN উৎসের allowlist ছাড়া
+// কড়া CSP অ্যাপ ভাঙবে; সেটা আলাদা যাচাইয়ের কাজ (রিপোর্টে লেখা আছে)।
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+  res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade')
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()')
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+  next()
+})
+// CORS — শুধু আমাদের সাইটগুলো + লোকাল ডেভ। '*' নয়: যেকোনো ওয়েবসাইট
+// আর এই API ডাকতে পারবে না (Bearer টোকেন থাকলেও ব্রাউজার আটকাবে)।
+const ALLOWED_ORIGINS = new Set([
+  'https://picallbd.web.app',
+  'https://picall-76185.web.app',
+  'https://picall-76185.firebaseapp.com',
+])
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (origin && (ALLOWED_ORIGINS.has(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.sendStatus(204)
   next()
 })
 const PORT = process.env.PORT || 4000
+
+// ---------- IP-ভিত্তিক রেট লিমিট (ইমেইল-ভিত্তিক OTP সীমার পাশাপাশি) ----------
+// একজন আক্রমণকারী অনেক ইমেইলে স্প্রে করতে না পারে — OTP পাঠানো/যাচাইয়ে
+// IP-সীমাও চলে। অ্যাডমিন/পুশ/লাইভ রুটে লগইন যাচাইয়ের আগেই IP-সীমা।
+const otpSendIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 30 })
+const otpVerifyIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 60 })
+const adminIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 })
+const pushIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 30 })
+const liveIpLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 60 })
 
 const experts = [
   { id: 'exp-1', name: 'ডা. রাহাত হোসেন', rate: 15, online: true },
@@ -124,7 +155,7 @@ function validEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())
 }
 
-app.post('/api/otp/send', async (req, res) => {
+app.post('/api/otp/send', otpSendIpLimit, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   if (!validEmail(email)) return res.status(400).json({ ok: false, error: 'invalid_email' })
   const mailer = await getMailer()
@@ -153,7 +184,7 @@ app.post('/api/otp/send', async (req, res) => {
   }
 })
 
-app.post('/api/otp/verify', (req, res) => {
+app.post('/api/otp/verify', otpVerifyIpLimit, (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   const code = typeof req.body?.code === 'string' ? req.body.code.trim() : ''
   if (!validEmail(email) || !/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, error: 'invalid_code' })
@@ -182,7 +213,11 @@ app.get('/api/admin/settings', (_req, res) => {
   })
 })
 
-app.post('/api/admin/settings', (req, res) => {
+// POST /api/admin/settings — শুধু অ্যাডমিন (Firebase লগইন + ADMIN_EMAIL)।
+// আগে যাচাই ছাড়াই খোলা ছিল: যে কেউ SMTP পাসওয়ার্ড বদলে OTP কোড নিজের
+// SMTP সার্ভারে পাঠাতে পারত। এখন টোকেন ছাড়া 401, অ্যাডমিন নয় এমন
+// লগইন-থাকা ব্যবহারকারী 403 পায়।
+app.post('/api/admin/settings', adminIpLimit, requireAdmin, (req, res) => {
   const body = req.body || {}
   if (body.smtp && typeof body.smtp === 'object') {
     const s = body.smtp
@@ -238,6 +273,79 @@ app.get('/api/call/:code', (req, res) => {
   res.json({ ok: true, code, callerName: caller ? caller.name : 'কলার', peers: room.peers.size })
 })
 
+// ---------- Web Push (ইনকামিং কলের নোটিফিকেশন — লক স্ক্রিনেও দেখায়) ----------
+// VAPID চাবি শুধু env var থেকে (Railway Variables): VAPID_PUBLIC_KEY,
+// VAPID_PRIVATE_KEY, VAPID_SUBJECT (যেমন mailto:avijitdey259@gmail.com)।
+// চাবি না থাকলে পুশ চুপচাপ বন্ধ থাকে — ইন-অ্যাপ ওভারলে তখনো চলে।
+// সাবস্ক্রিপশন ইন-মেমোরি (রিস্টার্টে মুছে যায় — অ্যাপ খুললেই আবার জমা হয়)।
+const pushSubscriptions = new Map() // userId -> push subscription object
+let webPushLib = null
+let webPushTried = false
+async function getWebPush() {
+  if (webPushTried) return webPushLib
+  webPushTried = true
+  const pub = process.env.VAPID_PUBLIC_KEY || ''
+  const priv = process.env.VAPID_PRIVATE_KEY || ''
+  if (!pub || !priv) return null
+  try {
+    const mod = await import('web-push')
+    const wp = mod.default || mod
+    wp.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:avijitdey259@gmail.com', pub, priv)
+    webPushLib = wp
+    return wp
+  } catch { return null }
+}
+
+/** পুশ পাঠানো — সার্ভিস ওয়ার্কার (public/sw.js) এই পেলোডই দেখায়। */
+async function sendCallPush(userId, invite) {
+  const sub = pushSubscriptions.get(userId)
+  if (!sub) return false
+  const wp = await getWebPush()
+  if (!wp) return false
+  const payload = JSON.stringify({
+    title: `📞 ${invite.fromName} কল করছেন`,
+    body: 'ধরতে ট্যাপ করুন — PiCall ভিডিও কল',
+    tag: `picall-call-${invite.code}`,
+    data: { code: invite.code, fromId: invite.fromId, fromName: invite.fromName, url: `/call/${invite.code}` },
+    actions: [{ action: 'answer', title: '📞 ধরো' }, { action: 'decline', title: '❌ কাটো' }],
+  })
+  try { await wp.sendNotification(sub, payload); return true }
+  catch (e) {
+    if (e && (e.statusCode === 404 || e.statusCode === 410)) pushSubscriptions.delete(userId)
+    return false
+  }
+}
+
+app.get('/api/push/vapid-public-key', (_req, res) => {
+  const pub = process.env.VAPID_PUBLIC_KEY || ''
+  if (!pub) return res.json({ configured: false })
+  res.json({ configured: true, publicKey: pub })
+})
+
+// POST /api/push/subscribe — শুধু লগইন থাকা ব্যবহারকারী; userId টোকেনের
+// uid থেকে নেওয়া হয় — ক্লায়েন্টের পাঠানো userId-তে ভরসা করা হয় না
+// (আগে যে কেউ অন্যের userId দিয়ে সাবস্ক্রাইব করে তার কলের পুশ পেত)।
+app.post('/api/push/subscribe', pushIpLimit, requireAuth, (req, res) => {
+  const body = req.body || {}
+  const userId = req.auth.uid
+  const sub = body.subscription
+  if (!sub || typeof sub.endpoint !== 'string') return res.status(400).json({ ok: false, error: 'invalid_subscription' })
+  pushSubscriptions.set(userId, sub)
+  res.json({ ok: true })
+})
+
+// সার্ভিস ওয়ার্কার থেকে Decline — কলারকে জানানো (রুমে থাকলে 'call-declined' যায়)
+app.post('/api/call-invite/decline', (req, res) => {
+  const code = String(req.body?.code || '').trim()
+  const room = callRooms.get(`call-${code}`)
+  if (room) {
+    for (const p of room.peers.values()) {
+      if (p.role === 'caller') send(p.ws, { type: 'call-declined', roomId: `call-${code}` })
+    }
+  }
+  res.json({ ok: true })
+})
+
 // ---------- Live rooms (in-memory; a restart clears them) ----------
 /** @type {Map<string, {id: string, hostName: string, title: string, startedAt: number, host: import('ws').WebSocket | null, viewers: Map<string, import('ws').WebSocket>}>} */
 const liveRooms = new Map()
@@ -271,18 +379,23 @@ app.get('/api/live', (_req, res) => {
   res.json([...liveRooms.values()].map(publicRoom))
 })
 
-app.post('/api/live', (req, res) => {
+// POST /api/live — শুধু লগইন থাকা ব্যবহারকারী রুম খুলতে পারেন; রুমের
+// মালিক (ownerUid) টোকেনের uid — পরে DELETE শুধু মালিক/অ্যাডমিন পারেন।
+app.post('/api/live', liveIpLimit, requireAuth, (req, res) => {
   const { hostName, title } = req.body || {}
   const name = typeof hostName === 'string' && hostName.trim() ? hostName.trim().slice(0, 60) : 'লাইভ হোস্ট'
   const id = `live-${Date.now().toString(36)}-${++liveSeq}`
-  const room = { id, hostName: name, title: typeof title === 'string' ? title.slice(0, 80) : 'ডেটিং লাইভ', startedAt: Date.now(), host: null, viewers: new Map() }
+  const room = { id, hostName: name, title: typeof title === 'string' ? title.slice(0, 80) : 'ডেটিং লাইভ', startedAt: Date.now(), host: null, viewers: new Map(), ownerUid: req.auth.uid }
   liveRooms.set(id, room)
   res.status(201).json(publicRoom(room))
 })
 
-app.delete('/api/live/:id', (req, res) => {
+app.delete('/api/live/:id', liveIpLimit, requireAuth, (req, res) => {
   const room = liveRooms.get(req.params.id)
   if (!room) return res.status(404).json({ error: 'Room not found' })
+  if (room.ownerUid && room.ownerUid !== req.auth.uid && req.auth.email.toLowerCase() !== ADMIN_EMAIL) {
+    return res.status(403).json({ ok: false, error: 'forbidden' })
+  }
   endRoom(room, 'ended')
   res.json({ ok: true, id: room.id })
 })
@@ -291,19 +404,91 @@ app.delete('/api/live/:id', (req, res) => {
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server })
 
+// Presence — লগইন থাকা ব্যবহারকারীর userId -> সকেট; ইনকামিং কলের
+// ইনভাইট এই ম্যাপ দিয়ে পৌঁছায়। রিস্টার্টে মুছে যায় (অ্যাপ খুললেই আবার জমা হয়)।
+const presence = new Map() // userId -> ws
+
 wss.on('connection', (ws) => {
   ws._live = { roomId: null, role: null, name: null, viewerId: null }
   ws._call = { roomId: null, peerId: null, name: null, role: null }
+  ws._presence = { userId: null, name: null }
 
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     let m
     try { m = JSON.parse(String(raw)) } catch { return }
     if (!m || typeof m.type !== 'string') return
 
+    // ---- presence: Firebase ID token দিয়ে পরিচয় যাচাই, তারপর রেজিস্টার ----
+    // আগে যেকোনো userId দিয়ে রেজিস্টার করা যেত — অন্যের কল-ইনভাইট পাওয়া
+    // যেত। এখন uid টোকেন থেকেই নেওয়া হয়; টোকেন ছাড়া/ভুল হলে রেজিস্টার হয় না।
+    if (m.type === 'presence-register') {
+      const auth = await verifyIdToken(typeof m.idToken === 'string' ? m.idToken : '')
+      if (!auth) { send(ws, { type: 'presence-error', error: 'unauthorized' }); return }
+      const userId = auth.uid
+      const prev = presence.get(userId)
+      if (prev && prev !== ws) { try { prev.close() } catch { /* ignore */ } }
+      presence.set(userId, ws)
+      ws._presence = { userId, name: auth.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'ব্যবহারকারী') }
+      ws._auth = auth
+      send(ws, { type: 'presence-registered', userId })
+      return
+    }
+
+    // ---- 1-to-1 কল ইনভাইট: বন্ধুর হোম পেজে ওভারলে উঠবে ----
+    if (m.type === 'call-invite') {
+      const to = typeof m.to === 'string' ? m.to.trim() : ''
+      const code = String(m.code || '').trim()
+      if (!to || !/^[a-z0-9]{6}$/i.test(code)) return
+      // পরিচয় শুধু যাচাই করা presence থেকেই — ক্লায়েন্টের পাঠানো
+      // fromId/fromName-এ আর ভরসা করা হয় না (presence ছাড়া ইনভাইট যায় না)।
+      const fromId = ws._presence.userId
+      const fromName = ws._presence.name || 'কলার'
+      if (!fromId) return
+      const payload = {
+        type: 'call-invite',
+        code,
+        fromId,
+        fromName,
+        fromColor: typeof m.fromColor === 'string' ? m.fromColor.slice(0, 20) : '',
+        kind: 'friend',
+        at: Date.now(),
+      }
+      const target = presence.get(to)
+      if (target) {
+        send(target, payload)
+        send(ws, { type: 'call-invite-sent', to, delivered: true, pushed: false })
+        return
+      }
+      // অনলাইনে নেই — লক স্ক্রিনের পুশ নোটিফিকেশন চেষ্টা (VAPID থাকলে)
+      sendCallPush(to, payload)
+        .then((pushed) => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed }) })
+        .catch(() => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed: false }) })
+      return
+    }
+
+    // ---- ইনভাইটের উত্তর: ধরলেন না কাটলেন — কলকারীকে ফেরত পাঠানো ----
+    if (m.type === 'call-invite-response') {
+      const to = typeof m.to === 'string' ? m.to.trim() : ''
+      const code = String(m.code || '').trim()
+      if (!to || !code || typeof m.accepted !== 'boolean') return
+      const target = presence.get(to)
+      if (target) send(target, { type: 'call-invite-response', code, accepted: m.accepted, fromId: ws._presence.userId || '' })
+      return
+    }
+
     // ---- 1-to-1 call signalling (separate room map; live rooms untouched) ----
+    // call-join: টোকেন থাকলে যাচাই করে পরিচয় বাঁধা হয়; না থাকলে আগের মতো
+    // অতিথি হিসেবে ঢোকা যায় (কল-বাই-লিংক লগইন ছাড়াও চলে)। ভুল টোকেন
+    // পাঠালে 'unauthorized' — চুপচাপ অতিথি বানানো হয় না।
     if (m.type === 'call-join') {
       const code = String(m.roomId || '').trim()
       if (!/^call-[a-z0-9]{4,12}$/i.test(code)) { send(ws, { type: 'call-error', roomId: code, error: 'bad-call-code' }); return }
+      let joinAuth = null
+      if (typeof m.idToken === 'string' && m.idToken) {
+        joinAuth = await verifyIdToken(m.idToken)
+        if (!joinAuth) { send(ws, { type: 'call-error', roomId: code, error: 'unauthorized' }); return }
+        ws._auth = joinAuth
+      }
       let room = callRooms.get(code)
       if (!room) {
         if (m.role !== 'caller') { send(ws, { type: 'call-error', roomId: code, error: 'call-not-found' }); return }
@@ -312,7 +497,7 @@ wss.on('connection', (ws) => {
       }
       if (room.peers.size >= 2) { send(ws, { type: 'call-error', roomId: code, error: 'room-full' }); return }
       const peerId = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-      const name = typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি'
+      const name = joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি')
       const role = m.role === 'callee' ? 'callee' : 'caller'
       room.peers.set(peerId, { ws, name, role })
       ws._call = { roomId: code, peerId, name, role }
@@ -354,7 +539,21 @@ wss.on('connection', (ws) => {
 
     if (m.type === 'join') {
       if (!room) { send(ws, { type: 'error', roomId: m.roomId, error: 'Room not found' }); return }
-      ws._live = { roomId: room.id, role: m.role, name: typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি', viewerId: null }
+      // হোস্ট হিসেবে ঢুকতে Firebase লগইন লাগবে — নইলে যেকোনো ব্যক্তি অন্যের
+      // রুমের হোস্ট সেজে স্ট্রিম দখল করতে পারত। রুমের মালিক (REST-এ তৈরি
+      // করা uid) ছাড়া অন্য কেউ হোস্ট হতে পারে না (অ্যাডমিন বাদে)।
+      // ownerUid না থাকা পুরনো/ডেমো রুমে যাচাই করা যেকোনো লগইন-থাকা
+      // ব্যবহারকারী হোস্ট হতে পারেন (রোলআউটের সুবিধার জন্য)।
+      let joinAuth = null
+      if (m.role === 'host') {
+        joinAuth = await verifyIdToken(typeof m.idToken === 'string' ? m.idToken : '')
+        if (!joinAuth) { send(ws, { type: 'error', roomId: room.id, error: 'unauthorized' }); return }
+        if (room.ownerUid && joinAuth.uid !== room.ownerUid && joinAuth.email.toLowerCase() !== ADMIN_EMAIL) {
+          send(ws, { type: 'error', roomId: room.id, error: 'forbidden' }); return
+        }
+        ws._auth = joinAuth
+      }
+      ws._live = { roomId: room.id, role: m.role, name: joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'অতিথি'), viewerId: null }
       if (m.role === 'host') {
         if (room.host && room.host !== ws) send(room.host, { type: 'host-left', roomId: room.id, reason: 'replaced' })
         room.host = ws
@@ -405,6 +604,8 @@ wss.on('connection', (ws) => {
   })
 
   ws.on('close', () => {
+    const pr = ws._presence
+    if (pr && pr.userId && presence.get(pr.userId) === ws) presence.delete(pr.userId)
     const info = ws._live
     if (info && info.roomId) {
       const room = liveRooms.get(info.roomId)

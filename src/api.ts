@@ -179,7 +179,7 @@ export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
   const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
   try {
     const res = await fetch(`${API_BASE}/api/admin/settings`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ smtp }), signal: ctrl.signal,
     })
     return res.ok
