@@ -10,7 +10,7 @@ import { buildSearchablePeople, searchPeople, type SearchablePerson } from './fr
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
-  REELS, SEED_POSTS, SERVICES, STORIES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
+  REELS, SEED_POSTS, SERVICES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
   BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
   USDT_NETWORKS, piWithdrawFee,
@@ -397,30 +397,77 @@ export function LoginPage() {
   )
 }
 
+// ফিডের স্টোরি ক্যাপশন — ডেমো লাইন (বন্ধু/পারসোনাদের জন্য আগাম লেখা)
+const STORY_CAPTIONS: Record<string, string> = {
+  'রিমা': 'আজকে মজার কিছু হবে! 😄',
+  'শাকিল': 'সবাই ভালো থেকো ❤️',
+  'ফাহিম': 'নতুন কিছু শিখলাম আজকে! 😊',
+  'মিম': 'আজকের গানটা শুনেছো? 🎵',
+  'আশা': 'স্বপ্নের দিন আজকে! ✨',
+}
+const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দর কাটুক! 😊'
+
 // ---------- Feed ----------
 export function Feed() {
+  const { friends, user } = useStore()
   const [posts, setPosts] = useState(SEED_POSTS)
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [storyIdx, setStoryIdx] = useState<number | null>(null)
   const navigate = useNavigate()
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x-scroll pb-1">
-        {STORIES.map(s => (
-          <div key={s.id} className="shrink-0 w-24 h-36 rounded-xl bg-gradient-to-b from-blue-500 to-blue-300 text-white p-2 flex flex-col justify-end cursor-pointer" style={s.mine ? undefined : { background: (s as any).color }}>
-            <span className="text-lg">{s.mine ? '➕' : '👤'}</span><span className="text-xs font-bold">{s.name}</span>
-          </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+        <button onClick={() => setComposerOpen(true)} className="shrink-0 w-20 text-center">
+          <span className="mx-auto flex w-16 h-16 rounded-full bg-blue-100 dark:bg-slate-700 items-center justify-center text-2xl">➕</span>
+          <span className="text-xs font-medium block mt-1 truncate">তোমার স্টোরি</span>
+        </button>
+        {friends.map((f, i) => (
+          <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 w-20 text-center">
+            <span className="mx-auto block w-16 h-16 rounded-full p-[3px]" style={{ background: f.color }}>
+              <span className="flex w-full h-full rounded-full bg-white dark:bg-slate-800 items-center justify-center font-bold text-lg" style={{ color: f.color }}>{f.name.slice(0, 1)}</span>
+            </span>
+            <span className="text-xs block mt-1 truncate">{f.name}</span>
+          </button>
         ))}
       </div>
+      {storyIdx !== null && friends[storyIdx] && (
+        <div className="fixed inset-0 z-50 bg-black/90 text-white flex flex-col items-center justify-center p-6" onClick={() => setStoryIdx(null)}>
+          <button className="absolute top-4 right-4 text-2xl px-3 py-1" onClick={() => setStoryIdx(null)}>✕</button>
+          <span className="w-24 h-24 rounded-full text-white flex items-center justify-center text-4xl font-bold" style={{ background: friends[storyIdx].color }}>{friends[storyIdx].name.slice(0, 1)}</span>
+          <p className="font-bold text-lg mt-4">{friends[storyIdx].name}</p>
+          <p className="text-sm text-gray-300 mt-2 text-center">{STORY_CAPTIONS[friends[storyIdx].name] ?? STORY_CAPTION_FALLBACK}</p>
+          <div className="flex gap-3 mt-6">
+            <button className="px-4 py-2 rounded-full bg-white/20 disabled:opacity-40" disabled={storyIdx === 0} onClick={e => { e.stopPropagation(); setStoryIdx(storyIdx - 1) }}>‹ আগের</button>
+            <button className="px-4 py-2 rounded-full bg-white/20 disabled:opacity-40" disabled={storyIdx === friends.length - 1} onClick={e => { e.stopPropagation(); setStoryIdx(storyIdx + 1) }}>পরের ›</button>
+          </div>
+        </div>
+      )}
       <RefWelcomeBanner />
       <DailyBonusCard />
       <InviteCard />
       <LeaderboardCard />
       <Card>
-        <p className="font-medium">আপনার মনে কী আছে?</p>
-        <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="কিছু লিখুন…" />
-        <div className="flex justify-end mt-2"><Btn disabled={!text.trim()} onClick={() => { setPosts([{ id: 'p' + Date.now(), author: 'আপনি', time: 'এখনই', text, likes: 0, comments: 0, shares: 0, color: '#1877F2' }, ...posts]); setText('') }}>পোস্ট করুন</Btn></div>
+        {composerOpen ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="w-10 h-10 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold">{(user?.name || 'আ').slice(0, 1)}</span>
+              <p className="font-medium">{user?.name || 'আপনি'}</p>
+            </div>
+            <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="কিছু লিখুন…" />
+            <div className="flex justify-end gap-2 mt-2">
+              <Btn variant="ghost" onClick={() => { setComposerOpen(false); setText('') }}>বাতিল</Btn>
+              <Btn disabled={!text.trim()} onClick={() => { setPosts([{ id: 'p' + Date.now(), author: 'আপনি', time: 'এখনই', text, likes: 0, comments: 0, shares: 0, color: '#1877F2' }, ...posts]); setText(''); setComposerOpen(false) }}>পোস্ট করুন</Btn>
+            </div>
+          </>
+        ) : (
+          <button onClick={() => setComposerOpen(true)} className="flex items-center gap-3 w-full text-left">
+            <span className="w-10 h-10 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'আ').slice(0, 1)}</span>
+            <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">মনে কী আছে?</span>
+          </button>
+        )}
       </Card>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         {REELS.map(r => (
