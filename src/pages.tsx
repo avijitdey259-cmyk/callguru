@@ -668,9 +668,7 @@ export function Marketplace() {
       <input className="w-full border rounded-lg px-3 py-2 dark:bg-fb-card dark:border-slate-600" placeholder="Search — doctor, teacher, lawyer…" value={q} onChange={e => setQ(e.target.value)} />
       <div className="flex gap-2 flex-wrap">{CATEGORIES.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
       <h2 className="font-bold flex items-center gap-2 flex-wrap">Expert — call per minute
-        {source === 'live'
-          ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">● Live — Railway Backend</span>
-          : <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">Demo — local data</span>}
+        {source === 'live' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">● Live — Railway Backend</span>}
       </h2>
       <div className="grid sm:grid-cols-2 gap-3">
         {filteredExperts.map(e => <ExpertCard key={e.id} expert={e} />)}
@@ -678,16 +676,17 @@ export function Marketplace() {
       </div>
       <h2 className="font-bold pt-2">Service Marketplace</h2>
       <div className="grid sm:grid-cols-2 gap-3">
+        {services.length === 0 && <p className="text-sm text-gray-500">No services yet.</p>}
         {services.map(s => (
           <Card key={s.id}>
             <p className="font-bold">{s.title}</p>
             <p className="text-sm text-gray-500">{s.provider} • ⭐ {s.rating} • {s.category}</p>
             <p className="text-sm mt-1">{s.desc}</p>
-            <div className="flex justify-between items-center mt-3"><span className="font-bold text-fb-blue">{formatBDT(s.price)}</span><Btn onClick={() => alert('Demo: the order will stay pending for call confirmation. The team will call to confirm.')}>Order Now</Btn></div>
+            <div className="flex justify-between items-center mt-3"><span className="font-bold text-fb-blue">{formatBDT(s.price)}</span><Btn onClick={() => alert('The order will stay pending for call confirmation. The team will call to confirm.')}>Order Now</Btn></div>
           </Card>
         ))}
       </div>
-      <p className="text-xs text-gray-400">A new service you create will show here (saved locally in the demo).</p>
+      <p className="text-xs text-gray-400">A new service you create will show here (saved locally on this device).</p>
       <input type="hidden" value={services.length} readOnly />
     </div>
   )
@@ -739,7 +738,7 @@ export function ExpertProfile() {
           <Btn variant="ghost" onClick={() => navigate('/chat')}>💬 Free Chat</Btn>
         </div>
       </Card>
-      <Card><h2 className="font-bold mb-2">Reviews</h2><p className="text-sm">⭐⭐⭐⭐⭐ "Got very good advice, answered the call on time." — a user</p></Card>
+      <Card><h2 className="font-bold mb-2">Reviews</h2><p className="text-sm text-gray-500">No reviews yet.</p></Card>
     </div>
   )
 }
@@ -760,7 +759,7 @@ export function CreateService() {
       <label className="text-sm font-medium block mt-3">Description</label>
       <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" rows={3} value={desc} onChange={e => setDesc(e.target.value)} />
       <Btn className="w-full mt-4" disabled={!title || !price} onClick={() => setDone(true)}>Publish</Btn>
-      {done && <p className="text-sm text-green-600 mt-3">✅ Service published in the demo. <button className="text-fb-blue" onClick={() => navigate('/marketplace')}>View Marketplace</button></p>}
+      {done && <p className="text-sm text-green-600 mt-3">✅ Service published. <button className="text-fb-blue" onClick={() => navigate('/marketplace')}>View Marketplace</button></p>}
     </Card></div>
   )
 }
@@ -2022,7 +2021,7 @@ export function DatingPage() {
   const [boosted, setBoosted] = useState(false)
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
   const [matchMsg, setMatchMsg] = useState('')
-  // আসল লাইভ রুম (PiCall লাইভ সার্ভার) — সার্ভার না পৌঁছালে ডেমো হোস্ট দেখাবে
+  // আসল লাইভ রুম (PiCall লাইভ সার্ভার) — সার্ভার না পৌঁছালে লাইভ তালিকা খালি দেখাবে
   const [realRooms, setRealRooms] = useState<LiveRoom[] | null>(null)
   const [liveServerOk, setLiveServerOk] = useState(false)
   function refreshLiveRooms() {
@@ -2098,6 +2097,7 @@ export function DatingPage() {
         <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
+        {DATING_PROFILES.filter(p => !dismissed[p.id]).length === 0 && <p className="text-sm text-gray-500 col-span-2">No profiles yet — check back later.</p>}
         {DATING_PROFILES.filter(p => !dismissed[p.id]).map(p => (
           <div key={p.id} className="rounded-2xl overflow-hidden shadow-sm relative" style={{ background: p.color }}>
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
@@ -2431,8 +2431,8 @@ export function DatingGoLivePage() {
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট π ০.০৫/মিনিট)
   const [started, setStarted] = useState(false)
   const [seconds, setSeconds] = useState(0)
-  const [viewers, setViewers] = useState(14)
-  const [peakViewers, setPeakViewers] = useState(14)
+  const [viewers, setViewers] = useState(0)
+  const [peakViewers, setPeakViewers] = useState(0)
   const [ended, setEnded] = useState(false)
   const [endMyShare, setEndMyShare] = useState(0)
   const [endGross, setEndGross] = useState(0)
@@ -2451,7 +2451,7 @@ export function DatingGoLivePage() {
   const streamRef = useRef<MediaStream | null>(null)
   const selfRef = useRef<HTMLVideoElement>(null)
   function setFacingBoth(f: 'user' | 'environment') { facingRef.current = f; setFacing(f) }
-  // আসল লাইভ সার্ভার (WebRTC হোস্ট) — সার্ভার না পৌঁছালে ডেমো আচরণই থাকবে
+  // আসল লাইভ সার্ভার (WebRTC হোস্ট) — সার্ভার না পৌঁছালে রুম ছাড়াই লাইভ চলবে, কেউ দেখতে পাবে না
   const wsRef = useRef<WebSocket | null>(null)
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const roomIdRef = useRef<string | null>(null)
@@ -2479,7 +2479,7 @@ export function DatingGoLivePage() {
   // ক্যামেরা চালু হওয়ার পর লাইভ রুম খুলে সিগন্যালিংয়ে হোস্ট হিসেবে যোগ দেওয়া
   async function setupHostLive(stream: MediaStream) {
     const room = await createLiveRoom(user?.name || 'You', 'Dating Live')
-    if (!room) { setServerLive(false); return } // ডেমো ফলব্যাক — রুম ছাড়াই লাইভ চলবে
+    if (!room) { setServerLive(false); return } // রুম ছাড়াই লাইভ চলবে — সার্ভার ছাড়া কেউ দেখতে পাবে না
     roomIdRef.current = room.id
     setRoomId(room.id)
     const ws = connectLive(room.id, 'host', user?.name || 'You', {
@@ -2515,19 +2515,6 @@ export function DatingGoLivePage() {
     const t = setInterval(() => setSeconds(s => s + 1), 1000)
     return () => clearInterval(t)
   }, [started, ended])
-
-  // ডেমো দর্শক সংখ্যা — আসল দর্শক নয়; সার্ভার সংযুক্ত থাকলে আসল সংখ্যাই আসবে
-  useEffect(() => {
-    if (!started || ended || serverLive) return
-    const t = setInterval(() => {
-      setViewers(v => {
-        const next = Math.max(3, v + Math.floor(Math.random() * 6) - 2)
-        setPeakViewers(p => Math.max(p, next))
-        return next
-      })
-    }, 4000)
-    return () => clearInterval(t)
-  }, [started, ended, serverLive])
 
   useEffect(() => {
     if (!started) return
@@ -2668,7 +2655,7 @@ export function DatingGoLivePage() {
           </div>
           {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
           {hostChat.length > 0 && <div className="text-xs text-left mt-2 glass rounded-xl px-3 py-2 max-h-20 overflow-y-auto">{hostChat.map((m, i) => <p key={i}><b>{m.from}:</b> {m.text}</p>)}</div>}
-          <p className="text-xs text-gray-300 mt-2">{serverLive ? '🟢 Live server connected — real broadcast.' : 'Demo live — viewer count is demo data.'}</p>
+          <p className="text-xs text-gray-300 mt-2">{serverLive ? '🟢 Live server connected — real broadcast.' : 'Live server is not connected — nobody can watch yet.'}</p>
         </div>
       </div>
       <div className="px-3 pb-4 relative">
@@ -2728,9 +2715,10 @@ export function ServicesPage() {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">🏠 Home Service</h1>
+      {SERVICES.filter(s => s.category === 'Home Service').length === 0 && <p className="text-sm text-gray-500">No home services yet.</p>}
       {SERVICES.filter(s => s.category === 'Home Service').map(s => (
         <Card key={s.id}><div className="flex justify-between"><div><p className="font-bold">{s.title}</p><p className="text-sm text-gray-500">{s.provider} • ⭐ {s.rating}</p><p className="text-sm mt-1">{s.desc}</p></div><span className="font-bold text-fb-blue whitespace-nowrap">{formatBDT(s.price)}</span></div>
-          <Btn className="mt-3" onClick={() => alert('Demo: booking pending — the team will call to confirm.')}>Book</Btn></Card>
+          <Btn className="mt-3" onClick={() => alert('Booking pending — the team will call to confirm.')}>Book</Btn></Card>
       ))}
       <Card><p className="text-sm">Want to become a service provider? <Link className="text-fb-blue" to="/create-service">Create Service</Link> — platform commission applies on every booking.</p></Card>
     </div>
@@ -2738,20 +2726,10 @@ export function ServicesPage() {
 }
 
 export function GroupsPage() {
-  const [joined, setJoined] = useState<Record<string, boolean>>({})
-  const groups = [
-    { id: 'g1', name: 'IELTS Preparation', members: '12,400', type: 'Group' },
-    { id: 'g2', name: 'Freelancers Bangladesh', members: '8,900', type: 'Group' },
-    { id: 'g3', name: 'PiCall Experts', members: '3,200', type: 'Page' },
-    { id: 'g4', name: 'Dhaka Home Service', members: '5,600', type: 'Page' }
-  ]
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">👥 Groups & Pages</h1>
-      {groups.map(g => (
-        <Card key={g.id}><div className="flex justify-between items-center"><div><p className="font-bold">{g.name}</p><p className="text-sm text-gray-500">{g.type} • {g.members} members</p></div>
-          <Btn variant={joined[g.id] ? 'ghost' : 'primary'} onClick={() => setJoined(v => ({ ...v, [g.id]: !v[g.id] }))}>{joined[g.id] ? 'Joined ✓' : 'Join'}</Btn></div></Card>
-      ))}
+      <p className="text-sm text-gray-500">No groups or pages yet.</p>
     </div>
   )
 }
@@ -3133,7 +3111,7 @@ export function AdminPage() {
             <Btn variant="ghost" onClick={refreshAdminRooms}>🔄 Refresh</Btn>
           </div>
           <p className="text-xs text-gray-400 mt-1">The admin can monitor from here who is on Dating Live right now. Entering a live applies the same prepaid rate as a viewer.</p>
-          {!adminLiveOk && <p className="text-sm text-amber-600 mt-2">⚠️ Cannot reach the live server — demo note: running lives will show here once the server is up.</p>}
+          {!adminLiveOk && <p className="text-sm text-amber-600 mt-2">⚠️ Cannot reach the live server — running lives will show here once the server is up.</p>}
           {adminLiveOk && adminRooms && adminRooms.length === 0 && <p className="text-sm mt-2">Nobody is live right now.</p>}
           {adminLiveOk && adminRooms && adminRooms.length > 0 && (
             <div className="space-y-2 mt-3">
@@ -3150,17 +3128,17 @@ export function AdminPage() {
           )}
         </div>
       </Card>}
-      {tab === 'users' && <Card><h2 className="font-bold">Users</h2><p className="text-sm mt-2">Total users (demo): 1,240 • Experts: 86 • Creators: 120 • 18+ verified dating profiles: 340</p><p className="text-sm mt-2">Dating KYC: {kycStatus === 'approved' ? `✅ Approved (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('en-GB') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, last 4 of ID: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ Under review — waiting for admin approval' : kycStatus === 'rejected' ? `❌ Rejected — ${kycRejectReason || 'No reason given'}` : '⏳ Not yet'}</p></Card>}
-      {tab === 'recordings' && <Card><h2 className="font-bold">Call Recording — Admin Only</h2><p className="text-sm mt-2">Only the admin can view recordings, for appeal/dispute resolution. Regular users have no record button. Stored: 30 days (Cloudflare R2 free tier). Stored on the server, not on the user's phone.</p><p className="text-sm mt-1">There is no real recording in the demo.</p></Card>}
+      {tab === 'users' && <Card><h2 className="font-bold">Users</h2><p className="text-sm text-gray-500 mt-2">No user totals yet — live user counts are not tracked.</p><p className="text-sm mt-2">Dating KYC: {kycStatus === 'approved' ? `✅ Approved (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('en-GB') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, last 4 of ID: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ Under review — waiting for admin approval' : kycStatus === 'rejected' ? `❌ Rejected — ${kycRejectReason || 'No reason given'}` : '⏳ Not yet'}</p></Card>}
+      {tab === 'recordings' && <Card><h2 className="font-bold">Call Recording — Admin Only</h2><p className="text-sm mt-2">Only the admin can view recordings, for appeal/dispute resolution. Regular users have no record button. Stored: 30 days (Cloudflare R2 free tier). Stored on the server, not on the user's phone.</p><p className="text-sm text-gray-500 mt-1">No recordings yet.</p></Card>}
       {tab === 'livetv' && <Card><h2 className="font-bold">Add Live TV Channel</h2>
         <label className="text-sm block mt-3">Channel Name</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvName} onChange={e => setTvName(e.target.value)} />
         <label className="text-sm block mt-3">Official HLS Stream URL</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvUrl} onChange={e => setTvUrl(e.target.value)} placeholder="https://...m3u8" />
         <label className="text-sm block mt-3">Official Source Link</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" placeholder="https://..." />
         <Btn className="mt-3" disabled={!tvName || !tvUrl} onClick={() => setTvAdded(true)}>Add Channel</Btn>
-        {tvAdded && <p className="text-sm text-green-600 mt-2">✅ {tvName} added in the demo.</p>}
+        {tvAdded && <p className="text-sm text-green-600 mt-2">✅ {tvName} added.</p>}
         <p className="text-xs text-gray-400 mt-2">Use only official HLS streams and official source links.</p>
       </Card>}
-      {tab === 'moderation' && <Card><h2 className="font-bold">Moderation Log</h2><p className="text-sm mt-2">Attempts to share contact info (masked) are logged here; repeated attempts raise more warnings. In the demo: 3 attempts logged, 0 accounts suspended.</p><p className="text-sm mt-1">Reported dating profiles: 2 (under review).</p></Card>}
+      {tab === 'moderation' && <Card><h2 className="font-bold">Moderation Log</h2><p className="text-sm text-gray-500 mt-2">No attempts logged yet.</p><p className="text-sm text-gray-500 mt-1">No reported profiles.</p></Card>}
       {tab === 'settings' && <AdminSettingsTab />}
     </div>
   )

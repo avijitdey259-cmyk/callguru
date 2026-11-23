@@ -1,4 +1,5 @@
-// PiCall seed data — demo/local mode. No real user data, no secrets.
+// PiCall shared data — no seed/demo data. Lists that used to hold demo
+// entries are empty; real content comes from the backend / Firestore / the user.
 export type Expert = {
   id: string; name: string; title: string; category: string;
   rate: number; rating: number; calls: number; online: boolean;
@@ -35,24 +36,12 @@ export const TV_CHANNELS: TvChannel[] = [
 export const TV_CATEGORIES = ['All', 'News', 'Entertainment', 'Sports']
 
 export type Service = { id: string; title: string; price: number; category: string; provider: string; rating: number; desc: string }
-export const SERVICES: Service[] = [
-  { id: 'srv-1', title: 'Home Cleaning (2 Bedrooms)', price: 800, category: 'Home Service', provider: 'CleanHome BD', rating: 4.8, desc: 'Professional cleaning team, with their own equipment.' },
-  { id: 'srv-2', title: 'AC Servicing', price: 1200, category: 'Home Service', provider: 'CoolCare', rating: 4.7, desc: 'Gas check, filter cleaning and general repair.' },
-  { id: 'srv-3', title: 'Plumber — Home Service', price: 500, category: 'Home Service', provider: 'FixIt', rating: 4.6, desc: 'Leak, tap and pipe repair.' },
-  { id: 'srv-4', title: 'Electrician', price: 600, category: 'Home Service', provider: 'PowerFix', rating: 4.8, desc: 'Wiring, switch and fan repair.' },
-  { id: 'srv-5', title: 'Online Math Tuition (1 Month)', price: 1500, category: 'Education', provider: 'Mehjabin Chowdhury', rating: 4.9, desc: '3 days a week, 1 hour live classes.' },
-  { id: 'srv-6', title: 'Logo Design', price: 2000, category: 'Design', provider: 'PixelStudio', rating: 4.7, desc: '3 concepts, with source files.' }
-]
+// সার্ভিস সিড সরানো হয়েছে (ডেমো ডেটা) — মার্কেটপ্লেস খালি থাকবে, যতক্ষণ না আসল সার্ভিস আসে।
+export const SERVICES: Service[] = []
 
 export type DatingProfile = { id: string; name: string; age: number; city: string; about: string; color: string; compat?: number }
-export const DATING_PROFILES: DatingProfile[] = [
-  { id: 'dt-1', name: 'Tania', age: 24, city: 'Dhaka', about: 'I love reading books and travelling.', color: '#E91E63', compat: 86 },
-  { id: 'dt-2', name: 'Rakib', age: 27, city: 'Chattogram', about: 'Photography and cricket — I love both.', color: '#2196F3', compat: 78 },
-  { id: 'dt-3', name: 'Sumaiya', age: 23, city: 'Sylhet', about: 'Cooking and music — my two loves.', color: '#9C27B0', compat: 92 },
-  { id: 'dt-4', name: 'Arif', age: 26, city: 'Khulna', about: 'Working on a startup, I love meeting new people.', color: '#009688', compat: 81 },
-  { id: 'dt-5', name: 'Nusrat', age: 25, city: 'Dhaka', about: 'I teach, and I love watching movies.', color: '#FF5722', compat: 88 },
-  { id: 'dt-6', name: 'Sajib', age: 28, city: 'Rajshahi', about: 'Banker, I travel on weekends.', color: '#607D8B', compat: 74 }
-]
+// ডেটিং প্রোফাইল সিড সরানো হয়েছে (ডেমো ডেটা) — ডেটিং তালিকা খালি থাকবে, যতক্ষণ না আসল প্রোফাইল আসে।
+export const DATING_PROFILES: DatingProfile[] = []
 
 export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean }
 // সিড পোস্ট সরানো হয়েছে (ডেমো ডেটা) — ফিডে শুধু ব্যবহারকারীর নিজের পোস্ট থাকে।
