@@ -18,10 +18,11 @@ import {
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
   BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
   USDT_NETWORKS, piWithdrawFee,
-  type Expert
+  type Expert, type DatingProfile
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
-import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
+import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers } from './firestore'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
@@ -196,13 +197,13 @@ export function Landing() {
   return (
     <div className="space-y-6">
       <RefWelcomeBanner />
-      <Card className="text-center py-10 bg-gradient-to-br from-blue-600 to-blue-400 !text-white">
+      <Card className="text-center py-10 bg-gradient-to-br from-violet-600 to-pink-500 !text-white">
         <h1 className="text-4xl font-extrabold">PiCall</h1>
         <p className="mt-2 text-lg">Live Expert Advice • Social Community • Creator Marketplace</p>
         <p className="mt-1 text-sm opacity-90">Chat completely free • Calls prepaid • First call's first 1 minute free</p>
         <div className="mt-5 flex gap-3 justify-center">
           <Btn variant="green" onClick={() => navigate('/login')}>1-Click Login with Gmail</Btn>
-          <Btn variant="ghost" className="!bg-white !text-blue-700" onClick={() => navigate('/feed')}>View Feed</Btn>
+          <Btn variant="ghost" className="!bg-white !text-violet-700" onClick={() => navigate('/feed')}>View Feed</Btn>
         </div>
         <div className="mt-4 max-w-xs mx-auto"><InstallButton /></div>
       </Card>
@@ -465,9 +466,15 @@ function NewMembersSection() {
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery } = useStore()
+  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi } = useStore()
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
+  const [postTitle, setPostTitle] = useState('')
+  const [postLocation, setPostLocation] = useState('')
+  const [postAudience, setPostAudience] = useState<'Public' | 'Friends'>('Public')
+  const [boostPost, setBoostPost] = useState(false)
+  const [feedFilter, setFeedFilter] = useState<'All' | 'Liked' | 'Mine'>('All')
+  const visiblePosts = posts.filter(p => feedFilter === 'All' ? true : feedFilter === 'Liked' ? !!liked[p.id] : p.author === 'You')
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
@@ -498,23 +505,25 @@ export function Feed() {
       {installBonusClaimed ? (
         <p className="text-sm text-green-600">✅ Install bonus received — 5 π gift Pi added</p>
       ) : (
-        <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #F59E0B, #F97316)' }}>
+        <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #7C3AED, #EC4899)' }}>
           <p className="text-lg font-extrabold">🎁 Install the app and get 5 π free!</p>
           <p className="text-sm mt-1">Install and get a 5 π bonus — gifts only.</p>
           <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
         </div>
       )}
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        <button onClick={() => setComposerOpen(true)} className="shrink-0 w-28 h-44 rounded-xl overflow-hidden relative text-left shadow-sm bg-white dark:bg-fb-card">
-          <span className="absolute inset-x-0 top-0 h-32 bg-blue-100 dark:bg-slate-700 flex items-center justify-center text-3xl">➕</span>
-          <span className="absolute left-1/2 -translate-x-1/2 top-[7rem] w-9 h-9 rounded-full bg-fb-blue text-white flex items-center justify-center text-xl border-4 border-white dark:border-fb-card">+</span>
-          <span className="absolute bottom-0 inset-x-0 p-2 text-xs font-bold text-center">Your Story</span>
+        <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
+          <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
+            <span className="w-full h-full rounded-full bg-white dark:bg-fb-card flex items-center justify-center text-2xl relative">➕<span className="absolute bottom-0 right-0 w-5 h-5 rounded-full pb-gradient text-white flex items-center justify-center text-sm border-2 border-white dark:border-fb-card">+</span></span>
+          </span>
+          <span className="text-[11px] font-medium text-center leading-tight">Your Story</span>
         </button>
         {friends.map((f, i) => (
-          <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 w-28 h-44 rounded-xl overflow-hidden relative text-left shadow-sm">
-            <span className="absolute inset-0 flex items-center justify-center text-4xl font-bold text-white" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
-            <span className="absolute top-2 left-2 w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm text-white ring-4 ring-[#1877F2]" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
-            <span className="absolute inset-x-0 bottom-0 p-2 text-xs font-bold text-white bg-gradient-to-t from-black/60 to-transparent">{f.name}</span>
+          <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
+            <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px]">
+              <span className="w-full h-full rounded-full flex items-center justify-center font-bold text-xl text-white border-[3px] border-white dark:border-black" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
+            </span>
+            <span className="text-[11px] font-medium text-center leading-tight truncate w-full">{f.name}</span>
           </button>
         ))}
       </div>
@@ -534,18 +543,35 @@ export function Feed() {
         {composerOpen ? (
           <>
             <div className="flex items-center gap-2">
-              <span className="w-10 h-10 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>
+              <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>
               <p className="font-medium">{user?.name || 'You'}</p>
             </div>
+            <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postTitle} onChange={e => setPostTitle(e.target.value)} placeholder="Title (optional)" />
             <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Write something…" />
+            <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postLocation} onChange={e => setPostLocation(e.target.value)} placeholder="Add location (optional)" />
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="text-xs text-gray-400">Share to</span>
+              {(['Public', 'Friends'] as const).map(a => (
+                <button key={a} onClick={() => setPostAudience(a)} className={`px-3 py-1 rounded-full text-xs font-medium ${postAudience === a ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{a === 'Public' ? '🌐 Public' : '👥 Friends'}</button>
+              ))}
+              <button onClick={() => setBoostPost(b => !b)} className={`ml-auto px-3 py-1 rounded-full text-xs font-medium ${boostPost ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>🚀 Boost Post (0.1 π)</button>
+            </div>
             <div className="flex justify-end gap-2 mt-2">
-              <Btn variant="ghost" onClick={() => { setComposerOpen(false); setText('') }}>Cancel</Btn>
-              <Btn disabled={!text.trim()} onClick={() => { setPosts([{ id: 'p' + Date.now(), author: 'You', time: 'Now', text, likes: 0, comments: 0, shares: 0, color: '#1877F2' }, ...posts]); setText(''); setComposerOpen(false) }}>Post</Btn>
+              <Btn variant="ghost" onClick={() => { setComposerOpen(false); setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false) }}>Cancel</Btn>
+              <Btn disabled={!text.trim()} onClick={() => {
+                let boosted = false
+                if (boostPost) {
+                  if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
+                  addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
+                }
+                setPosts([{ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED' }, ...posts])
+                setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false); setComposerOpen(false)
+              }}>Post</Btn>
             </div>
           </>
         ) : (
           <button onClick={() => setComposerOpen(true)} className="flex items-center gap-3 w-full text-left">
-            <span className="w-10 h-10 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>
+            <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>
             <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">What's on your mind?</span>
           </button>
         )}
@@ -588,17 +614,24 @@ export function Feed() {
       ) : (
         <p className="text-sm text-gray-500">No reels yet.</p>
       )}
-      {posts.length === 0 && <Card><p className="text-sm text-gray-500 text-center">No posts yet — write the first post.</p></Card>}
-      {posts.map(p => (
+      <div className="flex gap-2">
+        {(['All', 'Liked', 'Mine'] as const).map(f => (
+          <button key={f} onClick={() => setFeedFilter(f)} className={`px-3 py-1.5 rounded-full text-sm font-medium ${feedFilter === f ? 'pb-gradient text-white shadow-sm' : 'bg-white dark:bg-fb-card border border-gray-100 dark:border-white/10'}`}>{f === 'All' ? 'All posts' : f === 'Liked' ? '❤️ Liked' : 'My posts'}</button>
+        ))}
+      </div>
+      {visiblePosts.length === 0 && <Card><p className="text-sm text-gray-500 text-center">{feedFilter === 'All' ? 'No posts yet — write the first post.' : 'No posts in this filter.'}</p></Card>}
+      {visiblePosts.map(p => (
         <div key={p.id} id={'post-' + p.id}>
         <Card>
           <div className="flex items-center gap-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.author.slice(0, 1)}</span>
-            <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}</p></div>
+            <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}{p.location ? ` • 📍 ${p.location}` : ''}{p.audience ? ` • ${p.audience === 'Public' ? '🌐 Public' : '👥 Friends'}` : ''}</p></div>
+            {p.boosted && <span className="ml-auto text-xs font-bold text-white px-2 py-1 rounded-full pb-gradient">🚀 Boosted</span>}
           </div>
-          <p className="mt-3 text-sm">{p.text}</p>
+          {p.title && <p className="mt-3 font-bold">{p.title}</p>}
+          <p className={`text-sm ${p.title ? 'mt-1' : 'mt-3'}`}>{p.text}</p>
           <div className="flex mt-3 pt-1 border-t text-sm text-gray-500 dark:text-gray-300">
-            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium" onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} Likes ({p.likes + (liked[p.id] ? 1 : 0)})</button>
+            <button className={`flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium ${liked[p.id] ? 'text-pink-600 font-bold' : ''}`} onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} Likes ({p.likes + (liked[p.id] ? 1 : 0)})</button>
             <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium">💬 Comments ({p.comments})</button>
             <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium" onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}>↗️ Share ({p.shares})</button>
           </div>
@@ -1228,7 +1261,7 @@ export function CallPage() {
       {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
-        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmt(seconds)} • {liveCost === 0 ? 'Free' : formatPi(liveCost)}</span>
+        <span className="text-xs glass px-2 py-1 rounded-full">{fmt(seconds)} • {liveCost === 0 ? 'Free' : formatPi(liveCost)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
         <video ref={(el) => { videoRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current }} className={`absolute inset-0 w-full h-full object-cover ${remoteReady ? 'opacity-100' : 'opacity-0'}`} autoPlay playsInline />
@@ -1237,7 +1270,7 @@ export function CallPage() {
             <span className="w-28 h-28 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
             <p className="text-xl font-bold mt-3">{name}</p>
             <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '1st minute free' : `${formatPi(liveCost)}`}</p>
-            {sharing && <p className="text-xs mt-2 bg-blue-600 inline-block px-2 py-1 rounded">🖥️ Screen Sharing</p>}
+            {sharing && <p className="text-xs mt-2 pb-gradient inline-block px-2 py-1 rounded">🖥️ Screen Sharing</p>}
             {camOff && <p className="text-xs mt-2">📷 Camera Off</p>}
           </div>
         )}
@@ -1245,7 +1278,7 @@ export function CallPage() {
         <video ref={(el) => { selfRef.current = el; if (el && streamRef.current) el.srcObject = streamRef.current }} style={{ transform: facing === 'user' ? 'scaleX(-1)' : 'none' }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
       </div>
       <div className="px-3 pb-3">
-        <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
+        <div className="max-w-md mx-auto glass rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
           {chat.length === 0 && <p className="text-xs text-gray-300 text-center">In-call chat — sharing numbers/links/emails is blocked.</p>}
           {chat.map((m, i) => <p key={i} className="text-sm"><b>{m.from}:</b> {m.text}</p>)}
         </div>
@@ -1255,10 +1288,10 @@ export function CallPage() {
           <Btn onClick={sendChat}>Send</Btn>
         </div>
         <div className="flex justify-center gap-3 pb-2">
-          <button onClick={toggleMute} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="Mic">{muted ? '🔇' : '🎤'}</button>
-          <button onClick={toggleCam} className="w-14 h-14 rounded-full bg-slate-700 text-2xl" title="Camera">{camOff ? '📷' : '📹'}</button>
-          <button onClick={() => setSharing(s => !s)} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'bg-blue-600' : 'bg-slate-700'}`} title="Screen Share">🖥️</button>
-          <button onClick={switchCamera} disabled={switching || camCount === 1} className="h-14 px-3 rounded-full bg-slate-700 text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
+          <button onClick={toggleMute} className="w-14 h-14 rounded-full glass text-2xl" title="Mic">{muted ? '🔇' : '🎤'}</button>
+          <button onClick={toggleCam} className="w-14 h-14 rounded-full glass text-2xl" title="Camera">{camOff ? '📷' : '📹'}</button>
+          <button onClick={() => setSharing(s => !s)} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'pb-gradient' : 'glass'}`} title="Screen Share">🖥️</button>
+          <button onClick={switchCamera} disabled={switching || camCount === 1} className="h-14 px-3 rounded-full glass text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
           <button onClick={() => hangUp('You ended the call')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="Call ended">📞</button>
         </div>
         {camCount === 1 && <p className="text-center text-xs text-yellow-300 mb-1">This device has 1 camera — you cannot switch cameras.</p>}
@@ -1643,8 +1676,9 @@ export function ChatPage() {
   const lastFunRef = useRef<Record<string, boolean>>({})
   // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায় (শুধু আসল বন্ধুর নামে)
   useEffect(() => {
-    const withName = (location.state as { with?: string } | null)?.with
-    if (withName && friends.some(f => f.name === withName)) setActive(withName)
+    const st = location.state as { with?: string; draft?: string } | null
+    if (st?.with && friends.some(f => f.name === st.with)) setActive(st.with)
+    if (st?.draft) setDraft(st.draft)
   }, [location.state])
   useEffect(() => {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
@@ -1680,7 +1714,7 @@ export function ChatPage() {
         <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? '🔔 Sound on — tap to turn off' : '🔕 Sound off — tap to turn on'}</button>
         {contacts.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
         {contacts.map(n => (
-          <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-blue-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
+          <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
         ))}
         <p className="text-xs text-gray-400 mt-3">Phone numbers, WhatsApp/Facebook/Telegram links or emails cannot be shared — they will be blocked automatically.</p>
         {warn > 0 && <p className="text-xs text-red-500 mt-1">Warning: {warn} times the rules were tried to be broken.</p>}
@@ -1688,7 +1722,7 @@ export function ChatPage() {
       <Card className="md:col-span-2">
         <h2 className="font-bold">{active}</h2>
         <div className="h-64 overflow-y-auto space-y-2 mt-3">
-          {(msgs[active] || []).map((m, i) => <p key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}><b>{m.from}:</b> {m.text}</p>)}
+          {(msgs[active] || []).map((m, i) => <p key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-violet-100 dark:bg-violet-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}><b>{m.from}:</b> {m.text}</p>)}
           {(msgs[active] || []).length === 0 && !typing[active] && <p className="text-sm text-gray-400 px-3 py-2">No messages yet — write the first message.</p>}
           {typing[active] && <p className="text-sm text-gray-400 italic px-3 py-2">{active} typing…</p>}
         </div>
@@ -1975,6 +2009,8 @@ function DatingKycBlocked() {
 }
 
 // ---------- Dating 18+ ----------
+function compatFor(p: DatingProfile) { return p.compat ?? 86 }
+
 export function DatingPage() {
   const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, kycVerified } = useStore()
   const navigate = useNavigate()
@@ -1984,6 +2020,8 @@ export function DatingPage() {
   const [matchedId, setMatchedId] = useState<string | null>(null)
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({})
   const [boosted, setBoosted] = useState(false)
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
+  const [matchMsg, setMatchMsg] = useState('')
   // আসল লাইভ রুম (PiCall লাইভ সার্ভার) — সার্ভার না পৌঁছালে ডেমো হোস্ট দেখাবে
   const [realRooms, setRealRooms] = useState<LiveRoom[] | null>(null)
   const [liveServerOk, setLiveServerOk] = useState(false)
@@ -2046,28 +2084,43 @@ export function DatingPage() {
         )}
       </Card>
       <LeaderboardCard />
-      {matched && matchedId && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 Matched — {matched}!</p><p className="text-sm">You can chat or video call now.</p>
+      {matched && matchedId && <Card className="!pb-match !text-white text-center !border-0 shadow-lg"><p className="font-extrabold text-2xl">🎉 It's a Match!</p><p className="text-sm mt-1 opacity-90">You and {matched} liked each other — say something nice!</p>
+        <input className="w-full rounded-full px-4 py-2.5 mt-3 text-sm text-gray-900 placeholder-gray-400" value={matchMsg} onChange={e => setMatchMsg(e.target.value)} placeholder="Say something nice" />
+        <div className="flex gap-2 mt-2 justify-center">
+          {['👋', '😊', '❤️'].map(r => (
+            <button key={r} onClick={() => setMatchMsg(m => m ? m + ' ' + r : r)} className="w-10 h-10 rounded-full glass text-xl flex items-center justify-center">{r}</button>
+          ))}
+        </div>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
-          <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">Start Chat →</Link>
+          <Btn className="!bg-white !text-pink-600 font-bold" onClick={() => navigate('/chat', { state: { with: matched, draft: matchMsg } })}>💬 Send message</Btn>
           <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 Video Call (Prepaid)</Btn>
         </div>
-        <p className="text-xs text-gray-500 mt-2">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
+        <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
-        {DATING_PROFILES.map(p => (
-          <Card key={p.id}>
-            <div className="flex gap-3 items-center">
-              <span className="w-14 h-14 rounded-full text-white text-xl flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-              <div><p className="font-bold">{p.name}, {p.age}</p><p className="text-sm text-gray-500">{p.city}</p></div>
+        {DATING_PROFILES.filter(p => !dismissed[p.id]).map(p => (
+          <div key={p.id} className="rounded-2xl overflow-hidden shadow-sm relative" style={{ background: p.color }}>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+            <div className="relative p-4 pt-24 text-white">
+              <div className="flex items-end justify-between gap-2">
+                <div>
+                  <p className="font-extrabold text-xl">{p.name}, {p.age}</p>
+                  <p className="text-sm opacity-80">📍 {p.city}</p>
+                  <p className="text-sm mt-1 opacity-90">{p.about}</p>
+                </div>
+                <span className="shrink-0 w-14 h-14 rounded-full bg-white/15 backdrop-blur flex items-center justify-center" title={`${compatFor(p)}% compatible`}>
+                  <svg viewBox="0 0 36 36" className="w-12 h-12 -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="3" /><circle cx="18" cy="18" r="15.5" fill="none" stroke="#EC4899" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${compatFor(p) * 0.974} 97.4`} /><text x="18" y="22" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#fff" transform="rotate(90 18 18)">{compatFor(p)}%</text></svg>
+                </span>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => setDismissed(v => ({ ...v, [p.id]: true }))} className="flex-1 py-2.5 rounded-full bg-white/20 backdrop-blur font-bold text-lg" aria-label="Pass">✕</button>
+                <Btn disabled={!!likedIds[p.id]} className="!bg-white !text-pink-600 font-bold flex-1 !py-2.5 !rounded-full" onClick={() => { if (!useLike()) { alert('Today\'s 30 free likes are over — get Premium.'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ Like</Btn>
+                <button onClick={() => { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }} className="flex-1 py-2.5 rounded-full pb-gradient font-bold text-sm">⭐ Super Like (0.15 π)</button>
+              </div>
+              <button onClick={() => alert('This profile has been reported — moderation will review it.')} className="text-xs opacity-70 mt-2 underline">🚩 Report</button>
+              {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 Video Call (prepaid {formatPi(datingRate)}/minute)</Btn>}
             </div>
-            <p className="text-sm mt-2">{p.about}</p>
-            <div className="flex gap-2 mt-3">
-              <Btn disabled={!!likedIds[p.id]} onClick={() => { if (!useLike()) { alert('Today\'s 30 free likes are over — get Premium.'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>❤️ Like</Btn>
-              <Btn variant="ghost" onClick={() => { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.name}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.name); setMatchedId(p.id) }}>⭐ Super Like (0.15 π)</Btn>
-              <Btn variant="ghost" onClick={() => alert('This profile has been reported — moderation will review it.')}>🚩 Report</Btn>
-            </div>
-            {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 Video Call (prepaid {formatPi(datingRate)}/minute)</Btn>}
-          </Card>
+          </div>
         ))}
       </div>
     </div>
@@ -2316,7 +2369,7 @@ export function DatingLivePage() {
       {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
-        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatPi(totalPaid)}</span>
+        <span className="text-xs glass px-2 py-1 rounded-full">{fmtLive(seconds)} • {formatPi(totalPaid)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
         <div className="text-center px-4 w-full max-w-lg">
@@ -2334,7 +2387,7 @@ export function DatingLivePage() {
         </div>
       </div>
       <div className="px-3 pb-3">
-        <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
+        <div className="max-w-md mx-auto glass rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
           {chat.length === 0 && <p className="text-xs text-gray-300 text-center">Live chat — sharing numbers/links/emails is blocked.</p>}
           {chat.map((m, i) => <p key={i} className="text-sm"><b>{m.from}:</b> {m.text}</p>)}
         </div>
@@ -2343,7 +2396,7 @@ export function DatingLivePage() {
           <input className="flex-1 rounded-full px-3 py-2 text-sm text-black" placeholder="Write a message on live…" value={chatDraft} onChange={e => setChatDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} />
           <Btn onClick={sendChat}>Send</Btn>
         </div>
-        <div className="max-w-md mx-auto bg-black/40 rounded-xl p-2 mb-3">
+        <div className="max-w-md mx-auto glass rounded-xl p-2 mb-3">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold">🎁 Send Gift</p>
             <span className="text-xs">π Your Pi: <b>{formatPi(totalPi)}</b></span>
@@ -2351,7 +2404,7 @@ export function DatingLivePage() {
           <p className="text-[11px] text-gray-400 mt-1">Gifts can only be bought with Pi — you cannot buy gifts from outside, and there are no free gifts. The host gets 70% of a gift, the admin gets 30%.</p>
           <div className="grid grid-cols-4 gap-2 mt-2">
             {LIVE_GIFTS.map(g => (
-              <button key={g.name} onClick={() => sendGift(g)} className="bg-slate-700 hover:bg-slate-600 rounded-lg py-2 px-1 text-center">
+              <button key={g.name} onClick={() => sendGift(g)} className="glass hover:bg-white/25 rounded-lg py-2 px-1 text-center">
                 <span className="text-2xl block">{g.icon}</span>
                 <span className="text-xs block">{g.name}</span>
                 <span className="text-[11px] text-yellow-300 font-bold">{formatPi(g.pi)}</span>
@@ -2601,7 +2654,7 @@ export function DatingGoLivePage() {
       {/* small red dot only — no "Recording" text by design; recording is admin-only for appeals */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" title="Admin-only recording indicator" />
-        <span className="text-xs bg-black/50 px-2 py-1 rounded-full">🔴 LIVE • {fmtLive(seconds)}</span>
+        <span className="text-xs glass px-2 py-1 rounded-full">🔴 LIVE • {fmtLive(seconds)}</span>
       </div>
       <div className="flex-1 flex items-center justify-center relative">
         <video ref={selfRef} className="absolute inset-0 w-full h-full object-cover bg-slate-700" style={facing === 'user' ? { transform: 'scaleX(-1)' } : undefined} autoPlay playsInline muted />
@@ -2609,12 +2662,12 @@ export function DatingGoLivePage() {
           <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
           <p className="text-xl font-bold mt-3">{user?.name || 'You'} is live</p>
           <p className="text-gray-200 text-sm">👁️ {viewers} watching • {fmtLive(seconds)}</p>
-          <div className="mt-3 text-sm space-y-1 bg-black/50 rounded-xl px-4 py-2">
+          <div className="mt-3 text-sm space-y-1 glass rounded-xl px-4 py-2">
             <p>Total earnings: <b>{formatPi(gross + giftPiReceived)}</b> ({billedMinutes} Minutes{giftPiReceived > 0 ? ` + ${formatPi(giftPiReceived)} gift` : ''})</p>
             <p>Your share (70%): <b className="text-green-400">{formatPi(myShare + giftMyShare)}</b> • Admin (30%): <b>{formatPi(adminShare + (giftPiReceived - giftMyShare))}</b></p>
           </div>
           {giftFeed.length > 0 && <p className="text-xs text-yellow-200 mt-2">{giftFeed.join(' • ')}</p>}
-          {hostChat.length > 0 && <div className="text-xs text-left mt-2 bg-black/50 rounded-xl px-3 py-2 max-h-20 overflow-y-auto">{hostChat.map((m, i) => <p key={i}><b>{m.from}:</b> {m.text}</p>)}</div>}
+          {hostChat.length > 0 && <div className="text-xs text-left mt-2 glass rounded-xl px-3 py-2 max-h-20 overflow-y-auto">{hostChat.map((m, i) => <p key={i}><b>{m.from}:</b> {m.text}</p>)}</div>}
           <p className="text-xs text-gray-300 mt-2">{serverLive ? '🟢 Live server connected — real broadcast.' : 'Demo live — viewer count is demo data.'}</p>
         </div>
       </div>
@@ -2661,7 +2714,7 @@ export function LiveTV() {
       <div className="flex gap-2 flex-wrap">{TV_CATEGORIES.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {list.map(ch => (
-          <button key={ch.id} onClick={() => setCurrent(ch)} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-blue-100 dark:bg-blue-900 ring-2 ring-fb-blue' : 'bg-white dark:bg-fb-card'}`}>
+          <button key={ch.id} onClick={() => setCurrent(ch)} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500' : 'bg-white dark:bg-fb-card'}`}>
             <p className="font-bold">📺 {ch.name}</p><p className="text-xs text-gray-400">{ch.category}</p>
           </button>
         ))}
@@ -3114,7 +3167,17 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode } = useStore()
+  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode, login, friends, posts } = useStore()
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const myPosts = posts.filter(p => p.author === 'You').slice(0, 3)
+  async function saveName() {
+    const name = nameDraft.trim()
+    if (!name || !user) return
+    try { const a = getFirebaseAuth(); if (a?.currentUser) await updateProfile(a.currentUser, { displayName: name }) } catch { /* Firebase নাম না বদলালেও লোকাল নাম বদলাবে */ }
+    login(name, user.email)
+    setEditingName(false)
+  }
   const navigate = useNavigate()
   const [pushMsg, setPushMsg] = useState('')
   const [pushBusy, setPushBusy] = useState(false)
@@ -3130,7 +3193,7 @@ export function MenuPage() {
       : '❌ Could not turn it on — please try again.')
   }
   const tiles = [
-    { to: '/feed', label: 'Feed', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'Marketplace', icon: '🛍️', color: '#27AE60' },
+    { to: '/feed', label: 'Feed', icon: '📰', color: '#7C3AED' }, { to: '/marketplace', label: 'Marketplace', icon: '🛍️', color: '#27AE60' },
     { to: '/friends', label: 'Friends', icon: '👥', color: '#8E44AD' }, { to: '/dating', label: 'Dating 18+', icon: '❤️', color: '#E91E63' },
     { to: '/live-tv', label: 'Live TV', icon: '📺', color: '#C0392B' }, { to: '/services', label: 'Home Service', icon: '🏠', color: '#16A085' },
     { to: '/reels', label: 'Reels', icon: '🎬', color: '#E67E22' }, { to: '/wallet', label: 'Wallet', icon: '💰', color: '#2C3E50' },
@@ -3143,12 +3206,42 @@ export function MenuPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card>
         <div className="flex items-center gap-3">
-          <span className="w-16 h-16 rounded-full bg-fb-blue text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
+          <span className="w-16 h-16 rounded-full pb-gradient text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
           <div><p className="font-bold text-lg">{user ? user.name : 'Guest user'}</p><p className="text-sm text-gray-500">{user?.email || 'Log in'}</p></div>
-          <button onClick={() => navigate('/wallet')} className="ml-auto bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
+          <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
         </div>
-        {user ? <Btn variant="ghost" className="mt-3" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
-          : <Btn className="mt-3" onClick={() => navigate('/login')}>Log in</Btn>}
+        {user && (editingName ? (
+          <div className="flex gap-2 mt-3">
+            <input className="flex-1 border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600" value={nameDraft} onChange={e => setNameDraft(e.target.value)} placeholder="Your name" maxLength={40} />
+            <Btn onClick={saveName}>Save</Btn>
+            <Btn variant="ghost" onClick={() => setEditingName(false)}>Cancel</Btn>
+          </div>
+        ) : (
+          <div className="flex gap-2 mt-3">
+            <Btn variant="ghost" onClick={() => { setNameDraft(user.name); setEditingName(true) }}>✏️ Edit Profile</Btn>
+            <Btn variant="ghost" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
+          </div>
+        ))}
+        {!user && <Btn className="mt-3" onClick={() => navigate('/login')}>Log in</Btn>}
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{friends.length}</p><p className="text-xs text-gray-400">Friends</p></div>
+          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{posts.length}</p><p className="text-xs text-gray-400">Posts</p></div>
+          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{formatPi(totalPi)}</p><p className="text-xs text-gray-400">Pi balance</p></div>
+        </div>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center">
+          <h2 className="font-bold">Activity</h2>
+          <button onClick={() => navigate('/feed')} className="text-sm font-medium text-violet-600">View all →</button>
+        </div>
+        {myPosts.length === 0
+          ? <p className="text-sm text-gray-500 mt-2">No activity yet — write your first post.</p>
+          : myPosts.map(p => (
+            <div key={p.id} className="py-2 border-b border-gray-100 dark:border-white/10 last:border-0">
+              <p className="text-sm font-medium">{p.title ?? p.text}</p>
+              <p className="text-xs text-gray-400">{p.time} • ❤️ {p.likes} • 💬 {p.comments}</p>
+            </div>
+          ))}
       </Card>
       <InstallButton />
       <Card>
@@ -3200,7 +3293,7 @@ export function MenuPage() {
       </Card>
       <div className="grid grid-cols-2 gap-3">
         {tiles.map(t => (
-          <button key={t.label} onClick={() => navigate(t.to)} className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm text-left">
+          <button key={t.label} onClick={() => navigate(t.to)} className="bg-white dark:bg-fb-card rounded-xl border border-gray-100 dark:border-white/10 p-4 shadow-sm text-left">
             <span className="w-10 h-10 rounded-lg text-white text-xl flex items-center justify-center" style={{ background: t.color }}>{t.icon}</span>
             <p className="font-bold mt-2">{t.label}</p>
           </button>

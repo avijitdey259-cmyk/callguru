@@ -71,15 +71,16 @@ check('ফিডের ক্রম: ব্যানার → স্টোর�
     idx("What's on your mind?"),
     idx('👥 Friends ('),
     idx('<NewMembersSection />'),
-    idx('posts.map('),
+    idx('visiblePosts.map('),
   ]
   for (let i = 1; i < order.length; i++) assert.ok(order[i] > order[i - 1], `ফিডের ক্রম ভুল: ${order}`)
 })
 
-check('স্টোরি Facebook-এর মতো কার্ড, পোস্টের অ্যাকশন তিন সমান বোতাম', () => {
+check('স্টোরি Style 6 গ্রেডিয়েন্ট-রিং অ্যাভাটার, পোস্টের অ্যাকশন তিন সমান বোতাম', () => {
   const f = feedSpan()
-  assert.ok(f.includes('w-28 h-44'), 'স্টোরি কার্ড w-28 h-44 নয়')
-  assert.ok(f.includes('ring-4 ring-[#1877F2]'), 'স্টোরি অ্যাভাটারে নীল রিং নেই')
+  assert.ok(f.includes('story-ring'), 'স্টোরি গ্রেডিয়েন্ট রিং নেই')
+  assert.ok(f.includes('w-[68px] h-[68px] rounded-full'), 'স্টোরি অ্যাভাটার বৃত্তাকার নয়')
+  assert.ok(!f.includes('w-28 h-44'), 'পুরোনো স্টোরি কার্ড এখনো আছে')
   assert.ok(f.includes('flex-1 py-1.5 rounded-lg hover:bg-gray-100'), 'পোস্ট অ্যাকশন তিন সমান বোতাম নয়')
   assert.ok(f.includes('💬 Comments'), 'কমেন্ট বোতাম নেই')
   assert.ok(f.includes('↗️ Share'), 'শেয়ার বোতাম নেই')

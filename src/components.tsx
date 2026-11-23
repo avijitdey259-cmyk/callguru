@@ -22,21 +22,21 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-fb-card shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center gap-2 px-3 h-[52px]">
-        <Link to="/feed" className="text-[26px] font-extrabold text-fb-blue leading-none shrink-0">PiCall</Link>
+        <Link to="/feed" className="text-[26px] font-extrabold pb-gradient-text leading-none shrink-0">PiCall</Link>
         {/* লোগোর পাশেই খোঁজা — এটাই আসল সার্চ (বন্ধু + পোস্ট, সাজেশনসহ); ফিডের নিচে আর আলাদা বাক্স নেই */}
         <div className="hidden md:block w-60 shrink-0"><HeaderSearch /></div>
         <div className="hidden md:flex flex-1 justify-center gap-1">
           {CENTER_NAV.map(n => (
-            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `px-4 py-2 rounded-lg text-sm font-medium ${isActive ? 'text-fb-blue bg-blue-50 dark:bg-slate-700 border-b-2 border-fb-blue' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}>{n.icon} {n.label}</NavLink>
+            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}>{n.icon} {n.label}</NavLink>
           ))}
         </div>
         <div className="flex-1 md:hidden" />
-        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-200 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">π {formatPi(totalPi)}</button>
+        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">π {formatPi(totalPi)}</button>
         <button onClick={() => setMobileSearchOpen(o => !o)} className="md:hidden w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Search">🔍</button>
         <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? '☀️' : '🌙'}</button>
         <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger">💬</button>
         <InstallButton compact />
-        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : '👤'}</button>
+        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : '👤'}</button>
       </div>
       {/* মোবাইলে 🔍 চাপলে লোগোর নিচে পুরো চওড়া সার্চ বাক্স খোলে — একই HeaderSearch, একই আচরণ */}
       {mobileSearchOpen && (
@@ -46,7 +46,7 @@ export function TopBar() {
       <div className="md:hidden border-t border-gray-100 dark:border-slate-700">
         <div className="flex justify-around">
           {CENTER_NAV.map(n => (
-            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-col items-center py-1.5 px-2 text-[11px] font-medium ${isActive ? 'text-fb-blue border-b-2 border-fb-blue' : 'text-gray-500 dark:text-gray-300'}`}>
+            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-col items-center py-1.5 px-3 text-[11px] font-medium rounded-full ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}>
               <span className="text-xl leading-none">{n.icon}</span>{n.label}
             </NavLink>
           ))}
@@ -73,13 +73,13 @@ export function Sidebar() {
     <aside className="hidden md:block w-60 shrink-0">
       <div className="sticky top-[64px] space-y-1 p-2">
         <Link to="/menu" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-fb-card font-medium">
-          <span className="w-9 h-9 rounded-full bg-fb-blue text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
+          <span className="w-9 h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
           {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
-          <NavLink key={l.to} to={l.to} className={({ isActive }) => `block px-3 py-2 rounded-lg text-sm ${isActive ? 'bg-white dark:bg-fb-card font-bold text-fb-blue' : 'hover:bg-white dark:hover:bg-fb-card'}`}>{l.label}</NavLink>
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => `block px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}>{l.label}</NavLink>
         ))}
-        <div className="mt-4 p-3 bg-blue-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
+        <div className="mt-4 p-3 bg-violet-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
           <b className="text-fb-blue">First call's first 1 minute free</b><br />Only for the first user / first friend. Not 2 minutes free.
         </div>
       </div>
@@ -138,7 +138,7 @@ export function Layout() {
 }
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`bg-white dark:bg-fb-card rounded-xl shadow-sm p-4 ${className}`}>{children}</div>
+  return <div className={`bg-white dark:bg-fb-card rounded-xl border border-gray-100 dark:border-white/10 shadow-sm p-4 ${className}`}>{children}</div>
 }
 
 // ---------- PWA ইন্সটল ----------
@@ -168,13 +168,13 @@ export function InstallButton({ compact = false, showOffer = true }: { compact?:
   }
   return (
     <span className={compact ? '' : 'block'}>
-      <button onClick={install} title="Install App" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-fb-blue text-white'}>
+      <button onClick={install} title="Install App" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm pb-gradient text-white shadow-sm'}>
         📲 {compact ? '' : 'Install App'}
       </button>
       {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90">📲 Install the app for a 5 π bonus — gifts only.</p>}
       {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
       {showHelp && (
-        <div className="mt-2 text-left bg-blue-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
+        <div className="mt-2 text-left bg-violet-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
           <p className="font-bold">📲 How to Install the PiCall App on Your Phone</p>
           <p><b>Android (Chrome):</b> Tap the browser ⋮ menu → “Install app” / “Add to Home screen”.</p>
           <p><b>iPhone (Safari):</b> Tap the Share ⬆️ button below → “Add to Home Screen”.</p>
@@ -186,6 +186,6 @@ export function InstallButton({ compact = false, showOffer = true }: { compact?:
 }
 
 export function Btn({ children, onClick, variant = 'primary', disabled, className = '' }: { children: React.ReactNode; onClick?: () => void; variant?: 'primary' | 'ghost' | 'danger' | 'green'; disabled?: boolean; className?: string }) {
-  const styles = variant === 'primary' ? 'bg-fb-blue text-white' : variant === 'green' ? 'bg-green-600 text-white' : variant === 'danger' ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-100'
+  const styles = variant === 'primary' ? 'pb-gradient text-white shadow-sm' : variant === 'green' ? 'bg-green-600 text-white' : variant === 'danger' ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-100'
   return <button onClick={onClick} disabled={disabled} className={`px-4 py-2 rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed ${styles} ${className}`}>{children}</button>
 }
