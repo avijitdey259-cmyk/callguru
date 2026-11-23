@@ -12,28 +12,78 @@ export const EXPERTS: Expert[] = []
 
 export const CATEGORIES = ['All', 'Health', 'Law', 'Education', 'Career', 'Business']
 
-export type TvChannel = { id: string; name: string; category: string; streamUrl: string; officialUrl: string }
-const HLS = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+export type TvChannel = { id: string; name: string; group: string; logo: string; streamUrl: string; officialUrl: string }
+// Built-in Live TV list — used ONLY when the admin playlist (config/public →
+// tvPlaylistUrl) cannot be loaded. Every streamUrl here was verified live
+// 2026-11-24 (HTTP 200 + #EXTM3U); the three entries with an empty streamUrl
+// could NOT be verified (Somoy/Independent: their proxy redirects fail from
+// here; T Sports: http-only, cannot play inside the https app) — they show
+// as link-only, with the official site link. The streams come from a
+// third-party aggregator playlist, not the channels' own official streams.
 export const TV_CHANNELS: TvChannel[] = [
-  { id: 'somoy', name: 'Somoy TV', category: 'News', streamUrl: HLS, officialUrl: 'https://www.somoynews.tv' },
-  { id: 'jamuna', name: 'Jamuna TV', category: 'News', streamUrl: HLS, officialUrl: 'https://www.jamuna.tv' },
-  { id: 'ekattor', name: 'Ekattor TV', category: 'News', streamUrl: HLS, officialUrl: 'https://www.ekattor.tv' },
-  { id: 'ntv', name: 'NTV', category: 'News', streamUrl: HLS, officialUrl: 'https://www.ntvbd.com' },
-  { id: 'independent', name: 'Independent TV', category: 'News', streamUrl: HLS, officialUrl: 'https://www.independent24.com' },
-  { id: 'channel24', name: 'Channel 24', category: 'News', streamUrl: HLS, officialUrl: 'https://www.channel24bd.tv' },
-  { id: 'dbc', name: 'DBC News', category: 'News', streamUrl: HLS, officialUrl: 'https://www.dbcnews.tv' },
-  { id: 'channeli', name: 'Channel i', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.channelionline.com' },
-  { id: 'atn', name: 'ATN Bangla', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.atnbangla.tv' },
-  { id: 'rtv', name: 'RTV', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.rtvonline.com' },
-  { id: 'banglavision', name: 'Banglavision', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.banglavision.tv' },
-  { id: 'maasranga', name: 'Maasranga TV', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.maasranga.tv' },
-  { id: 'deepto', name: 'Deepto TV', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.deeptotv.com' },
-  { id: 'gtv', name: 'GTV', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.gtvbd.tv' },
-  { id: 'tsports', name: 'T Sports', category: 'Sports', streamUrl: HLS, officialUrl: 'https://www.tsports.com' },
-  { id: 'zeebangla', name: 'Zee Bangla', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.zeetv.com' },
-  { id: 'starjalsha', name: 'Star Jalsha', category: 'Entertainment', streamUrl: HLS, officialUrl: 'https://www.hotstar.com' }
+  { id: 'peace-tv-bangla', name: 'Peace TV Bangla', group: 'Islamic', logo: 'https://i.postimg.cc/vTYq396x/20250529-071345.png', streamUrl: 'https://dzkyvlfyge.erbvr.com/PeaceTvBangla/tracks-v3a1/mono.m3u8', officialUrl: '' },
+  { id: 'iqra-bangla', name: 'Iqra Bangla', group: 'Islamic', logo: 'https://i.postimg.cc/qqLNkFLg/20250531-104940.png', streamUrl: 'https://app.ncare.live/c3VydmVyX8RpbEU9Mi8xNy8yMDE0GIDU6RgzQ6NTAgdEoaeFzbF92YWxIZTO0U0ezN1IzMyfvcGVMZEJCTEFWeVN3PTOmdFsaWRtaW51aiPhnPTI2/iqrabanglatvoffice.stream/live-orgin/iqrabanglatvoffice.stream/chunks.m3u8', officialUrl: '' },
+  { id: 'madani-bangla', name: 'Madani Bangla', group: 'Islamic', logo: 'https://i.postimg.cc/1tDgdXVG/20250531-105059.png', streamUrl: 'https://tvsen3.aynaott.com/z24qLsqV/index.m3u8', officialUrl: '' },
+  { id: 'quran-tv', name: 'Quran TV', group: 'Islamic', logo: 'https://i.postimg.cc/T3f1NQyV/20260524-024937.png', streamUrl: 'https://live.kwikmotion.com/sharjahtvquranlive/shqurantv.smil/sharjahtvquranpublish/shqurantv_source/chunks.m3u8', officialUrl: '' },
+  { id: 'iqraa-tv', name: 'Iqraa TV', group: 'Islamic', logo: 'https://i.postimg.cc/gcHKBtjy/20260524-023828.png', streamUrl: 'https://playlist.fasttvcdn.com/pl/dlkqw1ftuvuuzkcb4pxdcg/Iqraafasttv1/playlist.m3u8', officialUrl: '' },
+  { id: 'btv-hd', name: 'BTV HD', group: 'Bangla', logo: 'https://i.postimg.cc/JnWdHSrq/20250529-071604.png', streamUrl: 'https://nkafmbewiff.gpcdn.net/tile_2/master.m3u8', officialUrl: '' },
+  { id: 'btv-chottogram', name: 'BTV Chottogram', group: 'Bangla', logo: 'https://i.postimg.cc/VNJ90KyZ/20260913-101041.png', streamUrl: 'https://tvsen6.aynaott.com/TjGR1GcxKetHNVcMVxbq/index.m3u8', officialUrl: '' },
+  { id: 'jamuna', name: 'Jamuna', group: 'Bangla', logo: 'https://i.postimg.cc/L4D0hyrt/P-071035.png', streamUrl: 'https://tvsen6.aynaott.com/KGdZEdA7qQ43dmPkgk1j/index.m3u8', officialUrl: 'https://www.jamuna.tv' },
+  { id: 'channel-24', name: 'Channel 24', group: 'Bangla', logo: 'https://i.postimg.cc/nLmPznJr/20250529-071852.png', streamUrl: 'https://tvsen6.aynaott.com/YrVDF8gujkdh/index.m3u8', officialUrl: 'https://www.channel24bd.tv' },
+  { id: 'ekattor-hd', name: 'Ekattor HD', group: 'Bangla', logo: 'https://i.postimg.cc/D0xCDZqj/20250529-071258.png', streamUrl: 'https://tvsen6.aynaott.com/EWDrV5QskgarZEUBb3pU/index.m3u8', officialUrl: 'https://www.ekattor.tv' },
+  { id: 'dbc-news', name: 'DBC News', group: 'Bangla', logo: 'https://i.postimg.cc/nzvgdpRg/20250529-102312.png', streamUrl: 'https://tvsen6.aynaott.com/pF66Tkz0qFwP2aMMqHyt/index.m3u8', officialUrl: 'https://www.dbcnews.tv' },
+  { id: 'sa-tv', name: 'SA TV', group: 'Bangla', logo: 'https://i.postimg.cc/CLvtrv7h/20250529-073029.png', streamUrl: 'https://tvsen6.aynaott.com/rELXiuUXqbgzPb06Npom/index.m3u8', officialUrl: '' },
+  { id: 'news-24', name: 'News 24', group: 'Bangla', logo: 'https://i.postimg.cc/K8jXZXj3/20250529-103008.png', streamUrl: 'https://tvsen6.aynaott.com/cdgr3tw6WoG7JyRnLbi0/index.m3u8', officialUrl: '' },
+  { id: 'atn-news', name: 'ATN News', group: 'Bangla', logo: 'https://i.postimg.cc/4NBkk4fT/20250529-102724.png', streamUrl: 'https://tvsen6.aynaott.com/da6WMXAk/index.m3u8', officialUrl: '' },
+  { id: 'n-tv', name: 'N TV', group: 'Bangla', logo: 'https://i.postimg.cc/kgzHqBLL/20250529-072107.png', streamUrl: 'https://tvsen5.aynaott.com/xV4jEKf3D9zc/index.m3u8', officialUrl: 'https://www.ntvbd.com' },
+  { id: 'desh-tv', name: 'Desh TV', group: 'Bangla', logo: 'https://i.postimg.cc/FHM5wnxZ/20260913-092819.png', streamUrl: 'https://tvsen6.aynaott.com/ryFkXfd1a4CQ7mMdc820/index.m3u8', officialUrl: '' },
+  { id: 'banglavision', name: 'Banglavision', group: 'Bangla', logo: 'https://i.postimg.cc/JzGFfbYb/20250529-072833.png', streamUrl: 'https://tvsen5.aynaott.com/tgUzpPc9r6xw/index.m3u8', officialUrl: 'https://www.banglavision.tv' },
+  { id: 'channel-i', name: 'Channel i', group: 'Bangla', logo: 'https://i.postimg.cc/J47vqwbY/20250529-101717.png', streamUrl: 'https://tvsen6.aynaott.com/FNHpYvGZ7FkCE10PwTHm/index.m3u8', officialUrl: 'https://www.channelionline.com' },
+  { id: 'me-tv', name: 'Me Tv', group: 'Bangla', logo: 'https://i.postimg.cc/j2hVjtyP/20250529-103904.png', streamUrl: 'https://iptvbd.live/metv1080/1080.m3u8', officialUrl: '' },
+  { id: 'deepto', name: 'Deepto', group: 'Bangla', logo: 'https://i.postimg.cc/9XPHbts0/20250529-103607.png', streamUrl: 'https://byphdgllyk.gpcdn.net/hls/deeptotv/index.m3u8', officialUrl: 'https://www.deeptotv.com' },
+  { id: 'maasranga', name: 'Maasranga', group: 'Bangla', logo: 'https://i.postimg.cc/WbnjN67C/20250529-104926.png', streamUrl: 'https://nkafmbewiff.gpcdn.net/tile_4/master.m3u8', officialUrl: 'https://www.maasranga.tv' },
+  { id: 'srk', name: 'SRK', group: 'Bangla', logo: 'https://i.postimg.cc/6QCJKLj9/20260913-092122.png', streamUrl: 'https://srknowapp.ncare.live/srktvhlswodrm/srktv.stream/playlist.m3u8', officialUrl: '' },
+  { id: 'boishakhi', name: 'Boishakhi', group: 'Bangla', logo: 'https://i.postimg.cc/Y0MVZZT9/20250529-101947.png', streamUrl: 'https://tvsen6.aynaott.com/1d3uG9VCgrR9DRtWZM57/index.m3u8', officialUrl: '' },
+  { id: '52-channel', name: '52 Channel', group: 'Bangla', logo: 'https://i.postimg.cc/nhybNw1j/20260913-093359.png', streamUrl: 'https://tvsen6.aynaott.com/channel52/index.m3u8', officialUrl: '' },
+  { id: 'g-tv', name: 'G TV', group: 'Bangla', logo: 'https://i.postimg.cc/jjKGfnW8/20250704-201040.png', streamUrl: 'https://app.ncare.live/c3VydmVyX8RpbEU9Mi8xNy8yMDE0GIDU6RgzQ6NTAgdEoaeFzbF92YWxIZTO0U0ezN1IzMyfvcGVMZEJCTEFWeVN3PTOmdFsaWRtaW51aiPhnPTI2/gazibdz.stream/live-orgin/gazibdz.stream/playlist.m3u8', officialUrl: 'https://www.gtvbd.tv' },
+  { id: 'nagorik', name: 'Nagorik', group: 'Bangla', logo: 'https://i.postimg.cc/8zQ0DYBH/20250720-201346.png', streamUrl: 'https://box.bbaria.net:8083/Nagorik_TV/index.m3u8', officialUrl: '' },
+  { id: 'asian', name: 'Asian', group: 'Bangla', logo: 'https://i.postimg.cc/PqvBwmmt/20250529-102106.png', streamUrl: 'https://tvsen6.aynaott.com/pKb5k6NnzxsKpWUs6E8M/index.m3u8', officialUrl: '' },
+  { id: 'channel-9', name: 'Channel 9', group: 'Bangla', logo: 'https://i.postimg.cc/pVq6vZYV/20250729-030034.png', streamUrl: 'https://nkafmbewiff.gpcdn.net/tile_7/master.m3u8', officialUrl: '' },
+  { id: 'atn-bangla', name: 'ATN Bangla', group: 'Bangla', logo: 'https://i.postimg.cc/FHBMzPkW/20250529-102502.png', streamUrl: 'https://tvsen5.aynaott.com/P3y2URgG7LDe/index.m3u8', officialUrl: 'https://www.atnbangla.tv' },
+  { id: 'r-tv', name: 'R TV', group: 'Bangla', logo: 'https://i.postimg.cc/8kmxMkrr/20250529-101852.png', streamUrl: 'https://tvsen5.aynaott.com/ba47dHpDk3Se/index.m3u8', officialUrl: 'https://www.rtvonline.com' },
+  { id: 'ekushe-tv', name: 'Ekushe TV', group: 'Bangla', logo: 'https://i.postimg.cc/L6R2F0jj/20250529-105209.png', streamUrl: 'https://tvsen5.aynaott.com/SyQuXz8sC3TB/index.m3u8', officialUrl: '' },
+  { id: 'nexus-tv', name: 'Nexus TV', group: 'Bangla', logo: 'https://i.postimg.cc/XvZ0gM06/20250529-104547.png', streamUrl: 'https://tvsen6.aynaott.com/Epm7WrFa/index.m3u8', officialUrl: '' },
+  { id: 'ekhon-tv', name: 'Ekhon TV', group: 'Bangla', logo: 'https://i.postimg.cc/sggzvQ6X/20250529-105045.png', streamUrl: 'https://tvsen6.aynaott.com/fbgZV3X17hwWcyfZ4pdb/index.m3u8', officialUrl: '' },
+  { id: 'enter-tv', name: 'Enter TV', group: 'Bangla', logo: 'https://i.postimg.cc/g06jByt1/entertv.jpg', streamUrl: 'https://live1.entertv.com.bd/entertv/index.m3u8', officialUrl: '' },
+  { id: 'bangla-tv', name: 'Bangla Tv', group: 'Bangla', logo: 'https://i.postimg.cc/tTWQLhTr/20250529-104243.png', streamUrl: 'https://tvsen6.aynaott.com/39ee93nUbCCmm5LsyD4t/index.m3u8', officialUrl: '' },
+  { id: 'mohona-tv', name: 'Mohona Tv', group: 'Bangla', logo: 'https://i.postimg.cc/CKWpPvFB/20250529-104420.png', streamUrl: 'https://tvsen6.aynaott.com/AkyX5dunzju4cpo26dr7/index.m3u8', officialUrl: '' },
+  { id: 'bijoy-tv', name: 'Bijoy Tv', group: 'Bangla', logo: 'https://i.postimg.cc/3xfTp8VZ/20250529-104739.png', streamUrl: 'https://tvsen6.aynaott.com/N8Xbo5vdwVU6sF43RsW0/index.m3u8', officialUrl: '' },
+  { id: 'ananda-tv', name: 'Ananda Tv', group: 'Bangla', logo: 'https://i.postimg.cc/yYV4b3zP/20250529-103431.png', streamUrl: 'https://tvsen6.aynaott.com/LeUAm4F1iixYns3s3Non/index.m3u8', officialUrl: '' },
+  { id: 'my-tv', name: 'My Tv', group: 'Bangla', logo: 'https://i.postimg.cc/HxGF4V2b/20250529-103226.png', streamUrl: 'https://tvsen6.aynaott.com/XMpHaEf0ANBhv8w6NWR7/index.m3u8', officialUrl: '' },
+  { id: 'drama-24', name: 'Drama 24', group: 'Bangla', logo: 'https://i.postimg.cc/yN04KXfX/20260913-092650.png', streamUrl: 'https://vods2.aynaott.com/gseriesDrama/index.m3u8', officialUrl: '' },
+  { id: 'deshi-tv', name: 'Deshi Tv', group: 'Bangla', logo: 'https://i.postimg.cc/t4KQ8mzr/20260913-092735.png', streamUrl: 'https://deshitv.deshitv24.net/live/myStream/playlist.m3u8', officialUrl: '' },
+  { id: 'channel-s', name: 'Channel S', group: 'Bangla', logo: 'https://i.postimg.cc/nV38nLkH/20260913-092507.png', streamUrl: 'https://box.bbaria.net:8083/ChannelS/video.m3u8', officialUrl: '' },
+  { id: 'matribhumi-tv', name: 'MatriBhumi TV', group: 'Bangla', logo: 'https://i.postimg.cc/g0xWsM0M/20260930-231840.png', streamUrl: 'https://live.playmax.live/matribhumi/index.m3u8', officialUrl: '' },
+  { id: 'star-jalsha-hd', name: 'Star Jalsha HD', group: 'Indian Bangla', logo: 'https://i.postimg.cc/hvRgj26W/20250529-105408.png', streamUrl: 'https://da86m1sqpm3o0.cloudfront.net/28072023/smil:starjalsha.smil/playlist.m3u8', officialUrl: 'https://www.hotstar.com' },
+  { id: 'zee-bangla-hd', name: 'Zee Bangla HD', group: 'Indian Bangla', logo: 'https://i.postimg.cc/ry5MbLR8/20250529-105712.png', streamUrl: 'https://d1rc86nwwc9fag.cloudfront.net/260723/smil:zeebangla.smil/chunklist_b2628000.m3u8', officialUrl: 'https://www.zeetv.com' },
+  { id: 'enter-10-bangla', name: 'Enter 10 Bangla', group: 'Indian Bangla', logo: 'https://i.postimg.cc/LX122cy3/20250529-111624.png', streamUrl: 'https://live-bangla.akamaized.net/liveabr/pub-iobanglakp3sff/live_720p/chunks.m3u8', officialUrl: '' },
+  { id: 'jalsha-movies-sd', name: 'Jalsha Movies SD', group: 'Indian Bangla', logo: 'https://i.postimg.cc/G3gmTZRs/20260204-142159.png', streamUrl: 'https://box.bbaria.net:8083/Jalsha_Movie/index.m3u8', officialUrl: '' },
+  { id: 'colors', name: 'Colors', group: 'Indian Hindi', logo: 'https://i.postimg.cc/pdy3k1qZ/20251202-090150.png', streamUrl: 'https://da86m1sqpm3o0.cloudfront.net/28072023/smil:colorsme.smil/media-udh.m3u8', officialUrl: '' },
+  { id: 'colors-cineplex', name: 'Colors Cineplex', group: 'Indian Hindi', logo: 'https://i.postimg.cc/HLvX9R1x/colors-cineplex-hd.png', streamUrl: 'https://d1rc86nwwc9fag.cloudfront.net/260723/smil:rishteycineplexukdev.smil/chunklist_b1928000.m3u8', officialUrl: '' },
+  { id: 'zee-cinema-hd', name: 'Zee Cinema HD', group: 'Indian Hindi', logo: 'https://i.postimg.cc/nhDsSWxB/20250529-133753.png', streamUrl: 'https://j6nfugukcl.gpcdn.net/tile_5/master.m3u8', officialUrl: '' },
+  { id: 'sony-kal', name: 'Sony Kal', group: 'Indian Hindi', logo: 'https://i.postimg.cc/L5TmcvqR/hridoytvgate-(14).webp', streamUrl: 'https://e77bef9b.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctY2FfU29ueUtBTF9ITFM/playlist.m3u8', officialUrl: '' },
+  { id: 'gold-mines', name: 'Gold Mines', group: 'Indian Hindi', logo: 'https://static.wikia.nocookie.net/jhmovie/images/7/7b/Goldmines_logo.png/revision/latest/scale-to-width-down/360?cb=20240404141630', streamUrl: 'https://mumt04.tangotv.in/m18aqlK4GOLDMINES/index.m3u8', officialUrl: '' },
+  { id: 'gold-mines-movies', name: 'Gold Mines Movies', group: 'Indian Hindi', logo: 'https://static.wikia.nocookie.net/jhmovie/images/7/7b/Goldmines_logo.png/revision/latest/scale-to-width-down/360?cb=20240404141630', streamUrl: 'https://mumt04.tangotv.in/m18aqlK4GOLDMINEMOVIES/index.m3u8', officialUrl: '' },
+  { id: 'sangeet-bangla', name: 'Sangeet Bangla', group: 'Music', logo: 'https://i.postimg.cc/pdddb1bs/20250529-120025.png', streamUrl: 'https://cdn.pishow.tv/ott/live/1143/master.m3u8', officialUrl: '' },
+  { id: '9xm', name: '9xm', group: 'Music', logo: 'https://i.postimg.cc/P5yq7ncL/20250529-120144.png', streamUrl: 'https://wiselp.wiseplayout.com/9XM/master.m3u8', officialUrl: '' },
+  { id: '9xm-jalwa', name: '9xm Jalwa', group: 'Music', logo: 'https://i.postimg.cc/gj7ghJrx/20250630-053007.png', streamUrl: 'https://wiselp.wiseplayout.com/9X_Jalwa/master.m3u8', officialUrl: '' },
+  { id: 'ptc-music', name: 'PTC Music', group: 'Music', logo: 'https://i.postimg.cc/KYFJhFYp/Hridoy-TV-pro-(64).webp', streamUrl: 'https://d2lk5u59tns74c.cloudfront.net/out/v1/f913cf893c594f73b114216e74a2efbc/index.m3u8', officialUrl: '' },
+  { id: 'bojopuri', name: 'Bojopuri', group: 'Music', logo: 'https://i.postimg.cc/VLG87B0t/20250630-045918.png', streamUrl: 'https://cdn.pishow.tv/ott/live/1229/master.m3u8', officialUrl: '' },
+  { id: 'a-sports-hd', name: 'A Sports HD', group: 'Sports', logo: 'https://i.postimg.cc/ZqbZdnHq/20251002-225834.png', streamUrl: 'https://tvsen6.aynaott.com/zv68oqPDu7MZZwmHhRxt/index.m3u8', officialUrl: '' },
+  { id: 'somoy', name: 'Somoy TV', group: 'News', logo: '', streamUrl: '', officialUrl: 'https://www.somoynews.tv' },
+  { id: 'independent', name: 'Independent TV', group: 'News', logo: '', streamUrl: '', officialUrl: 'https://www.independent24.com' },
+  { id: 'tsports', name: 'T Sports', group: 'Sports', logo: '', streamUrl: '', officialUrl: 'https://www.tsports.com' },
 ]
-export const TV_CATEGORIES = ['All', 'News', 'Entertainment', 'Sports']
 
 export type Service = { id: string; title: string; price: number; category: string; provider: string; rating: number; desc: string }
 // সার্ভিস সিড সরানো হয়েছে (ডেমো ডেটা) — মার্কেটপ্লেস খালি থাকবে, যতক্ষণ না আসল সার্ভিস আসে।
@@ -92,3 +142,4 @@ export const USDT_NETWORKS = [
   { id: 'ERC20', name: 'ERC20 (Ethereum)', address: '0x8e2f8559f823cdef7f73edd77b6c29163d00d68d', feeHint: 'Fee approx. ~0.6 USDT', cheapest: false },
 ]
 export const PI_DEPOSIT_ADDRESS = 'G6NBQ4XDRDLSB7VTNDAOO6DKUYADIUNNQF34OTCOWBFG5L2ZD7REPL65'
+

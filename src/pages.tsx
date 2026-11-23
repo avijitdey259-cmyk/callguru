@@ -14,12 +14,13 @@ import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
-  REELS, SERVICES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
+  REELS, SERVICES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
   BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
   USDT_NETWORKS, piWithdrawFee,
-  type Expert, type DatingProfile
+  type Expert, type DatingProfile, type TvChannel
 } from './data'
+import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPlaylist'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
 import { updateProfile } from 'firebase/auth'
@@ -2672,37 +2673,79 @@ export function DatingGoLivePage() {
 }
 
 // ---------- Live TV (HLS + official link only, zero external video links) ----------
+// ---------- Live TV ----------
+// ONE playlist link drives the channel list: the app fetches the admin's M3U
+// playlist (config/public → tvPlaylistUrl, default = Eamin Tv) and shows every
+// channel inside it. If the playlist cannot be loaded, the built-in verified
+// list (TV_CHANNELS) is shown instead. Tap a channel to watch it.
 export function LiveTV() {
+  const { tvPlaylistUrl } = useStore()
+  const [channels, setChannels] = useState<TvChannel[]>(TV_CHANNELS)
+  const [fromPlaylist, setFromPlaylist] = useState(false)
   const [cat, setCat] = useState('All')
-  const [current, setCurrent] = useState(TV_CHANNELS[0])
+  const [current, setCurrent] = useState<TvChannel>(TV_CHANNELS[0])
+  const [playError, setPlayError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchTvPlaylist(tvPlaylistUrl || DEFAULT_TV_PLAYLIST_URL)
+      .then(list => {
+        if (cancelled) return
+        const mapped: TvChannel[] = list.map(c => ({ ...c, officialUrl: '' }))
+        setChannels(mapped)
+        setFromPlaylist(true)
+        setCurrent(mapped[0])
+        setCat('All')
+        setPlayError('')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setChannels(TV_CHANNELS)
+        setFromPlaylist(false)
+        setCurrent(TV_CHANNELS[0])
+      })
+    return () => { cancelled = true }
+  }, [tvPlaylistUrl])
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+    setPlayError('')
+    if (!current.streamUrl) return
     if (Hls.isSupported()) {
       const hls = new Hls()
       hls.loadSource(current.streamUrl); hls.attachMedia(video)
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) setPlayError('This stream is not playing right now — try another channel.')
+      })
       return () => hls.destroy()
     }
     video.src = current.streamUrl
   }, [current])
-  const list = TV_CHANNELS.filter(c => cat === 'All' || c.category === cat)
+  const groups = ['All', ...Array.from(new Set(channels.map(c => c.group)))]
+  const list = channels.filter(c => cat === 'All' || c.group === cat)
   return (
     <div className="space-y-4 max-w-4xl mx-auto">
       <h1 className="text-xl font-bold">📺 Live TV — Free with Ads</h1>
       <Card>
-        <video ref={videoRef} controls autoPlay muted playsInline className="w-full aspect-video bg-black rounded-lg" />
+        {current.streamUrl ? (
+          <video ref={videoRef} controls autoPlay muted playsInline onError={() => setPlayError('This stream is not playing right now — try another channel.')} className="w-full aspect-video bg-black rounded-lg" />
+        ) : (
+          <div className="w-full aspect-video bg-black rounded-lg flex items-center justify-center text-center px-4">
+            <p className="text-white text-sm">This channel has no playable stream in the app yet.<br />Watch it on the official site below.</p>
+          </div>
+        )}
         <div className="flex justify-between items-center mt-3 flex-wrap gap-2">
-          <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.category} • In-app HLS player</p></div>
-          <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>
+          <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.group} • In-app HLS player</p></div>
+          {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
         </div>
-        <p className="text-xs text-gray-400 mt-2">If no channel is playing, only the official source link is shown.</p>
+        {playError && <p className="text-sm text-red-600 mt-2">{playError}</p>}
+        <p className="text-xs text-gray-400 mt-2">{fromPlaylist ? `${channels.length} channels from the admin playlist.` : 'Playlist could not be loaded — showing saved channels.'} If a channel does not play, try another one.</p>
       </Card>
-      <div className="flex gap-2 flex-wrap">{TV_CATEGORIES.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
+      <div className="flex gap-2 flex-wrap">{groups.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {list.map(ch => (
-          <button key={ch.id} onClick={() => setCurrent(ch)} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500' : 'bg-white dark:bg-fb-card'}`}>
-            <p className="font-bold">📺 {ch.name}</p><p className="text-xs text-gray-400">{ch.category}</p>
+          <button key={ch.id} onClick={() => { setCurrent(ch); setPlayError('') }} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500' : 'bg-white dark:bg-fb-card'}`}>
+            <p className="font-bold flex items-center gap-2">{ch.logo ? <img src={ch.logo} alt="" className="w-6 h-6 rounded object-contain bg-white" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} /> : '📺'} {ch.name}</p><p className="text-xs text-gray-400">{ch.group}{ch.streamUrl ? '' : ' • Link only'}</p>
           </button>
         ))}
       </div>
@@ -2923,7 +2966,7 @@ function AdminSettingsTab() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl } = useStore()
   // টপ-আপ আবেদনের গন্তব্য — গ্রাহককে যে নম্বর/ঠিকানা দেখানো হয়েছিল (অ্যাডমিন সেটিংসে বসানো থাকলে আসলটা)
   function topUpDestination(t: { method: string; network?: string }): string {
     if (t.method === 'bKash') return adminSettings.payments.bkash
@@ -2987,9 +3030,30 @@ export function AdminPage() {
     if (!Number.isFinite(v) || v < 0 || v > 10) { setFeeMsg('Fee must be between 0–10%.'); return }
     setPiWithdrawFeePct(v); setFeeMsg(`✅ Withdraw fee saved: ${v}%.`)
   }
-  const [tvName, setTvName] = useState('')
-  const [tvUrl, setTvUrl] = useState('')
-  const [tvAdded, setTvAdded] = useState(false)
+  // Live TV — ONE playlist link (M3U) drives the whole channel list; the app
+  // fetches it and shows every channel inside it. Saving here writes
+  // config/public (tvPlaylistUrl) — no code change needed to change channels.
+  const [tvPlaylistInput, setTvPlaylistInput] = useState(tvPlaylistUrl)
+  const [tvPlaylistMsg, setTvPlaylistMsg] = useState('')
+  const [tvPlaylistErr, setTvPlaylistErr] = useState('')
+  async function saveTvPlaylist() {
+    const u = tvPlaylistInput.trim()
+    if (!isPlaylistUrl(u)) { setTvPlaylistErr('Paste a valid playlist link starting with http:// or https://.'); setTvPlaylistMsg(''); return }
+    setTvPlaylistUrl(u)
+    setTvPlaylistErr('')
+    try {
+      const list = await fetchTvPlaylist(u)
+      setTvPlaylistMsg(`✅ Playlist saved — ${list.length} channels found.`)
+    } catch {
+      setTvPlaylistMsg('✅ Playlist saved — could not load it right now, check the link. Users will see the saved channels until it loads.')
+    }
+  }
+  function resetTvPlaylist() {
+    setTvPlaylistInput(DEFAULT_TV_PLAYLIST_URL)
+    setTvPlaylistUrl(DEFAULT_TV_PLAYLIST_URL)
+    setTvPlaylistErr('')
+    setTvPlaylistMsg('✅ Playlist reset to the default.')
+  }
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold">🛡️ Admin Panel</h1>
@@ -3130,13 +3194,17 @@ export function AdminPage() {
       </Card>}
       {tab === 'users' && <Card><h2 className="font-bold">Users</h2><p className="text-sm text-gray-500 mt-2">No user totals yet — live user counts are not tracked.</p><p className="text-sm mt-2">Dating KYC: {kycStatus === 'approved' ? `✅ Approved (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('en-GB') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, last 4 of ID: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ Under review — waiting for admin approval' : kycStatus === 'rejected' ? `❌ Rejected — ${kycRejectReason || 'No reason given'}` : '⏳ Not yet'}</p></Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">Call Recording — Admin Only</h2><p className="text-sm mt-2">Only the admin can view recordings, for appeal/dispute resolution. Regular users have no record button. Stored: 30 days (Cloudflare R2 free tier). Stored on the server, not on the user's phone.</p><p className="text-sm text-gray-500 mt-1">No recordings yet.</p></Card>}
-      {tab === 'livetv' && <Card><h2 className="font-bold">Add Live TV Channel</h2>
-        <label className="text-sm block mt-3">Channel Name</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvName} onChange={e => setTvName(e.target.value)} />
-        <label className="text-sm block mt-3">Official HLS Stream URL</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvUrl} onChange={e => setTvUrl(e.target.value)} placeholder="https://...m3u8" />
-        <label className="text-sm block mt-3">Official Source Link</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" placeholder="https://..." />
-        <Btn className="mt-3" disabled={!tvName || !tvUrl} onClick={() => setTvAdded(true)}>Add Channel</Btn>
-        {tvAdded && <p className="text-sm text-green-600 mt-2">✅ {tvName} added.</p>}
-        <p className="text-xs text-gray-400 mt-2">Use only official HLS streams and official source links.</p>
+      {tab === 'livetv' && <Card><h2 className="font-bold">Live TV — IPTV Playlist</h2>
+        <p className="text-xs text-gray-500 mt-1">Paste ONE playlist link (M3U). The app loads it and shows every channel inside it in Live TV — no code change needed to change channels.</p>
+        <label className="text-sm block mt-3">Playlist URL (M3U link)</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={tvPlaylistInput} onChange={e => { setTvPlaylistInput(e.target.value); setTvPlaylistMsg(''); setTvPlaylistErr('') }} placeholder="https://...m3u" />
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <Btn onClick={saveTvPlaylist}>Save Playlist</Btn>
+          <Btn variant="ghost" onClick={resetTvPlaylist}>Reset to Default</Btn>
+        </div>
+        {tvPlaylistMsg && <p className="text-sm text-green-600 mt-2">{tvPlaylistMsg}</p>}
+        {tvPlaylistErr && <p className="text-sm text-red-600 mt-2">{tvPlaylistErr}</p>}
+        <p className="text-xs text-gray-400 mt-2">Currently saved: <b>{tvPlaylistUrl || 'Default playlist (Eamin Tv)'}</b></p>
+        <p className="text-xs text-gray-400 mt-1">Use only playlists you have the right to show. Streams from a third-party playlist can break or change — if a channel stops playing, replace the playlist link.</p>
       </Card>}
       {tab === 'moderation' && <Card><h2 className="font-bold">Moderation Log</h2><p className="text-sm text-gray-500 mt-2">No attempts logged yet.</p><p className="text-sm text-gray-500 mt-1">No reported profiles.</p></Card>}
       {tab === 'settings' && <AdminSettingsTab />}

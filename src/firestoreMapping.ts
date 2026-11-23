@@ -116,6 +116,7 @@ export type PublicConfigDoc = {
   piWithdrawFeePct: number
   datingRate: number
   liveRate: number
+  tvPlaylistUrl: string
   payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string }
 }
 
@@ -257,8 +258,8 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   return out
 }
 
-// অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ; sms/smtp গোপন অংশ বাদ যায়)।
-export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments']): PublicConfigDoc {
+// অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক; sms/smtp গোপন অংশ বাদ যায়)।
+export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = ''): PublicConfigDoc {
   return {
     schemaVersion: SCHEMA_VERSION,
     piRateBDT: rates.piRateBDT,
@@ -266,12 +267,13 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
     piWithdrawFeePct: rates.piWithdrawFeePct,
     datingRate: rates.datingRate,
     liveRate: rates.liveRate,
+    tvPlaylistUrl,
     payments: { ...payments },
   }
 }
 
-// config/public → স্টোরের দর + পেমেন্টের বিবরণ (যা ঘর ডকে নেই, সেটা বদলায় না)।
-export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; payments: PublicConfigDoc['payments'] }> {
+// config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক (যা ঘর ডকে নেই, সেটা বদলায় না)।
+export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments'] }> {
   if (!doc || typeof doc !== 'object') return {}
   const d = doc as Record<string, unknown>
   const out: Record<string, unknown> = {}
@@ -280,6 +282,8 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
   if (typeof d.piWithdrawFeePct === 'number' && Number.isFinite(d.piWithdrawFeePct) && d.piWithdrawFeePct >= 0 && d.piWithdrawFeePct <= 10) out.piWithdrawFeePct = d.piWithdrawFeePct
   if (typeof d.datingRate === 'number' && Number.isFinite(d.datingRate) && d.datingRate >= 0.01) out.datingRate = d.datingRate
   if (typeof d.liveRate === 'number' && Number.isFinite(d.liveRate) && d.liveRate >= 0.01) out.liveRate = d.liveRate
+  // প্লেলিস্টের লিঙ্ক — যেকোনো http(s) লিঙ্ক (শর্ট লিঙ্কও চলে: আসল .m3u-তে রিডাইরেক্ট হয়)।
+  if (typeof d.tvPlaylistUrl === 'string' && /^https?:\/\//.test(d.tvPlaylistUrl.trim()) && d.tvPlaylistUrl.trim().length <= 500) out.tvPlaylistUrl = d.tvPlaylistUrl.trim()
   if (d.payments && typeof d.payments === 'object') {
     const p = d.payments as Record<string, unknown>
     const pay: Record<string, string> = {}
@@ -288,7 +292,7 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
     }
     if (Object.keys(pay).length > 0) out.payments = pay as PublicConfigDoc['payments']
   }
-  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; payments: PublicConfigDoc['payments'] }>
+  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments'] }>
 }
 
 // ম্যানুয়াল টপ-আপ আবেদন → topups/{id} ডক।

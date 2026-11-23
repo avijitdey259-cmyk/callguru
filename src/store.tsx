@@ -7,6 +7,7 @@ import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, write
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
+import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -173,6 +174,9 @@ type Store = {
   piWithdrawFeePct: number
   setPiWithdrawFeePct: (v: number) => void
   piMinWithdraw: number
+  // Live TV — ONE IPTV playlist URL (M3U) from config/public; empty = default playlist.
+  tvPlaylistUrl: string
+  setTvPlaylistUrl: (u: string) => void
   pendingTopUps: TopUpRequest[]
   submitManualTopUp: (method: string, amount: number, trxId: string, currency?: 'BDT' | 'USDT', network?: string) => string | null
   approveTopUp: (id: string) => void
@@ -325,6 +329,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [usdtRateBDT, setUsdtRateBDTState] = useState<number>(() => load('usdtRateBDT', DEFAULT_USDT_RATE_BDT))
   // Pi তোলার ফি — অ্যাডমিন নির্ধারিত (ডিফল্ট ১%, সর্বনিম্ন ০.১ π)
   const [piWithdrawFeePct, setPiWithdrawFeePctState] = useState<number>(() => load('piWithdrawFeePct', DEFAULT_PI_WITHDRAW_FEE_PCT))
+  // Live TV প্লেলিস্টের লিঙ্ক — অ্যাডমিন নির্ধারিত (ডিফল্ট: Eamin Tv M3U); খালি মানে ডিফল্ট
+  const [tvPlaylistUrl, setTvPlaylistUrlState] = useState<string>(() => load('tvPlaylistUrl', DEFAULT_TV_PLAYLIST_URL))
 
   useEffect(() => save('user', user), [user])
   useEffect(() => save('uid', uid), [uid])
@@ -367,6 +373,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('piRateBDT', piRateBDT), [piRateBDT])
   useEffect(() => save('usdtRateBDT', usdtRateBDT), [usdtRateBDT])
   useEffect(() => save('piWithdrawFeePct', piWithdrawFeePct), [piWithdrawFeePct])
+  useEffect(() => save('tvPlaylistUrl', tvPlaylistUrl), [tvPlaylistUrl])
   // ম্যানুয়াল টপ-আপের আবেদন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হয়
   const [pendingTopUps, setPendingTopUps] = useState<TopUpRequest[]>(() => load('pendingTopUps', []))
   useEffect(() => save('pendingTopUps', pendingTopUps), [pendingTopUps])
@@ -457,12 +464,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
-  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string } }>) => {
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string } }>) => {
     if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
     if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
     if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
     if (c.datingRate !== undefined) setDatingRateState(c.datingRate)
     if (c.liveRate !== undefined) setLiveRateState(c.liveRate)
+    if (c.tvPlaylistUrl !== undefined) setTvPlaylistUrlState(c.tvPlaylistUrl)
     if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments } }))
   }
 
@@ -513,6 +521,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
     setPiWithdrawFeePctState(DEFAULT_PI_WITHDRAW_FEE_PCT)
+    setTvPlaylistUrlState(DEFAULT_TV_PLAYLIST_URL)
     setPendingTopUps([])
     setAdminSettingsState(DEFAULT_ADMIN_SETTINGS)
   }
@@ -563,7 +572,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           applyPublicConfig(fromPublicConfig(cfg))
         } else if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
           // অ্যাডমিন প্রথমবার — নিজের দর + পেমেন্টের বিবরণ ক্লাউডে ওঠে (গোপন অংশ ছাড়া)
-          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments))
+          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl))
           if (cancelled) return
         }
         if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
@@ -614,12 +623,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fsWriteTimer.current = setTimeout(() => {
       writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
-        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments)).catch(() => { /* ignore */ })
+        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl)).catch(() => { /* ignore */ })
       }
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, adminSettings])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings])
 
   // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
   const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
@@ -873,6 +882,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setUsdtRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setUsdtRateBDTState(n) },
     piWithdrawFeePct,
     setPiWithdrawFeePct: (v) => { const n = Math.round(Number(v) * 10) / 10; if (Number.isFinite(n) && n >= 0 && n <= 10) setPiWithdrawFeePctState(n) },
+    tvPlaylistUrl,
+    setTvPlaylistUrl: (u) => { const v = String(u ?? '').trim(); if (v === '' || (/^https?:\/\//.test(v) && v.length <= 500)) setTvPlaylistUrlState(v) },
     piMinWithdraw: piMinWithdraw(piRateBDT, usdtRateBDT),
     piLedger,
     pendingTopUps,
@@ -913,7 +924,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
