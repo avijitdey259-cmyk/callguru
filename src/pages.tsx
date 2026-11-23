@@ -6,7 +6,7 @@ import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettin
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail } from './buddies'
-import { buildSearchablePeople, searchPeople, searchPosts, type SearchablePerson } from './friendSearch'
+import { buildSearchablePeople, mergeAllUsers, searchPeople, searchPosts, suggestionsFor, type SearchablePerson } from './friendSearch'
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -18,7 +18,7 @@ import {
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
-import { fetchNewMembers } from './firestore'
+import { fetchAllPublicProfiles, fetchNewMembers } from './firestore'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
@@ -401,6 +401,57 @@ const STORY_CAPTIONS: Record<string, string> = {
 }
 const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দর কাটুক! 😊'
 
+// ---------- বন্ধু খোঁজা: সব আসল ব্যবহারকারী + অটোকমপ্লিট ----------
+// টাইপ করা মান ~২৫০ মিলিসেকেন্ড পরে ধরা হয় (debounce) — প্রতি অক্ষরে খোঁজা চলে না।
+function useDebouncedValue(value: string, delayMs: number): string {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), delayMs)
+    return () => window.clearTimeout(t)
+  }, [value, delayMs])
+  return debounced
+}
+
+// সব আসল ব্যবহারকারীসহ খোঁজা — লোকাল (বন্ধু + People You May Know + ৫ পারসোনা)
+// + Firestore publicProfiles। টাইপ শুরু করলেই publicProfiles একবার আনে; না পেলে
+// (নিয়ম/নেটওয়ার্ক নেই) লোকাল তালিকাতেই খোঁজা চলে — কখনো ক্র্যাশ করে না, ভুয়া
+// কাউকে দেখায় না। নিজেকে কখনো দেখায় না। সাজেশন সর্বোচ্চ ৮টি।
+function useAllUserSearch(
+  friends: { id: string; name: string; color: string; online: boolean }[],
+  query: string,
+) {
+  const { uid } = useStore()
+  const [allUsers, setAllUsers] = useState<NewMember[] | null>(null)
+  const debounced = useDebouncedValue(query, 250)
+  useEffect(() => {
+    if (!debounced.trim() || allUsers !== null) return
+    let cancelled = false
+    fetchAllPublicProfiles(100).then(list => { if (!cancelled) setAllUsers(list) })
+    return () => { cancelled = true }
+  }, [debounced, allUsers])
+  const local = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
+  const searchable = useMemo(() => mergeAllUsers(local, allUsers ?? [], uid), [local, allUsers, uid])
+  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
+  const suggestions = useMemo(() => suggestionsFor(searchable, debounced), [searchable, debounced])
+  return { results, suggestions }
+}
+
+// অটোকমপ্লিট ড্রপডাউন — সার্চ বাক্সের নিচে মেলা নাম/আইডি (সর্বোচ্চ ৮টি)।
+// সাজেশনে ট্যাপ করলে তার নাম কোয়েরি হয় (ফল দেখায়), ড্রপডাউন লুকিয়ে যায়।
+function SearchSuggestions({ suggestions, onPick }: { suggestions: SearchablePerson[]; onPick: (p: SearchablePerson) => void }) {
+  if (suggestions.length === 0) return null
+  return (
+    <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
+      {suggestions.map(p => (
+        <button key={p.id} onClick={() => onPick(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
+          <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}</span></span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ---------- নতুন সদস্য ----------
 // আসল নতুন ব্যবহারকারী (Firestore publicProfiles থেকে, নতুন থেকে পুরনো) —
 // কোনো ডেমো/ভুয়া ব্যবহারকারী নয়। চ্যাট পারসোনারা এখানে আসে না (তারা লোকাল
@@ -469,11 +520,11 @@ export function Feed() {
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [sent, setSent] = useState<Record<string, boolean>>({})
+  const [showSugg, setShowSugg] = useState(false)
   const navigate = useNavigate()
   const searching = query.trim() !== ''
-  // বন্ধু খোঁজা — Friends পেজের মতোই: বন্ধু + People You May Know + চ্যাট পারসোনা
-  const searchable = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
-  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
+  // বন্ধু খোঁজা — বন্ধু + People You May Know + চ্যাট পারসোনা + সব আসল ব্যবহারকারী
+  const { results, suggestions } = useAllUserSearch(friends, query)
   // পোস্ট খোঁজা — ফিডের আসল পোস্ট (সিড + নিজের বানানো), লেখা বা লেখকের নামে
   const postResults = useMemo(() => searchPosts(posts, query), [posts, query])
   function jumpToPost(postId: string) {
@@ -541,8 +592,11 @@ export function Feed() {
       </Card>
       <Card>
         <h2 className="font-bold">🔍 বন্ধু খুঁজুন</h2>
-        <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => setQuery(e.target.value)} placeholder="নাম বা আইডি লিখুন…" />
-        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে।</p>
+        <div className="relative">
+          <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => { setQuery(e.target.value); setShowSugg(true) }} onFocus={() => { if (query.trim()) setShowSugg(true) }} placeholder="নাম বা আইডি লিখুন…" />
+          {searching && showSugg && <SearchSuggestions suggestions={suggestions} onPick={p => { setQuery(p.name); setShowSugg(false) }} />}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে — সব আসল ব্যবহারকারী।</p>
       </Card>
       {searching && (
         <Card>
@@ -551,7 +605,7 @@ export function Feed() {
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 চ্যাট</Btn>
                 : sent[p.id]
@@ -1468,11 +1522,12 @@ export function FriendsPage() {
   const navigate = useNavigate()
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [query, setQuery] = useState('')
+  const [showSugg, setShowSugg] = useState(false)
   const [copied, setCopied] = useState(false)
   const searching = query.trim() !== ''
-  // খোঁজার তালিকা: বন্ধু + People You May Know + চ্যাট পারসোনা (নাম দিয়ে ডুপ্লিকেট বাদ)
-  const searchable = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
-  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
+  // খোঁজার তালিকা: বন্ধু + People You May Know + চ্যাট পারসোনা + সব আসল ব্যবহারকারী
+  // (নাম/আইডি দিয়ে ডুপ্লিকেট বাদ, নিজেকে বাদ)
+  const { results, suggestions } = useAllUserSearch(friends, query)
   async function copyId() {
     try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
   }
@@ -1489,8 +1544,11 @@ export function FriendsPage() {
       </Card>
       <Card>
         <h2 className="font-bold">🔍 বন্ধু খুঁজুন</h2>
-        <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => setQuery(e.target.value)} placeholder="নাম বা আইডি লিখুন…" />
-        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে।</p>
+        <div className="relative">
+          <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => { setQuery(e.target.value); setShowSugg(true) }} onFocus={() => { if (query.trim()) setShowSugg(true) }} placeholder="নাম বা আইডি লিখুন…" />
+          {searching && showSugg && <SearchSuggestions suggestions={suggestions} onPick={p => { setQuery(p.name); setShowSugg(false) }} />}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে — সব আসল ব্যবহারকারী।</p>
       </Card>
       {searching ? (
         <Card>
@@ -1499,7 +1557,7 @@ export function FriendsPage() {
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 চ্যাট</Btn>
                 : sent[p.id]

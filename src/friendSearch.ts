@@ -11,16 +11,21 @@ export interface SearchablePerson {
   online: boolean
   mutual?: number
   isFriend: boolean
+  // ব্যবহারকারীর পাবলিক আইডি (referralCode, যেমন cg-abc123) — আসল ব্যবহারকারীদের
+  // ক্ষেত্রে থাকে; বন্ধু/সাজেশন/পারসোনার ক্ষেত্রে নাও থাকতে পারে (তাদের id-ই আইডি)।
+  referralCode?: string
 }
 
 export function normalizeQuery(q: string): string {
   return q.trim().toLowerCase()
 }
 
-export function personMatches(p: Pick<SearchablePerson, 'name' | 'id'>, query: string): boolean {
+export function personMatches(p: Pick<SearchablePerson, 'name' | 'id' | 'referralCode'>, query: string): boolean {
   const q = normalizeQuery(query)
   if (!q) return true
-  return p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+  return p.name.toLowerCase().includes(q)
+    || p.id.toLowerCase().includes(q)
+    || (typeof p.referralCode === 'string' && p.referralCode.toLowerCase().includes(q))
 }
 
 export function searchPeople(people: SearchablePerson[], query: string): SearchablePerson[] {
@@ -29,7 +34,40 @@ export function searchPeople(people: SearchablePerson[], query: string): Searcha
   return people.filter(p => personMatches(p, q))
 }
 
-// পোস্ট খোঁজা (হোম পেজের সার্চ বক্স) — পোস্টের লেখা বা লেখকের নামের অংশ দিয়ে।
+// সব আসল ব্যবহারকারী (Firestore publicProfiles থেকে) লোকাল তালিকার সাথে মেশানো।
+// নিজেকে কখনো দেখায় না (selfUid বাদ); একই ব্যবহারকারী বন্ধু হিসেবেও থাকলে একবারই
+// দেখায় (id দিয়ে, তারপর নাম দিয়ে ডুপ্লিকেট বাদ — বন্ধুর তথ্যই থাকে)। আসল
+// ব্যবহারকারীর আইডি = তার Firebase uid (পাবলিক প্রোফাইলের চাবি); referralCode
+// থাকলে সেটাও ম্যাচ করে। কোনো ডেমো/ভুয়া ব্যবহারকারী এখানে আসে না — ডেটা শুধু
+// publicProfiles থেকে আসে, না পেলে লোকাল তালিকাই থাকে।
+export function mergeAllUsers(
+  local: SearchablePerson[],
+  allUsers: { id: string; displayName: string; colour: string; referralCode?: string }[],
+  selfUid: string | null,
+): SearchablePerson[] {
+  const out: SearchablePerson[] = [...local]
+  const seenIds = new Set(local.map(p => p.id))
+  const seenNames = new Set(local.map(p => p.name.trim().toLowerCase()))
+  for (const u of allUsers) {
+    if (selfUid && u.id === selfUid) continue
+    if (seenIds.has(u.id)) continue
+    const nameKey = u.displayName.trim().toLowerCase()
+    if (seenNames.has(nameKey)) continue
+    seenIds.add(u.id)
+    seenNames.add(nameKey)
+    out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}) })
+  }
+  return out
+}
+
+// অটোকমপ্লিট সাজেশন — টাইপ করার সাথে সাথে মেলা নাম/আইডি, সর্বোচ্চ limitNটি।
+// খালি কোয়েরিতে কিছু ফেরে না (ড্রপডাউন লুকিয়ে থাকে); কেস-ইনসেনসিটিভ সাবস্ট্রিং,
+// বাংলা + ল্যাটিন। সাজেশনে ট্যাপ করলে তার নাম কোয়েরি হয় (পেজে ফল দেখায়)।
+export function suggestionsFor(people: SearchablePerson[], query: string, limitN = 8): SearchablePerson[] {
+  const q = normalizeQuery(query)
+  if (!q) return []
+  return searchPeople(people, q).slice(0, Math.max(0, limitN))
+}
 // কেস-ইনসেনসিটিভ সাবস্ট্রিং — বাংলা + ল্যাটিন। খালি কোয়েরিতে কিছু ফেরে না
 // (বন্ধু খোঁজার মতো নয় — পোস্টের তালিকা সার্চের ফল হিসেবে দেখানো হয় না)।
 export interface SearchablePost {

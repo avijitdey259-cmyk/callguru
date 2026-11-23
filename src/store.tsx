@@ -4,6 +4,7 @@ import { BUDDIES } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
 import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile } from './firestore'
+import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
@@ -104,6 +105,10 @@ type Store = {
   referrals: number
   dark: boolean
   toggleDark: () => void
+  // সাউন্ড সেটিংস — চ্যাট সাউন্ড + কল রিংটোন (চালু/বন্ধ, রিংটোন ভলিউম);
+  // মোবাইল আর কম্পিউটারে একই জায়গায় (মেনু + চ্যাট টগল), একই আচরণ
+  soundSettings: SoundSettings
+  setSoundSettings: (s: Partial<SoundSettings>) => void
   expertRate: (id: string) => number
   datingRate: number
   setDatingRate: (v: number) => void
@@ -223,6 +228,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [installBonusClaimed, setInstallBonusClaimed] = useState<boolean>(() => load('installBonusClaimed', false))
   const [referrals, setReferrals] = useState<number>(() => load('referrals', 0))
   const [dark, setDark] = useState<boolean>(() => load('dark', false))
+  // সাউন্ড সেটিংস — localStorage-এ থাকে (প্রতি ডিভাইসে নিজের সেটিংস, বাকি
+  // সব সেটিংসের মতোই); মোবাইল/কম্পিউটার দুটোতেই একই ডিফল্ট ও আচরণ
+  const [soundSettings, setSoundSettingsState] = useState<SoundSettings>(() => loadSoundSettings(load<unknown>('soundSettings', null)))
+  useEffect(() => save('soundSettings', soundSettings), [soundSettings])
   // ডেটিং কল রেট এখন Pi-তে (ডিফল্ট π ০.১/মিনিট) — আগের টাকার রেট (≥১) থাকলে ÷১০০ করে Pi করা হয়
   const [datingRate, setDatingRateState] = useState<number>(() => {
     const v = load<number | null>('datingRate', null)
@@ -513,14 +522,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return
         if (docData) {
           applyHydrated(fromUserDoc(docData))
+          // পুরোনো প্রোফাইলে referralCode না থাকলে লগইনে ব্যাকফিল — নাম/আইডি
+          // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনের প্রোফাইল লেখা হয় না।
+          if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
+            await writePublicProfile(uid, user.name, referralCode)
+            if (cancelled) return
+          }
         } else {
           await writeUserDoc(uid, toUserDoc(collectSnapshot()))
           if (cancelled) return
-          // প্রথম লগইন — পাবলিক প্রোফাইল (শুধু নাম + যোগদানের সময় + রং) লেখা হয়,
-          // যাতে "নতুন সদস্য" সেকশনে আসল নতুন ব্যবহারকারীরা দেখা যায়। অ্যাডমিনের
-          // প্রোফাইল লেখা হয় না (তিনি নতুন সদস্যের তালিকায় আসবেন না)।
+          // প্রথম লগইন — পাবলিক প্রোফাইল (নাম + যোগদানের সময় + রং + পাবলিক আইডি)
+          // লেখা হয়, যাতে "নতুন সদস্য" সেকশনে আর নাম/আইডি খোঁজায় আসল নতুন
+          // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনের প্রোফাইল লেখা হয় না (তিনি নতুন
+          // সদস্যের তালিকায় আসবেন না)।
           if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
-            await writePublicProfile(uid, user.name)
+            await writePublicProfile(uid, user.name, referralCode)
             if (cancelled) return
           }
         }
@@ -730,6 +746,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     referrals,
     dark,
     toggleDark: () => setDark(d => !d),
+    soundSettings,
+    setSoundSettings: (s) => setSoundSettingsState(prev => loadSoundSettings({ ...prev, ...s })),
     expertRate: (id) => roundPi((EXPERTS.find(e => e.id === id)?.rate ?? 10) / 100),
     datingRate,
     setDatingRate: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 0.01) setDatingRateState(n) },
@@ -872,7 +890,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

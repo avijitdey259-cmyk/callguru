@@ -49,6 +49,19 @@ export type NewMember = {
   displayName: string
   createdAtMs: number | null
   colour: string
+  // ব্যবহারকারীর পাবলিক আইডি (referralCode, যেমন cg-abc123) — নিজের আইডি কার্ডে
+  // এমনিতেই দেখানো হয়, তাই পাবলিক প্রোফাইলে রাখা যায়। নাম/আইডি খোঁজায় মেলাতে লাগে।
+  // না থাকলে undefined (পুরোনো প্রোফাইল — লগইনে ব্যাকফিল হয়)।
+  referralCode?: string
+}
+
+// Firestore publicProfiles ডক → NewMember (pure)। ভাঙা/ফাঁকা ক্ষেত্রে নিরাপদ
+// ডিফল্ট — কখনো throw করে না, ভুয়া কাউকে বানায় না।
+export function mapPublicProfile(id: string, data: Record<string, unknown>): NewMember {
+  const name = typeof data.displayName === 'string' && data.displayName.trim() ? data.displayName.trim() : 'ব্যবহারকারী'
+  const colour = typeof data.colour === 'string' && data.colour ? data.colour : colourForUid(id)
+  const code = typeof data.referralCode === 'string' && data.referralCode.trim() ? data.referralCode.trim() : undefined
+  return { id, displayName: name, createdAtMs: toCreatedAtMs(data.createdAt), colour, ...(code ? { referralCode: code } : {}) }
 }
 
 // নিজেকে বাদ দেওয়া — নতুন সদস্যের তালিকায় নিজের প্রোফাইল দেখানো হয় না।
