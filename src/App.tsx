@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Layout } from './components'
 import { useStore } from './store'
+import { installAudioUnlock } from './sounds'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, Landing, LiveTV, LoginPage,
@@ -28,6 +29,9 @@ export default function App() {
     if (code) claimRefArrival(code)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // অডিও আনলক — মোবাইল ব্রাউজার প্রথম ট্যাপের আগে সাউন্ড বন্ধ রাখে; প্রথম
+  // pointer/touch-এ AudioContext চালু হয়, মোবাইল/কম্পিউটার দুটোতেই একইভাবে
+  useEffect(() => installAudioUnlock(), [])
   // লগইন দেওয়াল — লগইন ছাড়া /login বাদে কোনো পেজই দেখা যায় না (ল্যান্ডিং পেজ সহ); লগইন না থাকলে /login-এ পাঠানো হয়
   if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
   return (

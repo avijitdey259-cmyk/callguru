@@ -21,6 +21,7 @@ import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, t
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
 import { fetchNewMembers } from './firestore'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
+import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -756,7 +757,7 @@ export function CallPage() {
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified, soundSettings } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -826,6 +827,18 @@ export function CallPage() {
     loadLinkInfo()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLinkCall, linkCode])
+
+  // চলমান কলে রিংটোন বাজবে না — ইনকামিং কলের রিংটোন এই ফ্ল্যাগ দেখে থামে
+  useEffect(() => { setInCallActive(connected); return () => setInCallActive(false) }, [connected])
+
+  // ইনকামিং লিংক-কল: ধরার আগের পর্দায় (লিংক খুলে কে কল করছেন দেখালে) রিংটোন
+  // বাজে — ধরলে/কাটলে/আনমাউন্ট হলে থামে, ৬০ সেকেন্ডে নিজে থামে। মোবাইলে
+  // প্রথম ট্যাপের আগে অডিও সাসপেন্ডেড থাকলে ট্যাপেই শুরু হয় (ব্রাউজার নিয়ম)।
+  useEffect(() => {
+    if (!isLinkCall || started || ended || linkState !== 'ready') return
+    const stop = startRingtone(soundSettings)
+    return stop
+  }, [isLinkCall, started, ended, linkState, soundSettings])
 
   useEffect(() => {
     if (!started) return
@@ -977,7 +990,7 @@ export function CallPage() {
       onIce: (_from, candidate) => {
         pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {})
       },
-      onChat: (_from, text) => { setChat(c => [...c, { from: peerNameRef.current || 'অপর পক্ষ', text }]) },
+      onChat: (_from, text) => { setChat(c => [...c, { from: peerNameRef.current || 'অপর পক্ষ', text }]); playChatSound(soundSettings) },
       onPeerLeft: () => { endCallLocal('অপর পক্ষের সংযোগ বিচ্ছিন্ন হয়েছে') },
       onCallEnded: () => { endCallLocal('অপর পক্ষ কল শেষ করেছেন') },
       onError: (err) => {
@@ -1566,7 +1579,7 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends } = useStore()
+  const { user, friends, soundSettings, setSoundSettings } = useStore()
   const location = useLocation()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'রিমা')
@@ -1621,6 +1634,7 @@ export function ChatPage() {
         lastReplyRef.current[buddy.id] = reply.text
         lastFunRef.current[buddy.id] = reply.fun
         setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: buddy.name, text: reply.text }] }))
+        playChatSound(soundSettings)
         setTyping(t => ({ ...t, [to]: false }))
       }, 1000 + Math.random() * 2000))
     }
@@ -1630,6 +1644,8 @@ export function ChatPage() {
     <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
       <Card className="md:col-span-1">
         <h2 className="font-bold mb-2">চ্যাট — সম্পূর্ণ ফ্রি</h2>
+        {/* চ্যাট সাউন্ড চালু/বন্ধ — একই টগল মোবাইল ও কম্পিউটারে, মেনুর সেটিংসের সাথে এক */}
+        <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? '🔔 Sound on — tap to turn off' : '🔕 Sound off — tap to turn on'}</button>
         {contacts.length === 0 && <p className="text-sm text-gray-500">এখনো কোনো বন্ধু নেই — বন্ধু যোগ করুন।</p>}
         {contacts.map(n => (
           <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-blue-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
@@ -2044,7 +2060,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent, spendGiftPi } = useStore()
+  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent, spendGiftPi, soundSettings } = useStore()
   const navigate = useNavigate()
   // ডেমো হোস্ট সরানো — শুধু আসল রুম (PiCall লাইভ সার্ভার) দেখাবে
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
@@ -2149,7 +2165,7 @@ export function DatingLivePage() {
       onIce: (_from, candidate) => { pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}) },
       onViewerCount: (n) => { if (!cancelled) setLiveViewers(n) },
       onGift: (from, gift) => { if (!cancelled) setGiftFeed(f => [...f.slice(-4), `${from} পাঠিয়েছেন ${gift.icon} ${gift.name}`]) },
-      onChat: (from, text) => { if (!cancelled) setChat(c => [...c, { from, text }]) },
+      onChat: (from, text) => { if (!cancelled) { setChat(c => [...c, { from, text }]); playChatSound(soundSettings) } },
       onHostLeft: () => { if (!cancelled) endLive('হোস্ট লাইভ শেষ করেছেন') },
     })
     wsRef.current = ws
@@ -2325,7 +2341,7 @@ export function DatingLivePage() {
 
 // নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
 export function DatingGoLivePage() {
-  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified, recordShare } = useStore()
+  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified, recordShare, soundSettings } = useStore()
   const navigate = useNavigate()
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট π ০.০৫/মিনিট)
   const [started, setStarted] = useState(false)
@@ -2404,7 +2420,7 @@ export function DatingGoLivePage() {
         setGiftPiReceived(c => roundPi(c + gift.pi))
         setGiftFeed(f => [...f.slice(-4), `${from} পাঠিয়েছেন ${gift.icon} ${gift.name}`])
       },
-      onChat: (from, text) => { setHostChat(c => [...c.slice(-19), { from, text }]) },
+      onChat: (from, text) => { setHostChat(c => [...c.slice(-19), { from, text }]); playChatSound(soundSettings) },
     })
     wsRef.current = ws
   }
@@ -3066,7 +3082,7 @@ export function AdminPage() {
 }
 
 export function MenuPage() {
-  const { user, totalPi, logout, isAdmin } = useStore()
+  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings } = useStore()
   const navigate = useNavigate()
   const tiles = [
     { to: '/feed', label: 'ফিড', icon: '📰', color: '#1877F2' }, { to: '/marketplace', label: 'মার্কেটপ্লেস', icon: '🛍️', color: '#27AE60' },
@@ -3090,6 +3106,31 @@ export function MenuPage() {
           : <Btn className="mt-3" onClick={() => navigate('/login')}>লগইন করুন</Btn>}
       </Card>
       <InstallButton />
+      {/* সাউন্ড সেটিংস — একটাই জায়গা, মোবাইল আর কম্পিউটারে একই; চ্যাট টগলের সাথে এক */}
+      <Card>
+        <h2 className="font-bold">🔔 Sound Settings</h2>
+        <p className="text-xs text-gray-500 mt-1">Same settings on mobile and computer.</p>
+        <div className="mt-3 space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-2">
+            <span>💬 Chat message sound</span>
+            <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className={`px-3 py-1.5 rounded-full font-bold ${soundSettings.chatSound ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{soundSettings.chatSound ? 'On' : 'Off'}</button>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span>📞 Incoming call ringtone</span>
+            <button onClick={() => setSoundSettings({ ringtone: !soundSettings.ringtone })} className={`px-3 py-1.5 rounded-full font-bold ${soundSettings.ringtone ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{soundSettings.ringtone ? 'On' : 'Off'}</button>
+          </div>
+          {soundSettings.ringtone && (
+            <label className="block">
+              <span>🔊 Ringtone volume — {Math.round(soundSettings.ringtoneVolume * 100)}%</span>
+              <input type="range" min={0} max={100} value={Math.round(soundSettings.ringtoneVolume * 100)} onChange={e => setSoundSettings({ ringtoneVolume: Number(e.target.value) / 100 })} className="w-full" />
+            </label>
+          )}
+          <div className="flex gap-2">
+            <Btn variant="ghost" onClick={() => playChatSound(soundSettings)}>🔊 Hear chat sound</Btn>
+            <Btn variant="ghost" onClick={() => playRingtoneOnce(soundSettings)}>📞 Hear ringtone</Btn>
+          </div>
+        </div>
+      </Card>
       <div className="grid grid-cols-2 gap-3">
         {tiles.map(t => (
           <button key={t.label} onClick={() => navigate(t.to)} className="bg-white dark:bg-fb-card rounded-xl p-4 shadow-sm text-left">
