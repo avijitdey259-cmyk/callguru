@@ -6,7 +6,7 @@ import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettin
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { BUDDIES, BUDDY_OPENERS, getBuddyByName, getBuddyReply } from './buddies'
-import { buildSearchablePeople, searchPeople, type SearchablePerson } from './friendSearch'
+import { buildSearchablePeople, searchPeople, searchPosts, type SearchablePerson } from './friendSearch'
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -423,6 +423,14 @@ export function Feed() {
   // বন্ধু খোঁজা — Friends পেজের মতোই: বন্ধু + People You May Know + চ্যাট পারসোনা
   const searchable = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
   const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
+  // পোস্ট খোঁজা — ফিডের আসল পোস্ট (সিড + নিজের বানানো), লেখা বা লেখকের নামে
+  const postResults = useMemo(() => searchPosts(posts, query), [posts, query])
+  function jumpToPost(postId: string) {
+    setQuery('')
+    requestAnimationFrame(() => {
+      document.getElementById('post-' + postId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
@@ -478,7 +486,7 @@ export function Feed() {
       </Card>
       {searching && (
         <Card>
-          <h2 className="font-bold">🔍 {results.length} জন পাওয়া গেছে</h2>
+          <h2 className="font-bold">👥 বন্ধু ({results.length} জন)</h2>
           {results.length === 0 && <p className="text-sm text-gray-500 mt-1">কাউকে পাওয়া যায়নি — নাম বা আইডি ঠিক আছে কি না দেখুন।</p>}
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
@@ -490,6 +498,14 @@ export function Feed() {
                   ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
                   : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true }) }}>Add Friend</Btn>}
             </div>
+          ))}
+          <h2 className="font-bold mt-4">📝 পোস্ট ({postResults.length}টি)</h2>
+          {postResults.length === 0 && <p className="text-sm text-gray-500 mt-1">কোনো পোস্ট পাওয়া যায়নি।</p>}
+          {postResults.map(p => (
+            <button key={p.id} onClick={() => jumpToPost(p.id)} className="block w-full text-left py-2">
+              <span className="font-medium text-sm">{p.author}{p.time ? <span className="text-xs text-gray-400 font-normal"> • {p.time}</span> : null}</span>
+              <span className="block text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{p.text}</span>
+            </button>
           ))}
         </Card>
       )}
@@ -505,7 +521,8 @@ export function Feed() {
         ))}
       </div>
       {posts.map(p => (
-        <Card key={p.id}>
+        <div key={p.id} id={'post-' + p.id}>
+        <Card>
           <div className="flex items-center gap-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.author.slice(0, 1)}</span>
             <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}</p></div>
@@ -521,6 +538,7 @@ export function Feed() {
             <Btn variant="ghost" onClick={() => setCommentDraft(d => ({ ...d, [p.id]: '' }))}>পাঠান</Btn>
           </div>
         </Card>
+        </div>
       ))}
     </div>
   )

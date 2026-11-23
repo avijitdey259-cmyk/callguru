@@ -29,6 +29,22 @@ export function searchPeople(people: SearchablePerson[], query: string): Searcha
   return people.filter(p => personMatches(p, q))
 }
 
+// পোস্ট খোঁজা (হোম পেজের সার্চ বক্স) — পোস্টের লেখা বা লেখকের নামের অংশ দিয়ে।
+// কেস-ইনসেনসিটিভ সাবস্ট্রিং — বাংলা + ল্যাটিন। খালি কোয়েরিতে কিছু ফেরে না
+// (বন্ধু খোঁজার মতো নয় — পোস্টের তালিকা সার্চের ফল হিসেবে দেখানো হয় না)।
+export interface SearchablePost {
+  id: string
+  author: string
+  text: string
+  time?: string
+}
+
+export function searchPosts(posts: SearchablePost[], query: string): SearchablePost[] {
+  const q = normalizeQuery(query)
+  if (!q) return []
+  return posts.filter(p => p.text.toLowerCase().includes(q) || p.author.toLowerCase().includes(q))
+}
+
 // বন্ধু + People You May Know + চ্যাট পারসোনা — এক তালিকায়, নাম দিয়ে ডুপ্লিকেট বাদ দিয়ে
 // (বন্ধু আগে, তারপর সাজেশন, তারপর পারসোনা — একই নাম দুবার দেখাবে না)।
 export function buildSearchablePeople(
