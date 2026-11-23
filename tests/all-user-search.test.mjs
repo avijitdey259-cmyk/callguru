@@ -23,6 +23,7 @@ import assert from 'node:assert/strict'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fsSrc = readFileSync(join(root, 'src/firestore.ts'), 'utf8')
 const pagesSrc = readFileSync(join(root, 'src/pages.tsx'), 'utf8')
+const searchUISrc = readFileSync(join(root, 'src/searchUI.tsx'), 'utf8')
 const storeSrc = readFileSync(join(root, 'src/store.tsx'), 'utf8')
 const nmSrc = readFileSync(join(root, 'src/newMembers.ts'), 'utf8')
 
@@ -138,7 +139,7 @@ check('Firestore না পেলে লোকাল তালিকাতেই
   assert.deepEqual(localOnly, local)
   assert.equal(FS.searchPeople(localOnly, 'রিমা').length, 1)
   assert.equal(FS.suggestionsFor(localOnly, 'রি').length, 1)
-  assert.ok(pagesSrc.includes('allUsers ?? []'), 'পেজে allUsers ?? [] ফলব্যাক নেই')
+  assert.ok(searchUISrc.includes('allUsers ?? []'), 'searchUI-তে allUsers ?? [] ফলব্যাক নেই')
 })
 
 check('পাবলিক প্রোফাইলে শুধু নাম/সময়/রং/referralCode — গোপন কিছু নয়', () => {
@@ -155,12 +156,19 @@ check('স্টোর লগইনে referralCode পাবলিক প্র
   assert.ok(fsSrc.includes('referralCode: code'), 'firestore.ts referralCode লেখে না')
 })
 
-check('দুটো সার্চ বাক্সেই সাজেশন ড্রপডাউন আছে (হোম + Friends)', () => {
+check('দুটো জায়গায় সাজেশন ড্রপডাউন আছে (হেডার সার্চ + Friends)', () => {
+  // Friends পেজের বাক্সে <SearchSuggestions />; হেডারের বাক্সে (searchUI.tsx-এর
+  // HeaderSearch) বন্ধু + পোস্টের একসাথে ড্রপডাউন — দুটোতেই ট্যাপে ড্রপডাউন লুকায়।
   const count = (pagesSrc.match(/<SearchSuggestions /g) || []).length
-  assert.equal(count, 2, `SearchSuggestions ${count} বার — ২ বার হওয়ার কথা`)
+  assert.equal(count, 1, `SearchSuggestions ${count} বার — Friends বাক্সে ১ বার হওয়ার কথা`)
   assert.ok(pagesSrc.includes('useAllUserSearch(friends, query)'), 'useAllUserSearch ব্যবহার হয়নি')
   assert.ok(pagesSrc.includes('setShowSugg(false)'), 'ট্যাপে ড্রপডাউন লুকায় না')
-  assert.ok(pagesSrc.includes('fetchAllPublicProfiles(100)'), '১০০ সীমা নেই')
+  assert.ok(searchUISrc.includes('export function HeaderSearch'), 'HeaderSearch নেই')
+  assert.ok(searchUISrc.includes('👥 বন্ধু'), 'হেডার ড্রপডাউনে বন্ধু সেকশন নেই')
+  assert.ok(searchUISrc.includes('📝 পোস্ট'), 'হেডার ড্রপডাউনে পোস্ট সেকশন নেই')
+  assert.ok(searchUISrc.includes('সব ফলাফল দেখুন'), 'হেডার ড্রপডাউনে সব-ফলাফল বোতাম নেই')
+  assert.ok(searchUISrc.includes('setShowSugg(false)'), 'হেডার ড্রপডাউন ট্যাপে লুকায় না')
+  assert.ok(searchUISrc.includes('fetchAllPublicProfiles(100)'), '১০০ সীমা নেই')
 })
 
 check('ফলে Firebase uid দেখানো হয় না — referralCode বা লোকাল id দেখায়', () => {
@@ -169,14 +177,18 @@ check('ফলে Firebase uid দেখানো হয় না — referralCo
 })
 
 check('মোবাইল ও কম্পিউটারে একই — সার্চ/সাজেশনে ডিভাইস-ভেদ নেই', () => {
-  // একই SearchSuggestions কম্পোনেন্ট দুটো বাক্সেই — মোবাইল/ডেস্কটপ আলাদা সংস্করণ নেই
+  // Friends বাক্সে <SearchSuggestions />; হেডার সার্চে (searchUI.tsx-এর
+  // HeaderSearch) একই নিয়মের বন্ধু + পোস্ট ড্রপডাউন — মোবাইল/ডেস্কটপ
+  // আলাদা সংস্করণ নেই, একই কম্পোনেন্ট/ক্লাস সব স্ক্রিনে।
   const uses = (pagesSrc.match(/<SearchSuggestions /g) || []).length
-  assert.equal(uses, 2, 'দুটো বাক্সে একই কম্পোনেন্ট থাকার কথা')
+  assert.equal(uses, 1, 'Friends বাক্সে SearchSuggestions ১ বার থাকার কথা')
+  assert.ok(searchUISrc.includes('export function HeaderSearch'), 'HeaderSearch নেই')
   // সার্চ/সাজেশন কোডে responsive লুকানো/দেখানো (আলাদা hidden ক্লাস, md:/sm:) নেই
   // (ড্রপডাউনের নিজের overflow-hidden গোনা হয় না — ওটা শুধু কোণ গোল করে)
-  const searchStart = pagesSrc.indexOf('function useAllUserSearch')
-  const searchEnd = pagesSrc.indexOf('// ---------- নতুন সদস্য ----------')
-  const searchCode = pagesSrc.slice(searchStart, searchEnd)
+  const searchStart = searchUISrc.indexOf('export function useAllUserSearch')
+  const searchEnd = searchUISrc.indexOf('export function HeaderSearch')
+  const searchCode = searchUISrc.slice(searchStart, searchEnd)
+  assert.ok(searchStart !== -1 && searchEnd > searchStart, 'সার্চ কোডের span পাওয়া যায়নি')
   assert.ok(!/(^|[\s"'])hidden([\s"']|$)|md:|sm:|lg:|innerWidth|isMobile/.test(searchCode), 'সার্চ কোডে ডিভাইস-ভেদ আছে')
   // ট্যাপ/ক্লিক একই হ্যান্ডলার (onClick — মোবাইল ট্যাপেও চলে); hover-নির্ভর কিছু নেই
   assert.ok(searchCode.includes('onClick={() => onPick(p)}'), 'সাজেশন ট্যাপ হ্যান্ডলার নেই')
@@ -188,6 +200,7 @@ check('মোবাইল ও কম্পিউটারে একই — স�
   assert.ok(!cardBody.includes('overflow-hidden'), 'Card ড্রপডাউন কেটে দেবে')
   // ড্রপডাউন কার্ডের পুরো প্রস্থে (left-0 right-0) — ছোট স্ক্রিনেও একইভাবে দেখায়
   assert.ok(searchCode.includes('absolute left-0 right-0 top-full'), 'ড্রপডাউন পুরো প্রস্থে নেই')
+  assert.ok(searchUISrc.includes('absolute left-0 right-0 top-full'), 'হেডার ড্রপডাউন পুরো প্রস্থে নেই')
 })
 
 console.log(`\n${passed}/16 passed`)

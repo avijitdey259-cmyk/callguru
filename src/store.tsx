@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
+import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT, type Post } from './data'
 import { BUDDIES } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
@@ -80,6 +80,11 @@ type Store = {
   addFriend: (f: Friend) => void
   acceptRequest: (id: string) => void
   removeFriend: (id: string) => void
+  // ফিডের খোঁজা + পোস্ট — হেডার সার্চ (সব পেজে) আর ফিড একই অবস্থা দেখে; সেশন-মাত্র
+  feedQuery: string
+  setFeedQuery: (q: string) => void
+  posts: Post[]
+  setPosts: React.Dispatch<React.SetStateAction<Post[]>>
   likesUsed: number
   useLike: () => boolean
   premium: boolean
@@ -192,6 +197,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [fsState, setFsState] = useState<'off' | 'syncing' | 'on' | 'error'>('off')
   const [freeFirstMinuteUsed, setFreeUsed] = useState<boolean>(() => load('freeUsed', false))
   const [calls, setCalls] = useState<CallRecord[]>(() => load('calls', []))
+  // ফিডের খোঁজা + পোস্ট — হেডার সার্চ আর ফিড একই অবস্থা দেখে (পোস্ট আগে ফিডের
+  // লোকাল state-এ ছিল, নেভিগেট করলেই হারাত; এখন সেশনে থাকে, Firestore-এ যায় না)
+  const [feedQuery, setFeedQuery] = useState('')
+  const [posts, setPosts] = useState<Post[]>(SEED_POSTS)
   // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
   // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
   const [friends, setFriends] = useState<Friend[]>(() => {
@@ -711,6 +720,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     calls,
     addCall: (c) => setCalls(prev => [{ ...c, id: 'call-' + Date.now(), time: new Date().toLocaleString('bn-BD') }, ...prev]),
     friends,
+    feedQuery,
+    setFeedQuery,
+    posts,
+    setPosts,
     requests,
     addFriend: (f) => setFriends(prev => prev.some(x => x.id === f.id) ? prev : [...prev, f]),
     acceptRequest: (id) => {
@@ -890,7 +903,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -6,11 +6,12 @@ import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettin
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail } from './buddies'
-import { buildSearchablePeople, mergeAllUsers, searchPeople, searchPosts, suggestionsFor, type SearchablePerson } from './friendSearch'
-import { Btn, Card, InstallButton } from './components'
+import { searchPosts, type SearchablePerson } from './friendSearch'
+import { useAllUserSearch, SearchSuggestions } from './searchUI'
+import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
-  REELS, SEED_POSTS, SERVICES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
+  REELS, SERVICES, TV_CATEGORIES, TV_CHANNELS, TOPUP_PACKS,
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi, PI_DEPOSIT_ADDRESS,
   BINANCE_PAY_ID, PI_MIN_WITHDRAW_USDT,
   USDT_NETWORKS, piWithdrawFee,
@@ -18,7 +19,7 @@ import {
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
-import { fetchAllPublicProfiles, fetchNewMembers } from './firestore'
+import { fetchNewMembers } from './firestore'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
@@ -401,57 +402,6 @@ const STORY_CAPTIONS: Record<string, string> = {
 }
 const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দর কাটুক! 😊'
 
-// ---------- বন্ধু খোঁজা: সব আসল ব্যবহারকারী + অটোকমপ্লিট ----------
-// টাইপ করা মান ~২৫০ মিলিসেকেন্ড পরে ধরা হয় (debounce) — প্রতি অক্ষরে খোঁজা চলে না।
-function useDebouncedValue(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(value), delayMs)
-    return () => window.clearTimeout(t)
-  }, [value, delayMs])
-  return debounced
-}
-
-// সব আসল ব্যবহারকারীসহ খোঁজা — লোকাল (বন্ধু + People You May Know + ৫ পারসোনা)
-// + Firestore publicProfiles। টাইপ শুরু করলেই publicProfiles একবার আনে; না পেলে
-// (নিয়ম/নেটওয়ার্ক নেই) লোকাল তালিকাতেই খোঁজা চলে — কখনো ক্র্যাশ করে না, ভুয়া
-// কাউকে দেখায় না। নিজেকে কখনো দেখায় না। সাজেশন সর্বোচ্চ ৮টি।
-function useAllUserSearch(
-  friends: { id: string; name: string; color: string; online: boolean }[],
-  query: string,
-) {
-  const { uid } = useStore()
-  const [allUsers, setAllUsers] = useState<NewMember[] | null>(null)
-  const debounced = useDebouncedValue(query, 250)
-  useEffect(() => {
-    if (!debounced.trim() || allUsers !== null) return
-    let cancelled = false
-    fetchAllPublicProfiles(100).then(list => { if (!cancelled) setAllUsers(list) })
-    return () => { cancelled = true }
-  }, [debounced, allUsers])
-  const local = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
-  const searchable = useMemo(() => mergeAllUsers(local, allUsers ?? [], uid), [local, allUsers, uid])
-  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
-  const suggestions = useMemo(() => suggestionsFor(searchable, debounced), [searchable, debounced])
-  return { results, suggestions }
-}
-
-// অটোকমপ্লিট ড্রপডাউন — সার্চ বাক্সের নিচে মেলা নাম/আইডি (সর্বোচ্চ ৮টি)।
-// সাজেশনে ট্যাপ করলে তার নাম কোয়েরি হয় (ফল দেখায়), ড্রপডাউন লুকিয়ে যায়।
-function SearchSuggestions({ suggestions, onPick }: { suggestions: SearchablePerson[]; onPick: (p: SearchablePerson) => void }) {
-  if (suggestions.length === 0) return null
-  return (
-    <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
-      {suggestions.map(p => (
-        <button key={p.id} onClick={() => onPick(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
-          <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
-          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.referralCode ?? p.id}</span></span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // ---------- নতুন সদস্য ----------
 // আসল নতুন ব্যবহারকারী (Firestore publicProfiles থেকে, নতুন থেকে পুরনো) —
 // কোনো ডেমো/ভুয়া ব্যবহারকারী নয়। চ্যাট পারসোনারা এখানে আসে না (তারা লোকাল
@@ -511,20 +461,26 @@ function NewMembersSection() {
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user, addFriend, installBonusClaimed } = useStore()
-  const [posts, setPosts] = useState(SEED_POSTS)
+  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery } = useStore()
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
-  const [query, setQuery] = useState('')
   const [sent, setSent] = useState<Record<string, boolean>>({})
-  const [showSugg, setShowSugg] = useState(false)
   const navigate = useNavigate()
+  const locState = useLocation().state as { postId?: string } | null
+  // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
+  useEffect(() => {
+    if (locState?.postId) {
+      jumpToPost(locState.postId)
+      navigate('/feed', { replace: true, state: {} })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const searching = query.trim() !== ''
-  // বন্ধু খোঁজা — বন্ধু + People You May Know + চ্যাট পারসোনা + সব আসল ব্যবহারকারী
-  const { results, suggestions } = useAllUserSearch(friends, query)
+  // বন্ধু খোঁজা — হেডার সার্চের কোয়েরি দিয়ে: বন্ধু + People You May Know + চ্যাট পারসোনা + সব আসল ব্যবহারকারী
+  const { results } = useAllUserSearch(friends, query)
   // পোস্ট খোঁজা — ফিডের আসল পোস্ট (সিড + নিজের বানানো), লেখা বা লেখকের নামে
   const postResults = useMemo(() => searchPosts(posts, query), [posts, query])
   function jumpToPost(postId: string) {
@@ -545,16 +501,16 @@ export function Feed() {
         </div>
       )}
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        <button onClick={() => setComposerOpen(true)} className="shrink-0 w-20 text-center">
-          <span className="mx-auto flex w-16 h-16 rounded-full bg-blue-100 dark:bg-slate-700 items-center justify-center text-2xl">➕</span>
-          <span className="text-xs font-medium block mt-1 truncate">তোমার স্টোরি</span>
+        <button onClick={() => setComposerOpen(true)} className="shrink-0 w-28 h-44 rounded-xl overflow-hidden relative text-left shadow-sm bg-white dark:bg-fb-card">
+          <span className="absolute inset-x-0 top-0 h-32 bg-blue-100 dark:bg-slate-700 flex items-center justify-center text-3xl">➕</span>
+          <span className="absolute left-1/2 -translate-x-1/2 top-[7rem] w-9 h-9 rounded-full bg-fb-blue text-white flex items-center justify-center text-xl border-4 border-white dark:border-fb-card">+</span>
+          <span className="absolute bottom-0 inset-x-0 p-2 text-xs font-bold text-center">তোমার স্টোরি</span>
         </button>
         {friends.map((f, i) => (
-          <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 w-20 text-center">
-            <span className="mx-auto block w-16 h-16 rounded-full p-[3px]" style={{ background: f.color }}>
-              <span className="flex w-full h-full rounded-full bg-white dark:bg-slate-800 items-center justify-center font-bold text-lg" style={{ color: f.color }}>{f.name.slice(0, 1)}</span>
-            </span>
-            <span className="text-xs block mt-1 truncate">{f.name}</span>
+          <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 w-28 h-44 rounded-xl overflow-hidden relative text-left shadow-sm">
+            <span className="absolute inset-0 flex items-center justify-center text-4xl font-bold text-white" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
+            <span className="absolute top-2 left-2 w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm text-white ring-4 ring-[#1877F2]" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
+            <span className="absolute inset-x-0 bottom-0 p-2 text-xs font-bold text-white bg-gradient-to-t from-black/60 to-transparent">{f.name}</span>
           </button>
         ))}
       </div>
@@ -589,14 +545,6 @@ export function Feed() {
             <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">মনে কী আছে?</span>
           </button>
         )}
-      </Card>
-      <Card>
-        <h2 className="font-bold">🔍 বন্ধু খুঁজুন</h2>
-        <div className="relative">
-          <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => { setQuery(e.target.value); setShowSugg(true) }} onFocus={() => { if (query.trim()) setShowSugg(true) }} placeholder="নাম বা আইডি লিখুন…" />
-          {searching && showSugg && <SearchSuggestions suggestions={suggestions} onPick={p => { setQuery(p.name); setShowSugg(false) }} />}
-        </div>
-        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে — সব আসল ব্যবহারকারী।</p>
       </Card>
       {searching && (
         <Card>
@@ -645,10 +593,10 @@ export function Feed() {
             <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}</p></div>
           </div>
           <p className="mt-3 text-sm">{p.text}</p>
-          <div className="flex gap-4 mt-3 pt-3 border-t text-sm text-gray-500 dark:text-gray-300">
-            <button onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} লাইক ({p.likes + (liked[p.id] ? 1 : 0)})</button>
-            <span>💬 কমেন্ট ({p.comments})</span>
-            <button onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}>↗️ শেয়ার ({p.shares})</button>
+          <div className="flex mt-3 pt-1 border-t text-sm text-gray-500 dark:text-gray-300">
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium" onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} লাইক ({p.likes + (liked[p.id] ? 1 : 0)})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium">💬 কমেন্ট ({p.comments})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium" onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}>↗️ শেয়ার ({p.shares})</button>
           </div>
           <div className="flex gap-2 mt-3">
             <input className="flex-1 border rounded-full px-3 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-600" placeholder="কমেন্ট লিখুন…" value={commentDraft[p.id] || ''} onChange={e => setCommentDraft(d => ({ ...d, [p.id]: e.target.value }))} />
@@ -657,6 +605,11 @@ export function Feed() {
         </Card>
         </div>
       ))}
+      {/* মোবাইলে ডান সাইডবারের কার্ড দুটো ফিডের নিচে আসে — একই কম্পোনেন্ট, একই আচরণ */}
+      <div className="lg:hidden space-y-4">
+        <ContactsCard />
+        <SponsoredCard />
+      </div>
     </div>
   )
 }
