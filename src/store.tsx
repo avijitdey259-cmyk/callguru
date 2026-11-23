@@ -62,7 +62,6 @@ type Store = {
   isAdmin: boolean
   login: (name: string, email: string) => void
   logout: () => void
-  topUp: (amount: number, method: string) => void
   freeFirstMinuteUsed: boolean
   markFreeMinuteUsed: () => void
   calls: CallRecord[]
@@ -626,21 +625,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null }
     },
     logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null },
-    // ব্যাংক তাৎক্ষণিক টপ-আপ — টাকা অটো Pi হয়ে Pi ব্যালেন্সে যোগ হয় (টাকা ÷ Pi দর), খতিয়ানে 'জমা' লাইন পড়ে
-    topUp: (amount, _method) => {
-      const pi = topUpPi(amount, 'BDT', piRateBDT, usdtRateBDT)
-      if (pi > 0) { setPiBalance(b => roundPi(b + pi)); recordPi('জমা', `জমা — ${formatBDT(amount)} → ${formatPi(pi)}`, pi) }
-      // রেফারেল পুরস্কার: রেফার লিংকে এসে প্রথম টপ-আপ করলেই আমন্ত্রণকারী ১ π বোনাস পান (একবারই) — বোনাস Pi, তোলা যাবে না
-      if (referrer && !referralRewarded && !hasToppedUp) {
-        setReferralRewarded(true)
-        setReferrals(r => r + 1)
-        setReferralPiEarned(c => c + REF_INVITER_PI)
-        // ডেমোতে আমন্ত্রণকারী আর নতুন ব্যবহারকারী একই ডিভাইসে হলে (নিজের লিংকে নিজে এলে) বোনাস Pi-টা এখানেই জমা হয়
-        if (referrer === referralCode) { setBonusPi(b => roundPi(b + REF_INVITER_PI)); recordPi('রেফারেল', 'রেফারেল পুরস্কার — বন্ধুর প্রথম টপ-আপ (বোনাস Pi — তোলা যাবে না)', REF_INVITER_PI) }
-        setRefNotice(`✅ আপনার প্রথম টপ-আপ সম্পূর্ণ হয়েছে — আপনার আমন্ত্রণকারী ${REF_INVITER_PI} π বোনাস পেয়েছেন!`)
-      }
-      setHasToppedUp(true)
-    },
+    // (ব্যাংক তাৎক্ষণিক টপ-আপ বাদ দেওয়া হয়েছে — মালিকের নির্দেশে ২০২৬-১১-২০; এখন সব টপ-আপ ম্যানুয়াল অনুমোদনের মাধ্যমে হয়, approveTopUp-এ Pi যোগ হয়)
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),
     calls,

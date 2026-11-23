@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
@@ -6,6 +6,7 @@ import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, getAdminSettin
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { BUDDIES, BUDDY_OPENERS, getBuddyByName, getBuddyReply } from './buddies'
+import { buildSearchablePeople, searchPeople, type SearchablePerson } from './friendSearch'
 import { Btn, Card, InstallButton } from './components'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
@@ -217,7 +218,7 @@ export function Landing() {
         <h2 className="font-bold text-lg mb-2">কীভাবে কাজ করে</h2>
         <ol className="list-decimal ml-5 text-sm space-y-1">
           <li>Gmail দিয়ে ১-ক্লিক লগইন করুন।</li>
-          <li>ওয়ালেটে টপ-আপ করুন — bKash / Nagad / Rocket / ব্যাংক / USDT / Binance Pay।</li>
+          <li>ওয়ালেটে টপ-আপ করুন — bKash / Nagad / Rocket / USDT / Binance Pay।</li>
           <li>এক্সপার্ট বেছে কল করুন। প্রথম কলের প্রথম ১ মিনিট ফ্রি।</li>
           <li>ব্যালেন্স শেষ হলে কল নিজে থেকেই কেটে যাবে — কোনো ঋণ নয়।</li>
         </ol>
@@ -1134,7 +1135,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { topUp, points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
+  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, connectPiWallet, piWalletAddress, addDemoPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -1151,7 +1152,7 @@ export function WalletPage() {
   const isUsdt = method === 'USDT'
   const isBinance = method === 'Binance Pay'
   const isUsdtAmount = isUsdt || isBinance
-  const isManual = method !== 'Bank'
+  // ব্যাংক বাদ — সব টপ-আপ এখন ম্যানুয়াল (অ্যাডমিন অনুমোদন), তাৎক্ষণিক টপ-আপ আর নেই
   const net = USDT_NETWORKS.find(n => n.id === usdtNetwork) || USDT_NETWORKS[1]
   // টপ-আপের অটো Pi রূপান্তর — ফর্মেই দেখা যায় কত Pi পাওয়া যাবে (টাকা ÷ Pi দর; USDT × USDT দর ÷ Pi দর)
   const previewPi = topUpPi(Number(amount) || 0, isUsdtAmount ? 'USDT' : 'BDT', piRateBDT, usdtRateBDT)
@@ -1163,15 +1164,10 @@ export function WalletPage() {
   const savedPiAddress = adminSettings.payments.piDepositAddress
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
-    if (isManual) {
-      const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : method, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
-      setMsg(err || `✅ ${method} আবেদন জমা হয়েছে — অ্যাডমিন অনুমোদন দিলে ${formatPi(previewPi)} Pi যোগ হবে।`)
-      if (!err) setTrx('')
-      return
-    }
-    const a = Math.round(Number(amount))
-    if (!Number.isFinite(a) || a <= 0) { setMsg('সঠিক পরিমাণ দিন।'); return }
-    topUp(a, method); setMsg(`✅ ${formatBDT(a)} টপ-আপ হয়েছে (${method}) — ${formatPi(previewPi)} Pi যোগ হয়েছে। নতুন Pi ব্যালেন্স ${formatPi(totalPi + previewPi)}।`)
+    // সব টপ-আপ ম্যানুয়াল — আবেদন জমা হয়, অ্যাডমিন অনুমোদন দিলে Pi যোগ হয়
+    const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : method, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
+    setMsg(err || `✅ ${method} আবেদন জমা হয়েছে — অ্যাডমিন অনুমোদন দিলে ${formatPi(previewPi)} Pi যোগ হবে।`)
+    if (!err) setTrx('')
   }
   function doDeposit() {
     const m = Number(depAmount)
@@ -1214,12 +1210,12 @@ export function WalletPage() {
         <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={amount} onChange={e => setAmount(Number(e.target.value))} />
         {previewPi > 0 && <p className="text-sm mt-1 text-green-600 font-bold">≈ {formatPi(previewPi)} পাবেন (অটো){isUsdtAmount ? ` — দর: ১ USDT = ${formatBDT(usdtRateBDT)}` : ` — দর: ১ Pi = ${formatBDT(piRateBDT)}`}।</p>}
         <label className="text-sm block mt-3">পেমেন্ট মাধ্যম</label>
-        <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Rocket', 'Bank', 'USDT', 'Binance Pay'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
-        {isManual && <div className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
+        <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
+        <div className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
           <p className="font-bold">ম্যানুয়াল পেমেন্ট — ধাপ:</p>
           <p>১. নিচের ঠিকানায় {isUsdtAmount ? `${amount || 0} USDT` : `${formatBDT(Number(amount) || 0)}`} পাঠান।</p>
           <p>২. নিচে {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'} লিখে আবেদন জমা দিন। অ্যাডমিন অনুমোদন দিলে Pi যোগ হবে।</p>
-        </div>}
+        </div>
         {(method === 'bKash' || method === 'Nagad' || method === 'Rocket') && <div className="text-sm mt-3">
           {savedPayNumber
             ? <><p>{method} নম্বর: <b>{savedPayNumber}</b></p>
@@ -1245,10 +1241,9 @@ export function WalletPage() {
             : <><p>Binance Pay ID (ডেমো): <b>{BINANCE_PAY_ID}</b> <span className="text-xs text-gray-400">ডেমো আইডি — অ্যাডমিন আসল আইডি বসাবেন</span></p>
               <Btn variant="ghost" className="mt-1" onClick={() => copyText(BINANCE_PAY_ID, 'Binance Pay')}>📋 আইডি কপি করুন</Btn></>}
         </div>}
-        {method === 'Bank' && <p className="text-sm mt-2">ব্যাংক ট্রান্সফার — টপ-আপ তাৎক্ষণিক যোগ হবে।</p>}
         {copied && <p className="text-xs text-green-600 mt-1">✅ {copied} কপি হয়েছে।</p>}
-        {isManual && <><label className="text-sm block mt-3">{isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'}</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder={isUsdt ? 'যেমন: 0x...' : isBinance ? 'যেমন: BP-...' : 'যেমন: 9HX7...'} /><p className="text-xs text-gray-400 mt-1">একই রেফারেন্স দুবার ব্যবহার করা যাবে না।</p></>}
-        <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>{isManual ? 'আবেদন জমা দিন' : 'টপ-আপ করুন'}</Btn>
+        <><label className="text-sm block mt-3">{isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay রেফারেন্স' : 'TrxID'}</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder={isUsdt ? 'যেমন: 0x...' : isBinance ? 'যেমন: BP-...' : 'যেমন: 9HX7...'} /><p className="text-xs text-gray-400 mt-1">একই রেফারেন্স দুবার ব্যবহার করা যাবে না।</p></>
+        <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>আবেদন জমা দিন</Btn>
         {msg && <p className="text-sm mt-2">{msg}</p>}
         {pendingList.length > 0 && <div className="mt-4">
           <p className="text-sm font-bold">⏳ টপ-আপ পর্যালোচনাধীন — অ্যাডমিন অনুমোদন দিলে Pi যোগ হবে।</p>
@@ -1312,12 +1307,52 @@ export function WalletPage() {
 
 // ---------- Friends ----------
 export function FriendsPage() {
-  const { friends, requests, acceptRequest, removeFriend, addFriend } = useStore()
+  const { friends, requests, acceptRequest, removeFriend, addFriend, referralCode } = useStore()
   const navigate = useNavigate()
   const [sent, setSent] = useState<Record<string, boolean>>({})
+  const [query, setQuery] = useState('')
+  const [copied, setCopied] = useState(false)
+  const searching = query.trim() !== ''
+  // খোঁজার তালিকা: বন্ধু + People You May Know + চ্যাট পারসোনা (নাম দিয়ে ডুপ্লিকেট বাদ)
+  const searchable = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
+  const results = useMemo(() => searchPeople(searchable, query), [searchable, query])
+  async function copyId() {
+    try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
+  }
+  function addFromSearch(p: SearchablePerson) {
+    setSent(v => ({ ...v, [p.id]: true }))
+    addFriend({ id: p.id, name: p.name, color: p.color, online: true })
+  }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">👥 বন্ধুরা</h1>
+      <Card>
+        <p className="text-sm">🪪 তোমার আইডি: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ কপি হয়েছে!' : '📋 কপি'}</Btn></p>
+        <p className="text-xs text-gray-400 mt-1">এই আইডি বন্ধুদের দাও — ওরা এই আইডি বা তোমার নাম লিখে তোমাকে খুঁজে পাবে।</p>
+      </Card>
+      <Card>
+        <h2 className="font-bold">🔍 বন্ধু খুঁজুন</h2>
+        <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => setQuery(e.target.value)} placeholder="নাম বা আইডি লিখুন…" />
+        <p className="text-xs text-gray-400 mt-1">নাম লিখলে নামে, আইডি লিখলে আইডিতে খুঁজবে।</p>
+      </Card>
+      {searching ? (
+        <Card>
+          <h2 className="font-bold">🔍 {results.length} জন পাওয়া গেছে</h2>
+          {results.length === 0 && <p className="text-sm text-gray-500 mt-1">কাউকে পাওয়া যায়নি — নাম বা আইডি ঠিক আছে কি না দেখুন।</p>}
+          {results.map(p => (
+            <div key={p.id} className="flex items-center gap-3 py-2">
+              <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">আইডি: {p.id}{p.mutual ? ` • ${p.mutual} জন মিউচুয়াল বন্ধু` : ''}{p.online ? ' • ● অনলাইন' : ' • ○ অফলাইন'}</span></span>
+              {p.isFriend
+                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 চ্যাট</Btn>
+                : sent[p.id]
+                  ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
+                  : <Btn onClick={() => addFromSearch(p)}>Add Friend</Btn>}
+            </div>
+          ))}
+        </Card>
+      ) : (
+        <>
       <Card>
         <h2 className="font-bold">ফ্রেন্ড রিকোয়েস্ট ({requests.length})</h2>
         {requests.length === 0 && <p className="text-sm text-gray-500 mt-1">কোনো নতুন রিকোয়েস্ট নেই।</p>}
@@ -1353,6 +1388,8 @@ export function FriendsPage() {
           </div>
         ))}
       </Card>
+        </>
+      )}
     </div>
   )
 }
