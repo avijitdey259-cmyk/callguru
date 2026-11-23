@@ -480,6 +480,7 @@ export function Feed() {
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
   const [sent, setSent] = useState<Record<string, boolean>>({})
+  const [tvShareMsg, setTvShareMsg] = useState('')
   const navigate = useNavigate()
   const locState = useLocation().state as { postId?: string } | null
   // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
@@ -512,6 +513,20 @@ export function Feed() {
           <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
         </div>
       )}
+      <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #0F2027, #203A43, #2C5364)' }}>
+        <div className="flex items-center gap-3">
+          <span className="text-3xl">📺</span>
+          <div className="flex-1">
+            <p className="text-lg font-extrabold">Live TV — Free!</p>
+            <p className="text-sm mt-0.5 text-white/85">Jamuna, Ekattor, NTV, Channel 24, Zee Bangla, Star Jalsha — watch free, no payment.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <button onClick={() => navigate('/live-tv')} className="px-4 py-2 rounded-full bg-white text-slate-900 font-bold text-sm">▶ Watch Now</button>
+          <button onClick={async () => { const r = await shareLink('PiCall Live TV', 'Watch free Live TV on PiCall — Jamuna, Ekattor, NTV, Zee Bangla, Star Jalsha and more!', INVITE_BASE_URL); setTvShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-4 py-2 rounded-full bg-white/20 text-white font-medium text-sm">↗ Share TV</button>
+        </div>
+        {tvShareMsg && <p className="text-sm text-green-200 mt-2">{tvShareMsg}</p>}
+      </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
           <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
@@ -2685,6 +2700,7 @@ export function LiveTV() {
   const [cat, setCat] = useState('All')
   const [current, setCurrent] = useState<TvChannel>(TV_CHANNELS[0])
   const [playError, setPlayError] = useState('')
+  const [shareMsg, setShareMsg] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -2760,9 +2776,11 @@ export function LiveTV() {
           <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.group} • In-app HLS player</p></div>
           <div className="flex gap-2 items-center">
             <button onClick={toggleFullscreen} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm">{isFullscreen ? '⤢ Exit Full Screen' : '⛶ Full Screen'}</button>
+            <button onClick={async () => { const r = await shareLink('PiCall Live TV', `Watch ${current.name} free on PiCall Live TV!`, INVITE_BASE_URL); setShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm">↗ Share TV</button>
             {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
           </div>
         </div>
+        {shareMsg && <p className="text-sm text-green-600 mt-2">{shareMsg}</p>}
         {playError && <p className="text-sm text-red-600 mt-2">{playError}</p>}
         <p className="text-xs text-gray-400 mt-2">{fromPlaylist ? `${channels.length} channels from the admin playlist.` : 'Playlist could not be loaded — showing saved channels.'} If a channel does not play, try another one.</p>
       </Card>
