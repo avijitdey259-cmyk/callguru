@@ -1859,7 +1859,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
     return (
       <div className="max-w-md mx-auto"><Card className="text-center">
         <h1 className="text-xl font-bold">⏳ KYC পর্যালোচনাধীন</h1>
-        <p className="text-sm text-gray-500 mt-2">আপনার KYC জমা হয়েছে ({kycInfo?.name ?? name} • {kycInfo ? new Date(kycInfo.submittedAt).toLocaleDateString('bn-BD') : ''})। অ্যাডমিন আপনার নাম, বয়স, আইডি আর সেলফি মিলিয়ে দেখছেন — অনুমোদন হলে ডেটিং খুলে যাবে।</p>
+        <p className="text-sm text-gray-500 mt-2">আপনার KYC জমা হয়েছে ({kycInfo?.name ?? name} • {kycInfo ? new Date(kycInfo.submittedAt).toLocaleDateString('bn-BD') : ''})। অনুমোদন হলে ডেটিং খুলে যাবে।</p>
         <p className="text-sm text-gray-400 mt-2">অনুমোদন না হওয়া পর্যন্ত ডেটিংয়ের কিছুই দেখা যাবে না।</p>
       </Card></div>
     )
@@ -1869,7 +1869,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
     return (
       <div className="max-w-md mx-auto"><Card className="text-center">
         <h1 className="text-xl font-bold">❌ KYC বাতিল হয়েছে</h1>
-        <p className="text-sm text-gray-500 mt-2">অ্যাডমিন আপনার KYC বাতিল করেছেন।</p>
+        <p className="text-sm text-gray-500 mt-2">আপনার KYC বাতিল হয়েছে।</p>
         <p className="text-sm mt-2 bg-red-50 dark:bg-red-900 rounded-lg px-3 py-2">বাতিলের কারণ: <b>{kycRejectReason || 'কারণ দেওয়া হয়নি'}</b></p>
         <p className="text-sm text-gray-400 mt-2">তথ্য ঠিক করে আবার KYC জমা দিতে পারেন।</p>
         <Btn className="mt-4 w-full" onClick={startResubmit}>🔄 আবার KYC জমা দিন</Btn>
@@ -1901,7 +1901,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
           </select>
           <label className="text-sm font-medium mt-3 block">আইডি নম্বর</label>
           <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder={idType === 'NID' ? 'NID নম্বর — ১০ বা ১৭ সংখ্যা' : 'আইডি নম্বর লিখুন'} />
-          <p className="text-xs text-gray-400 mt-1">🔒 পুরো NID নম্বর সংরক্ষণ করা হয় — শুধু অ্যাডমিন যাচাইয়ের জন্য, অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
+          <p className="text-xs text-gray-400 mt-1">🔒 পুরো NID নম্বর সংরক্ষণ করা হয় — অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
           <p className="text-xs text-amber-600 mt-1">⚠️ পুরো NID অত্যন্ত সংবেদনশীল তথ্য — আসল প্রোডাকশনে এটি প্লেইন টেক্সটে রাখা যাবে না, এনক্রিপ্ট করে ভেরিফায়েড KYC সার্ভিস দিয়ে পরিচালনা করতে হবে।</p>
           {err && <p className="text-sm text-red-500 mt-2">{err}</p>}
           <Btn className="w-full mt-4" onClick={submitIdentity}>পরের ধাপ →</Btn>
@@ -1911,11 +1911,11 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
       {step === 2 && (
         <div className="mt-4 text-center">
           <p className="text-sm font-medium">📸 লাইভ সেলফি তুলুন</p>
-          <p className="text-xs text-gray-400 mt-1">সামনের ক্যামেরায় আপনার লাইভ ছবি তুলুন — ছবির সাথে সাথে ~৩ সেকেন্ডের একটি লাইভ ভিডিও ক্লিপও রেকর্ড হবে। ছবি ও ভিডিও শুধু অ্যাডমিন যাচাইয়ের জন্য রাখা হয় — অ্যাডমিন আপনার নাম-বয়স-আইডির সাথে ছবি ও ভিডিও মিলিয়ে দেখবেন। অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
+          <p className="text-xs text-gray-400 mt-1">সামনের ক্যামেরায় আপনার লাইভ ছবি তুলুন — ছবির সাথে সাথে ~৩ সেকেন্ডের একটি লাইভ ভিডিও ক্লিপও রেকর্ড হবে। ছবি ও ভিডিও শুধু যাচাইয়ের জন্য রাখা হয়। অন্য ব্যবহারকারীদের সাথে শেয়ার করা হয় না, কোথাও আপলোডও করা হয় না (ডেমোতে শুধু এই ডিভাইসে থাকে)।</p>
           {!captured && <video ref={videoRef} className="w-full aspect-[3/4] bg-black rounded-xl mt-3 object-cover" autoPlay playsInline muted />}
           {captured && <img src={captured} alt="লাইভ সেলফি" className="w-full aspect-[3/4] object-cover rounded-xl mt-3" />}
           {recording && <p className="text-sm text-red-500 mt-2 font-medium">🎥 লাইভ ভিডিও রেকর্ড হচ্ছে… ~৩ সেকেন্ড অপেক্ষা করুন</p>}
-          {videoClip && <div className="mt-3"><p className="text-xs text-gray-400 mb-1">🎥 আপনার লাইভ ভিডিও ক্লিপ (অ্যাডমিন এটাই দেখবেন)</p><video src={videoClip} controls loop muted playsInline className="w-full aspect-[3/4] object-cover rounded-xl bg-black" /></div>}
+          {videoClip && <div className="mt-3"><p className="text-xs text-gray-400 mb-1">🎥 আপনার লাইভ ভিডিও ক্লিপ</p><video src={videoClip} controls loop muted playsInline className="w-full aspect-[3/4] object-cover rounded-xl bg-black" /></div>}
           {videoNote && <p className="text-xs text-amber-600 mt-2">{videoNote}</p>}
           {camError && <p className="text-sm text-red-500 mt-2">{camError}</p>}
           <div className="flex gap-2 mt-3">
@@ -1925,7 +1925,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
           </div>
           <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={onFile} />
           <p className="text-xs text-gray-400 mt-2">ক্যামেরা না থাকলে ছবি আপলোড করেও সেলফি দেওয়া যাবে (লাইভ ক্যামেরাই ভালো)।</p>
-          <Btn className="w-full mt-4" disabled={!captured || recording} onClick={submitKyc}>📤 KYC জমা দিন (অ্যাডমিন যাচাই করবেন)</Btn>
+          <Btn className="w-full mt-4" disabled={!captured || recording} onClick={submitKyc}>📤 KYC জমা দিন</Btn>
           <button className="text-sm text-gray-400 mt-3" onClick={() => setStep(1)}>← আগের ধাপে ফিরুন</button>
         </div>
       )}
@@ -1943,13 +1943,13 @@ function DatingKycBlocked() {
         {kycStatus === 'pending' ? (
           <>
             <h1 className="text-xl font-bold">⏳ KYC পর্যালোচনাধীন</h1>
-            <p className="text-sm text-gray-300 mt-2">আপনার KYC জমা হয়েছে — অ্যাডমিন দেখে মিলিয়ে অনুমোদন করলে ডেটিং খুলে যাবে। অনুমোদন না হওয়া পর্যন্ত ডেটিংয়ের কিছুই দেখা যাবে না।</p>
+            <p className="text-sm text-gray-300 mt-2">আপনার KYC জমা হয়েছে — অনুমোদন হলে ডেটিং খুলে যাবে। অনুমোদন না হওয়া পর্যন্ত ডেটিংয়ের কিছুই দেখা যাবে না।</p>
             <Btn className="mt-4" onClick={() => navigate('/dating')}>KYC অবস্থা দেখুন</Btn>
           </>
         ) : kycStatus === 'rejected' ? (
           <>
             <h1 className="text-xl font-bold">❌ KYC বাতিল হয়েছে</h1>
-            <p className="text-sm text-gray-300 mt-2">অ্যাডমিন আপনার KYC বাতিল করেছেন।</p>
+            <p className="text-sm text-gray-300 mt-2">আপনার KYC বাতিল হয়েছে।</p>
             <p className="text-sm mt-2 bg-red-900 rounded-lg px-3 py-2">বাতিলের কারণ: <b>{kycRejectReason || 'কারণ দেওয়া হয়নি'}</b></p>
             <Btn className="mt-4" onClick={() => navigate('/dating')}>আবার KYC জমা দিন</Btn>
           </>
