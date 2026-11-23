@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT } from './data'
 import { BUDDIES } from './buddies'
+import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
 import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps } from './firestore'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
@@ -83,7 +84,14 @@ type Store = {
   piBalance: number
   // বোনাস Pi — শুধু রেফারেল থেকে আসে; তোলা যায় না, শুধু কল/লাইভ গিফটে খরচ করা যায়
   bonusPi: number
-  // মোট Pi — তোলা যায় এমন + বোনাস (ব্যবহারকারীকে এটাই দেখানো হয়)
+  // গিফট Pi — অ্যাপ ইন্সটলের ৫ π বোনাস; শুধু গিফট কেনা যাবে, কল/লাইভ দেখা/তোলায় নয়
+  giftPi: number
+  // ইন্সটল বোনাস নেওয়া হয়েছে কি না (প্রতি ডিভাইসে একবার)
+  installBonusClaimed: boolean
+  claimInstallBonus: () => boolean
+  // গিফটের খরচ — গিফট Pi আগে, তারপর বোনাস Pi, তারপর তোলা যায় এমন Pi; মোটের চেয়ে বেশি হলে false
+  spendGiftPi: (n: number, type?: string, label?: string) => boolean
+  // মোট Pi — তোলা যায় এমন + বোনাস + গিফট (ব্যবহারকারীকে এটাই দেখানো হয় — একটাই সংখ্যা)
   totalPi: number
   // Pi খরচ — বোনাস Pi আগে, তারপর তোলা যায় এমন Pi; মোটের চেয়ে বেশি হলে false
   spendPi: (n: number, type?: string, label?: string) => boolean
@@ -207,6 +215,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [points, setPoints] = useState<number>(() => load('points', 0))
   // বোনাস Pi — রেফারেল বোনাস এখানে জমা হয়; তোলা যায় না, খরচে আগে ব্যবহার হয়
   const [bonusPi, setBonusPi] = useState<number>(() => load('bonusPi', 0))
+  // গিফট Pi — অ্যাপ ইন্সটলের ৫ π বোনাস; শুধু গিফট কেনা যাবে, কল/লাইভ দেখা/তোলায় নয়
+  const [giftPi, setGiftPi] = useState<number>(() => load('giftPi', 0))
+  // ইন্সটল বোনাস নেওয়া হয়েছে কি না — প্রতি ডিভাইসে একবার (localStorage ফ্ল্যাগ)
+  const [installBonusClaimed, setInstallBonusClaimed] = useState<boolean>(() => load('installBonusClaimed', false))
   const [referrals, setReferrals] = useState<number>(() => load('referrals', 0))
   const [dark, setDark] = useState<boolean>(() => load('dark', false))
   // ডেটিং কল রেট এখন Pi-তে (ডিফল্ট π ০.১/মিনিট) — আগের টাকার রেট (≥১) থাকলে ÷১০০ করে Pi করা হয়
@@ -296,6 +308,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('premium', premium), [premium])
   useEffect(() => save('piBalance', piBalance), [piBalance])
   useEffect(() => save('bonusPi', bonusPi), [bonusPi])
+  useEffect(() => save('giftPi', giftPi), [giftPi])
+  useEffect(() => save('installBonusClaimed', installBonusClaimed), [installBonusClaimed])
   useEffect(() => save('points', points), [points])
   useEffect(() => save('referrals', referrals), [referrals])
   useEffect(() => { save('dark', dark); document.documentElement.classList.toggle('dark', dark) }, [dark])
@@ -579,10 +593,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // খরচের মুহূর্তের সর্বশেষ ব্যালেন্স (হ্যান্ডলারে পুরোনো ক্লোজার না ধরে)
-  const balRef = useRef({ pi: 0, bonus: 0 })
-  balRef.current = { pi: piBalance, bonus: bonusPi }
+  const balRef = useRef({ pi: 0, bonus: 0, gift: 0 })
+  balRef.current = { pi: piBalance, bonus: bonusPi, gift: giftPi }
 
   // Pi খরচ — বোনাস Pi আগে, তারপর তোলা যায় এমন Pi; মোটের চেয়ে বেশি চাইলে false, কিছুই কাটে না
+  // (গিফট Pi এখানে ছোঁয়া হয় না — কল/লাইভ দেখা/বুস্ট/সুপার লাইক গিফট Pi থেকে কাটে না)
   const spendPiImpl = (n: number, type?: string, label?: string): boolean => {
     const m = roundPi(Number(n))
     if (!Number.isFinite(m) || m <= 0) return false
@@ -595,6 +610,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (type) recordPi(type, label || type, -m)
     return true
   }
+
+  // গিফটের খরচ — গিফট Pi আগে, তারপর বোনাস Pi, তারপর তোলা যায় এমন Pi;
+  // মোটের চেয়ে বেশি চাইলে false, কিছুই কাটে না। খতিয়ানে কোন উৎস থেকে কাটলো লেখা থাকে।
+  const spendGiftPiImpl = (n: number, type?: string, label?: string): boolean => {
+    const plan = planGiftSpend(balRef.current.gift, balRef.current.bonus, balRef.current.pi, n)
+    if (!plan.ok) return false
+    if (plan.fromGift > 0) setGiftPi(g => roundPi(g - plan.fromGift))
+    if (plan.fromBonus > 0) setBonusPi(b => roundPi(b - plan.fromBonus))
+    if (plan.fromMain > 0) setPiBalance(b => roundPi(b - plan.fromMain))
+    if (type) {
+      if (plan.fromGift > 0) recordPi(type, `${label || type} — গিফট Pi থেকে ${formatPi(plan.fromGift)}`, -plan.fromGift)
+      if (plan.fromBonus > 0) recordPi(type, `${label || type} — বোনাস Pi থেকে ${formatPi(plan.fromBonus)}`, -plan.fromBonus)
+      if (plan.fromMain > 0) recordPi(type, `${label || type} — Pi ব্যালেন্স থেকে ${formatPi(plan.fromMain)}`, -plan.fromMain)
+    }
+    return true
+  }
+
+  // PWA ইন্সটল বোনাস — ৫ π, শুধু গিফট কেনা যাবে; প্রতি ডিভাইসে একবার।
+  // ডাবল-ক্লিক/ডাবল-ইফেক্টেও দুবার ক্রেডিট হবে না (ref গার্ড + ফ্ল্যাগ)।
+  const installClaimedRef = useRef(false)
+  const claimInstallBonus = (): boolean => {
+    if (installClaimedRef.current) return false
+    installClaimedRef.current = true
+    if (!canClaimInstallBonus(installBonusClaimed)) return false
+    setInstallBonusClaimed(true)
+    setGiftPi(g => roundPi(g + INSTALL_BONUS_PI))
+    recordPi('ইন্সটল বোনাস', 'অ্যাপ ইন্সটল বোনাস — শুধু গিফট কেনা যাবে', INSTALL_BONUS_PI)
+    return true
+  }
+
+  // ইন্সটল ধরা — 'appinstalled' ইভেন্টে, আর ব্রাউজার মেনু থেকে ইন্সটল করা
+  // থাকলে (standalone-এ চলছে) লোডেই চেক; দুটোতেই claimInstallBonus একবারই দেয়।
+  useEffect(() => {
+    const onInstalled = () => { claimInstallBonus() }
+    window.addEventListener('appinstalled', onInstalled)
+    try {
+      const standalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true
+      if (standalone) claimInstallBonus()
+    } catch { /* matchMedia না থাকলে ইভেন্টেই ধরা হবে */ }
+    return () => window.removeEventListener('appinstalled', onInstalled)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // পুরনো টাকা ব্যালেন্স একবার Pi-তে রূপান্তর — এই পরিবর্তনের পর টাকার ব্যালেন্স আর কোথাও থাকে না;
   // সংরক্ষিত টাকা থাকলে তা Pi হয়ে Pi ব্যালেন্সে যোগ হয়, খতিয়ানে 'সমন্বয়' লাইন পড়ে, আর টাকার হিসাব শূন্য করে দেওয়া হয়।
@@ -651,7 +708,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPremium: (v) => setPremium(v),
     piBalance,
     bonusPi,
-    totalPi: roundPi(piBalance + bonusPi),
+    giftPi,
+    installBonusClaimed,
+    claimInstallBonus,
+    spendGiftPi: spendGiftPiImpl,
+    totalPi: roundPi(piBalance + bonusPi + giftPi),
     spendPi: spendPiImpl,
     addPi: (n, type, label) => { const m = roundPi(Number(n)); if (!Number.isFinite(m) || m === 0) return; if (m < 0) { spendPiImpl(-m, type, label); return } setPiBalance(b => roundPi(b + m)); if (type) recordPi(type, label || type, m) },
     points,
@@ -801,7 +862,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, pendingTopUps, adminSettings])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

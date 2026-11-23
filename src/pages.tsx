@@ -401,7 +401,7 @@ const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দ�
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user, addFriend } = useStore()
+  const { friends, user, addFriend, installBonusClaimed } = useStore()
   const [posts, setPosts] = useState(SEED_POSTS)
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
@@ -425,6 +425,15 @@ export function Feed() {
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
+      {installBonusClaimed ? (
+        <p className="text-sm text-green-600">✅ ইন্সটল বোনাস পেয়েছো — ৫ π গিফট Pi যোগ হয়েছে</p>
+      ) : (
+        <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #F59E0B, #F97316)' }}>
+          <p className="text-lg font-extrabold">🎁 অ্যাপ ইন্সটল করলে ৫ π ফ্রি!</p>
+          <p className="text-sm mt-1">ইন্সটল করলেই ৫ π বোনাস পাবে — শুধু গিফট কেনা যাবে।</p>
+          <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
+        </div>
+      )}
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         <button onClick={() => setComposerOpen(true)} className="shrink-0 w-20 text-center">
           <span className="mx-auto flex w-16 h-16 rounded-full bg-blue-100 dark:bg-slate-700 items-center justify-center text-2xl">➕</span>
@@ -1184,7 +1193,7 @@ function PiReportCard() {
   const sum = (types: string[]) => roundPi(piLedger.filter(r => types.includes(r.type)).reduce((s, r) => s + r.amount, 0))
   const totalDeposit = sum(['জমা'])
   const totalWithdraw = roundPi(-sum(['তোলা']))
-  const totalIncome = sum(['ডেইলি বোনাস', 'রেফারেল', 'লাইভ আয়', 'গিফট বক্স'])
+  const totalIncome = sum(['ডেইলি বোনাস', 'রেফারেল', 'লাইভ আয়', 'গিফট বক্স', 'ইন্সটল বোনাস'])
   const totalExpense = roundPi(-sum(['কল খরচ', 'লাইভ দেখা', 'গিফট দেওয়া', 'বুস্ট', 'সুপার লাইক']))
   let run = totalPi
   const rows = piLedger.map(r => { const after = run; run = roundPi(run - r.amount); return { ...r, after } })
@@ -1964,7 +1973,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent } = useStore()
+  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent, spendGiftPi } = useStore()
   const navigate = useNavigate()
   // ডেমো হোস্ট সরানো — শুধু আসল রুম (PiCall লাইভ সার্ভার) দেখাবে
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
@@ -2008,7 +2017,8 @@ export function DatingLivePage() {
 
   function sendGift(g: { icon: string; name: string; pi: number }) {
     if (totalPi < g.pi) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
-    addPi(-g.pi, 'গিফট দেওয়া', `লাইভ গিফট — ${g.icon} ${g.name}`)
+    // গিফটের খরচ গিফট Pi থেকে আগে কাটে (ইন্সটল বোনাসের ৫ π শুধু গিফটেই চলে)
+    if (!spendGiftPi(g.pi, 'গিফট দেওয়া', `লাইভ গিফট — ${g.icon} ${g.name}`)) { setGiftMsg('Pi ব্যালেন্স যথেষ্ট নয় — Pi ওয়ালেটে Pi যোগ করুন'); return }
     addGiftsSent(g.pi)
     setGiftsSent(prev => [...prev, g])
     setGiftPiTotal(t => roundPi(t + g.pi))

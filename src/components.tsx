@@ -124,7 +124,8 @@ export function Card({ children, className = '' }: { children: React.ReactNode; 
 // ব্রাউজারের beforeinstallprompt ধরলে সরাসরি ইন্সটল হয়; না ধরলে (iPhone Safari, আগেই ইন্সটল) প্রতি-ব্রাউজার ধাপ দেখানো হয়।
 type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 
-export function InstallButton({ compact = false }: { compact?: boolean }) {
+export function InstallButton({ compact = false, showOffer = true }: { compact?: boolean; showOffer?: boolean }) {
+  const { installBonusClaimed } = useStore()
   const [deferred, setDeferred] = useState<BIPEvent | null>(null)
   const [showHelp, setShowHelp] = useState(false)
   const [msg, setMsg] = useState('')
@@ -149,6 +150,7 @@ export function InstallButton({ compact = false }: { compact?: boolean }) {
       <button onClick={install} title="অ্যাপ ইন্সটল করুন" className={compact ? 'w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-fb-blue text-white'}>
         📲 {compact ? '' : 'অ্যাপ ইন্সটল করুন'}
       </button>
+      {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90">📲 অ্যাপ ইন্সটল করলে ৫ π বোনাস — শুধু গিফট কেনা যাবে।</p>}
       {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
       {showHelp && (
         <div className="mt-2 text-left bg-blue-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
