@@ -502,9 +502,6 @@ export function Feed() {
         </Card>
       )}
       <RefWelcomeBanner />
-      <DailyBonusCard />
-      <InviteCard />
-      <LeaderboardCard />
       {REELS.length > 0 ? (
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
           {REELS.map(r => (
@@ -1382,6 +1379,7 @@ export function WalletPage() {
         <p className="text-xs text-gray-400 mt-3">ডেমো Pi ওয়ালেট — আসল Pi পেমেন্টের জন্য অফিসিয়াল Pi SDK + Pi অ্যাপের অনুমোদন লাগবে; এখানে কোনো আসল ব্লকচেইন লেনদেন হয় না, সিড/প্রাইভেট কি চাওয়া বা সংরক্ষণ করা হয় না।</p>
       </Card>
       <PiReportCard />
+      <DailyBonusCard />
       <InviteCard />
       <Card>
         <h2 className="font-bold">🔗 অ্যাফিলিয়েট ও রেফারেল</h2>
@@ -1919,6 +1917,7 @@ export function DatingPage() {
           <p className="text-sm text-gray-500 mt-4">এখন কেউ লাইভে নেই।</p>
         )}
       </Card>
+      <LeaderboardCard />
       {matched && matchedId && <Card className="!bg-pink-50 dark:!bg-pink-900 text-center"><p className="font-bold text-lg">🎉 ম্যাচ হয়েছে — {matched}!</p><p className="text-sm">এখন চ্যাট বা ভিডিও কল করতে পারেন।</p>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
           <Link to="/chat" className="text-fb-blue text-sm font-medium self-center">চ্যাট শুরু করুন →</Link>
