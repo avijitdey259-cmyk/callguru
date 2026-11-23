@@ -2686,6 +2686,26 @@ export function LiveTV() {
   const [current, setCurrent] = useState<TvChannel>(TV_CHANNELS[0])
   const [playError, setPlayError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
+  const playerRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    const onFsChange = () => {
+      const on = Boolean(document.fullscreenElement)
+      setIsFullscreen(on)
+      if (!on) { try { screen.orientation.unlock() } catch { /* best-effort */ } }
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) { void document.exitFullscreen().catch(() => undefined); return }
+    const player = playerRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
+    const p = player?.requestFullscreen ? player.requestFullscreen() : player?.webkitRequestFullscreen ? (player.webkitRequestFullscreen(), Promise.resolve()) : null
+    if (p) p.catch(() => { video?.webkitEnterFullscreen?.() })
+    else video?.webkitEnterFullscreen?.()
+    try { void (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')?.catch(() => undefined) } catch { /* orientation lock is best-effort */ }
+  }
   useEffect(() => {
     let cancelled = false
     fetchTvPlaylist(tvPlaylistUrl || DEFAULT_TV_PLAYLIST_URL)
@@ -2727,16 +2747,21 @@ export function LiveTV() {
     <div className="space-y-4 max-w-4xl mx-auto">
       <h1 className="text-xl font-bold">📺 Live TV — Free with Ads</h1>
       <Card>
-        {current.streamUrl ? (
-          <video ref={videoRef} controls autoPlay muted playsInline onError={() => setPlayError('This stream is not playing right now — try another channel.')} className="w-full aspect-video bg-black rounded-lg" />
-        ) : (
-          <div className="w-full aspect-video bg-black rounded-lg flex items-center justify-center text-center px-4">
-            <p className="text-white text-sm">This channel has no playable stream in the app yet.<br />Watch it on the official site below.</p>
-          </div>
-        )}
+        <div ref={playerRef} className="tv-player w-full aspect-video bg-black rounded-lg overflow-hidden">
+          {current.streamUrl ? (
+            <video ref={videoRef} controls autoPlay muted playsInline onError={() => setPlayError('This stream is not playing right now — try another channel.')} className="w-full h-full object-contain bg-black" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-center px-4">
+              <p className="text-white text-sm">This channel has no playable stream in the app yet.<br />Watch it on the official site below.</p>
+            </div>
+          )}
+        </div>
         <div className="flex justify-between items-center mt-3 flex-wrap gap-2">
           <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.group} • In-app HLS player</p></div>
-          {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
+          <div className="flex gap-2 items-center">
+            <button onClick={toggleFullscreen} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm">{isFullscreen ? '⤢ Exit Full Screen' : '⛶ Full Screen'}</button>
+            {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
+          </div>
         </div>
         {playError && <p className="text-sm text-red-600 mt-2">{playError}</p>}
         <p className="text-xs text-gray-400 mt-2">{fromPlaylist ? `${channels.length} channels from the admin playlist.` : 'Playlist could not be loaded — showing saved channels.'} If a channel does not play, try another one.</p>
