@@ -3,9 +3,10 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, type Firestore } from 'firebase/firestore'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
+import { colourForUid, toCreatedAtMs, type NewMember } from './newMembers'
 
 let db: Firestore | null = null
 
@@ -45,6 +46,42 @@ export async function updateUserKyc(uid: string, kyc: UserDoc['kyc']): Promise<b
     await updateDoc(doc(d, 'users', uid), { kyc, updatedAt: serverTimestamp() })
     return true
   } catch { return false }
+}
+
+// ---------- publicProfiles/{uid} — নতুন সদস্য ----------
+// পাবলিক প্রোফাইলে শুধু তিনটি ক্ষেত্র: displayName, createdAt, colour।
+// ইমেইল/ফোন/আইডি/KYC/ব্যালেন্স/বন্ধু — কিছুই এখানে লেখা হয় না (users/{uid} ডক
+// ব্যক্তিগতই থাকে, শুধু মালিক পড়তে পারেন)। createdAt শুধু প্রথমবার বসে — পরে
+// নাম/রং বদলালেও যোগদানের সময় বদলায় না। কখনো throw করে না।
+export async function writePublicProfile(uid: string, displayName: string): Promise<boolean> {
+  const d = getDb()
+  if (!d) return false
+  try {
+    const ref = doc(d, 'publicProfiles', uid)
+    const snap = await getDoc(ref)
+    if (snap.exists()) {
+      await setDoc(ref, { displayName: displayName || 'ব্যবহারকারী', colour: colourForUid(uid) }, { merge: true })
+    } else {
+      await setDoc(ref, { displayName: displayName || 'ব্যবহারকারী', createdAt: serverTimestamp(), colour: colourForUid(uid) })
+    }
+    return true
+  } catch { return false }
+}
+
+// নতুন সদস্য — publicProfiles থেকে createdAt অনুযায়ী নতুন থেকে পুরনো, সর্বোচ্চ limitN জন।
+// নিয়ম/নেটওয়ার্ক না থাকলে [] ফেরে (খালি অবস্থা দেখায়, ভুয়া কাউকে দেখায় না)।
+export async function fetchNewMembers(limitN = 10): Promise<NewMember[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'publicProfiles'), orderBy('createdAt', 'desc'), limit(limitN)))
+    return snap.docs.map(s => {
+      const data = s.data() as Record<string, unknown>
+      const name = typeof data.displayName === 'string' && data.displayName.trim() ? data.displayName.trim() : 'ব্যবহারকারী'
+      const colour = typeof data.colour === 'string' && data.colour ? data.colour : colourForUid(s.id)
+      return { id: s.id, displayName: name, createdAtMs: toCreatedAtMs(data.createdAt), colour }
+    })
+  } catch { return [] }
 }
 
 // ---------- config/public ----------

@@ -7,6 +7,9 @@
 //   users/{uid}   — শুধু সেই ব্যবহারকারীই নিজের ডক পড়তে/লিখতে পারেন
 //                    (request.auth.uid == uid); অ্যাডমিন শুধু আপডেট করতে পারেন
 //                    (KYC অনুমোদন/বাতিলের জন্য — তৈরি/মুছে ফেলা নয়)।
+//   publicProfiles/{uid} — নতুন সদস্য: শুধু displayName + createdAt + colour
+//                    (ইমেইল/ফোন/আইডি/KYC/ব্যালেন্স এখানে নেই); লগইন করা সবাই
+//                    পড়তে পারেন, লিখতে পারেন শুধু সেই ব্যবহারকারী নিজে।
 //   config/public — লগইন করা সবাই পড়তে পারেন (দর + পেমেন্টের বিবরণ);
 //                    লিখতে পারেন শুধু অ্যাডমিন (avijitdey259@gmail.com)।
 //   topups/{id}   — ব্যবহারকারী শুধু নিজের আবেদন তৈরি/পড়তে পারেন;
@@ -29,6 +32,14 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
       allow update: if isAdmin();
+    }
+
+    // নতুন সদস্যের পাবলিক প্রোফাইল — শুধু নাম + যোগদানের সময় + রং।
+    // ব্যক্তিগত ডেটা (users/{uid}) খোলা হয়নি — এই কালেকশনেই শুধু পাবলিক ক্ষেত্র থাকে।
+    match /publicProfiles/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
     }
 
     // সবার জন্য অ্যাডমিনের দর + পেমেন্টের বিবরণ — পড়া সবার, লেখা শুধু অ্যাডমিনের।

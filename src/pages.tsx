@@ -18,6 +18,8 @@ import {
 } from './data'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn } from './firebase'
+import { fetchNewMembers } from './firestore'
+import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -399,6 +401,63 @@ const STORY_CAPTIONS: Record<string, string> = {
 }
 const STORY_CAPTION_FALLBACK = 'আজকের দিনটা সুন্দর কাটুক! 😊'
 
+// ---------- নতুন সদস্য ----------
+// আসল নতুন ব্যবহারকারী (Firestore publicProfiles থেকে, নতুন থেকে পুরনো) —
+// কোনো ডেমো/ভুয়া ব্যবহারকারী নয়। চ্যাট পারসোনারা এখানে আসে না (তারা লোকাল
+// বন্ধু, কোনো অ্যাকাউন্ট নয়), অ্যাডমিনও আসে না (তার পাবলিক প্রোফাইল লেখা হয় না)।
+// Firestore/নিয়ম না থাকলে খালি অবস্থা দেখায় — ভুয়া কাউকে দেখায় না।
+function NewMembersSection() {
+  const { uid, friends, addFriend, referralCode } = useStore()
+  const [members, setMembers] = useState<NewMember[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const navigate = useNavigate()
+  const link = `${INVITE_BASE_URL}?ref=${referralCode}`
+  useEffect(() => {
+    let cancelled = false
+    fetchNewMembers(10).then(list => {
+      if (cancelled) return
+      setMembers(filterNewMembers(list, uid))
+      setLoaded(true)
+    })
+    return () => { cancelled = true }
+  }, [uid])
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে লিংকটা দেখেই নেওয়া যাবে */ }
+  }
+  return (
+    <Card>
+      <h2 className="font-bold">🆕 নতুন সদস্য</h2>
+      {!loaded && <p className="text-sm text-gray-400 mt-1">খুঁজছি…</p>}
+      {loaded && members.length === 0 && (
+        <>
+          <p className="text-sm text-gray-500 mt-1">এখনো নতুন কেউ জয়েন করেনি — তোমার বন্ধুকে আমন্ত্রণ জানাও!</p>
+          <p className="text-sm mt-1 break-all">তোমার লিংক: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code> <Btn variant="ghost" onClick={copyLink}>{copied ? '✅ কপি হয়েছে!' : '📋 কপি'}</Btn></p>
+        </>
+      )}
+      {members.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1 mt-2">
+          {members.map(m => {
+            const isFriend = friends.some(f => f.id === m.id)
+            return (
+              <div key={m.id} className="shrink-0 w-28 text-center border rounded-xl p-3 dark:border-slate-700">
+                <span className="mx-auto w-14 h-14 rounded-full text-white flex items-center justify-center font-bold text-xl" style={{ background: m.colour }}>{m.displayName.slice(0, 1)}</span>
+                <p className="text-sm font-medium mt-1 truncate">{m.displayName}</p>
+                <p className="text-xs text-gray-400">{formatJoinTime(m.createdAtMs)}</p>
+                <div className="mt-2">
+                  {isFriend
+                    ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: m.displayName } })}>💬 চ্যাট</Btn>
+                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true })}>Add Friend</Btn>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ---------- Feed ----------
 export function Feed() {
   const { friends, user, addFriend, installBonusClaimed } = useStore()
@@ -510,6 +569,7 @@ export function Feed() {
           ))}
         </Card>
       )}
+      <NewMembersSection />
       <RefWelcomeBanner />
       {REELS.length > 0 ? (
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">

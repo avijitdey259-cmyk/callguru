@@ -3,7 +3,7 @@ import { EXPERTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DE
 import { BUDDIES } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile } from './firestore'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
@@ -64,6 +64,8 @@ function randomCode(): string { return 'cg-' + Math.random().toString(36).slice(
 
 type Store = {
   user: { name: string; email: string } | null
+  // Firebase Auth-এর UID (users/{uid} ডকের চাবি); OTP লগইনে null (Firebase সেশন নেই)
+  uid: string | null
   // লগইন করা ব্যবহারকারী অ্যাডমিন কি না (ইমেইল অ্যাডমিনের ইমেইলের সঙ্গে মিললে তবেই true)
   isAdmin: boolean
   login: (name: string, email: string) => void
@@ -514,6 +516,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         } else {
           await writeUserDoc(uid, toUserDoc(collectSnapshot()))
           if (cancelled) return
+          // প্রথম লগইন — পাবলিক প্রোফাইল (শুধু নাম + যোগদানের সময় + রং) লেখা হয়,
+          // যাতে "নতুন সদস্য" সেকশনে আসল নতুন ব্যবহারকারীরা দেখা যায়। অ্যাডমিনের
+          // প্রোফাইল লেখা হয় না (তিনি নতুন সদস্যের তালিকায় আসবেন না)।
+          if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
+            await writePublicProfile(uid, user.name)
+            if (cancelled) return
+          }
         }
         const cfg = await fetchPublicConfig()
         if (cancelled) return
@@ -670,6 +679,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: Store = useMemo(() => ({
     user,
+    uid,
     isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
     login: (name, email) => {
       setUser({ name, email })
