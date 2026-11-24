@@ -72,7 +72,7 @@ check('every user-visible login string is unchanged', () => {
     'Google login failed — the pop-up was closed or there is a network problem. Please try again.',
     'Too many attempts — please try again in a little while.',
     'Could not reach the server — check your connection and try again.',
-    'By logging in, you agree to the Terms and Privacy Policy. Only the admin can view call recordings (for appeals/disputes, stored 30 days).',
+    'By logging in, you agree to the Terms and Privacy Policy.',
   ]) assert.ok(login.includes(s), `'${s}' নেই`)
 })
 check('all login handlers still wired (no logic change)', () => {

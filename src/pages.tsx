@@ -453,7 +453,7 @@ export function LoginPage() {
         </button>
         <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
         {msg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{msg}</p>}
-        <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy. Only the admin can view call recordings (for appeals/disputes, stored 30 days).</p>
+        <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy.</p>
         </Card>
       </div>
     </div>
