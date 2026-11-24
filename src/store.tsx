@@ -6,7 +6,7 @@ import { getCurrentUid, onFirebaseAuthUser } from './firebase'
 import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile } from './firestore'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
-import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, type LocalUserState } from './firestoreMapping'
+import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, datingGateReached, type LocalUserState } from './firestoreMapping'
 import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
 import { profileCompletion, type Gender, type ProfileFields } from './profile'
 
@@ -152,6 +152,7 @@ type Store = {
   refNotice: string | null
   dismissRefNotice: () => void
   claimRefArrival: (code: string) => void
+  refWelcomeClaimed: boolean
   referralRewarded: boolean
   referralPiEarned: number
   lastClaimDate: string | null
@@ -198,6 +199,13 @@ type Store = {
   recoveryPhoneVerified: boolean
   twoFactorEnabled: boolean
   updateSecurity: (p: Partial<SecuritySettings>) => void
+  // প্রগ্রেসিভ KYC — ডেটিং প্রথমে খোলা; ৫ জন আলাদা মানুষের সাথে চ্যাট করলে
+  // KYC বাধ্যতামূলক হয় (নতুন ম্যাচ/চ্যাট/কল বন্ধ, অনুমোদন পেলে আবার খুলবে)।
+  // বোনাস দাবি + Pi তোলা সবসময় অনুমোদিত KYC চায় (ডেইলি + ইন্সটল বোনাস বাদ)।
+  datingChatPartnerIds: string[]
+  recordDatingChat: (partnerId: string) => void
+  datingKycRequired: boolean
+  claimReferralBonus: () => boolean
   // π Pi রিপোর্ট — সব Pi লেনদেনের খতিয়ান (নতুনতম আগে), ওয়ালেটে দেখায়
   piLedger: PiLedgerRow[]
   piRateBDT: number
@@ -356,6 +364,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [recoveryEmailVerified, setRecoveryEmailVerified] = useState<boolean>(() => load('recoveryEmailVerified', false))
   const [recoveryPhoneVerified, setRecoveryPhoneVerified] = useState<boolean>(() => load('recoveryPhoneVerified', false))
   const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(() => load('twoFactorEnabled', false))
+  // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের তালিকা (ID দিয়ে, নামে নয়);
+  // ৫ জন হলেই KYC বাধ্যতামূলক হয়। users/{uid} ব্যক্তিগত ডকেও সিঙ্ক হয়।
+  const [datingChatPartnerIds, setDatingChatPartnerIds] = useState<string[]>(() => load('datingChatPartnerIds', []))
   // পুরোনো সংরক্ষিত "Demo" লেখা থাকলে নিরবে নতুন লেখায় বদলে যায় (ইতিহাস থাকে, লেখা থাকে না)
   const sanitizePiTx = (list: PiTx[]): PiTx[] => list.map(t => ({
     ...t,
@@ -444,6 +455,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('recoveryEmailVerified', recoveryEmailVerified), [recoveryEmailVerified])
   useEffect(() => save('recoveryPhoneVerified', recoveryPhoneVerified), [recoveryPhoneVerified])
   useEffect(() => save('twoFactorEnabled', twoFactorEnabled), [twoFactorEnabled])
+  useEffect(() => save('datingChatPartnerIds', datingChatPartnerIds), [datingChatPartnerIds])
   useEffect(() => save('piDeposits', piDeposits), [piDeposits])
   useEffect(() => save('piWithdrawals', piWithdrawals), [piWithdrawals])
   useEffect(() => save('piLedger', piLedger), [piLedger])
@@ -499,6 +511,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     piWalletAddress, piDeposits, piWithdrawals, piLedger,
     profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests,
     recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled,
+    datingChatPartnerIds,
   })
 
   // ক্লাউডের ডক → স্টোরে বসানো (যা ঘর ডকে নেই, সেটা বদলায় না)।
@@ -554,6 +567,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (h.recoveryEmailVerified !== undefined) setRecoveryEmailVerified(h.recoveryEmailVerified)
     if (h.recoveryPhoneVerified !== undefined) setRecoveryPhoneVerified(h.recoveryPhoneVerified)
     if (h.twoFactorEnabled !== undefined) setTwoFactorEnabled(h.twoFactorEnabled)
+    if (h.datingChatPartnerIds !== undefined) setDatingChatPartnerIds(h.datingChatPartnerIds)
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
@@ -624,6 +638,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setRecoveryEmailVerified(false)
     setRecoveryPhoneVerified(false)
     setTwoFactorEnabled(false)
+    setDatingChatPartnerIds([])
     setPiLedger([{ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: 20 }])
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
@@ -735,7 +750,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -925,12 +940,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     referrer,
     refNotice,
     dismissRefNotice: () => { setRefNotice(null) },
+    refWelcomeClaimed,
     claimRefArrival: (code) => {
       const c = (code || '').trim()
       if (!c || c === referralCode || refWelcomeClaimed) return
-      setReferrer(c); setRefWelcomeClaimed(true); setBonusPi(b => roundPi(b + REF_WELCOME_PI))
+      setReferrer(c)
+      // প্রগ্রেসিভ KYC — বোনাস দাবি করতে অনুমোদিত KYC লাগে; KYC না থাকলে
+      // লিংকটা ধরে রাখা হয়, বোনাসটা পরে দাবি করা যায় (claimReferralBonus)।
+      if (kycStatus !== 'approved') {
+        setRefNotice(`🎉 You came through a friend's link — complete KYC once to claim your ${REF_WELCOME_PI} π welcome bonus!`)
+        return
+      }
+      setRefWelcomeClaimed(true); setBonusPi(b => roundPi(b + REF_WELCOME_PI))
       recordPi('Referral', 'Referral welcome bonus (bonus Pi — usable only for calls/live gifts, cannot be withdrawn)', REF_WELCOME_PI)
       setRefNotice(`🎉 You came through a friend's link — you got ${REF_WELCOME_PI} π bonus!`)
+    },
+    // আটকে থাকা রেফারেল বোনাস দাবি — KYC অনুমোদনের পরেই মেলে (ওয়েলকাম বোনাস
+    // + বন্ধুর প্রথম টপ-আপের পুরস্কার, যা যা বাকি আছে); কিছু না থাকলে false।
+    claimReferralBonus: () => {
+      if (kycStatus !== 'approved') return false
+      let granted = false
+      if (referrer && !refWelcomeClaimed) {
+        setRefWelcomeClaimed(true); setBonusPi(b => roundPi(b + REF_WELCOME_PI))
+        recordPi('Referral', 'Referral welcome bonus (bonus Pi — usable only for calls/live gifts, cannot be withdrawn)', REF_WELCOME_PI)
+        granted = true
+      }
+      if (referrer && hasToppedUp && !referralRewarded) {
+        setReferralRewarded(true)
+        setReferrals(r => r + 1)
+        setReferralPiEarned(c => c + REF_INVITER_PI)
+        if (referrer === referralCode) { setBonusPi(b => roundPi(b + REF_INVITER_PI)); recordPi('Referral', 'Referral reward — friend\'s first top-up (bonus Pi — cannot be withdrawn)', REF_INVITER_PI) }
+        granted = true
+      }
+      if (granted) setRefNotice('🎉 Referral bonus claimed!')
+      return granted
     },
     referralRewarded,
     referralPiEarned,
@@ -956,6 +999,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     canClaimGiftBox,
     claimGiftBox: () => {
       if (!canClaimGiftBox) return null
+      // গিফট বক্সের পুরস্কার তোলা যায় এমন Pi — তাই অনুমোদিত KYC ছাড়া দাবি করা যায় না
+      if (kycStatus !== 'approved') return null
       // লটারি — সর্বোচ্চ ১ π; বাকিরা ভিতরের ছোট পুরস্কারগুলোর একটা পাবে (দাবির মুহূর্তে Math.random() দিয়ে ড্র)
       const jackpot = Math.random() < 1 / 3000
       const prize = jackpot ? GIFT_BOX_PI : GIFT_BOX_CONSOLATION[Math.floor(Math.random() * GIFT_BOX_CONSOLATION.length)]
@@ -983,6 +1028,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setPiDeposits(prev => [{ id: 'dep-' + Date.now(), amount: m, ref: ref.trim(), date: new Date().toLocaleString('en-GB'), status: '✅ Deposit recorded', chain: chain || 'Pi Mainnet' }, ...prev])
     },
     withdrawPi: (amount, address, chain) => {
+      // Pi তোলা সবসময় অনুমোদিত KYC চায় — KYC ছাড়া তোলা যায় না
+      if (kycStatus !== 'approved') return false
       const m = roundPi(Number(amount))
       const min = piMinWithdraw(piRateBDT, usdtRateBDT)
       if (!Number.isFinite(m) || m < min || m > piBalance) return false
@@ -1026,6 +1073,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (p.recoveryPhoneVerified !== undefined) setRecoveryPhoneVerified(p.recoveryPhoneVerified)
       if (p.twoFactorEnabled !== undefined) setTwoFactorEnabled(p.twoFactorEnabled)
     },
+    datingChatPartnerIds,
+    recordDatingChat: (partnerId) => {
+      const id = (partnerId || '').trim()
+      if (!id) return
+      setDatingChatPartnerIds(prev => prev.includes(id) ? prev : [...prev, id].slice(0, 50))
+    },
+    datingKycRequired: datingGateReached(kycStatus, datingChatPartnerIds.length),
     piRateBDT,
     setPiRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setPiRateBDTState(n) },
     usdtRateBDT,
@@ -1060,7 +1114,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setPiBalance(b => roundPi(b + pi))
         recordPi('Deposit', `Deposit — ${req.currency === 'USDT' ? `${req.amount} USDT` : formatBDT(req.amount)} → ${formatPi(pi)}`, pi)
       }
-      if (referrer && !referralRewarded && !hasToppedUp) {
+      // রেফারেল পুরস্কার (বন্ধুর প্রথম টপ-আপে) — বোনাস দাবি, তাই অনুমোদিত KYC
+      // ছাড়া এখন দেওয়া হয় না; KYC হলে claimReferralBonus-এ পরে দাবি করা যায়।
+      if (referrer && !referralRewarded && !hasToppedUp && kycStatus === 'approved') {
         setReferralRewarded(true)
         setReferrals(r => r + 1)
         setReferralPiEarned(c => c + REF_INVITER_PI)
@@ -1074,7 +1130,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

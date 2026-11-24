@@ -24,6 +24,13 @@ import type { Gender } from './profile'
 
 export const SCHEMA_VERSION = 1
 
+// প্রগ্রেসিভ KYC — ডেটিংয়ে ৫ জন আলাদা মানুষের সাথে চ্যাট করলে KYC বাধ্যতামূলক
+// হয় (তার আগে ডেটিং খোলা); অনুমোদিত KYC থাকলে গেট কখনো ওঠে না।
+export const DATING_KYC_CHAT_LIMIT = 5
+export function datingGateReached(kycStatus: KycStatus, distinctChatPartners: number): boolean {
+  return kycStatus !== 'approved' && distinctChatPartners >= DATING_KYC_CHAT_LIMIT
+}
+
 // KYC-র এই ঘরগুলো কখনো Firestore-এ যাবে না — শুধু এই ডিভাইসের localStorage-এ থাকে।
 export const LOCAL_ONLY_KYC_FIELDS = ['idNumber', 'selfie', 'selfieVideo'] as const
 
@@ -89,6 +96,9 @@ export type UserDoc = {
   recoveryEmailVerified: boolean
   recoveryPhoneVerified: boolean
   twoFactorEnabled: boolean
+  // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের সংখ্যা (৫ হলে KYC বাধ্যতামূলক);
+  // শুধু এই ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
+  datingChatPartnerIds: string[]
 }
 
 // স্টোর থেকে যে স্ন্যাপশট নিয়ে ডক বানানো হয় (দরগুলো এখানে নেই — সেগুলো config/public-এ যায়)।
@@ -141,6 +151,9 @@ export type LocalUserState = {
   recoveryEmailVerified: boolean
   recoveryPhoneVerified: boolean
   twoFactorEnabled: boolean
+  // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের সংখ্যা (৫ হলে KYC বাধ্যতামূলক);
+  // শুধু এই ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
+  datingChatPartnerIds: string[]
 }
 
 // config/public — অ্যাডমিনের দর + পেমেন্টের আসল বিবরণ (গোপন কিছু এখানে নেই)।
@@ -248,6 +261,7 @@ export function toUserDoc(s: LocalUserState): UserDoc {
     recoveryEmailVerified: s.recoveryEmailVerified === true,
     recoveryPhoneVerified: s.recoveryPhoneVerified === true,
     twoFactorEnabled: s.twoFactorEnabled === true,
+    datingChatPartnerIds: Array.isArray(s.datingChatPartnerIds) ? s.datingChatPartnerIds.filter((x): x is string => typeof x === 'string').slice(0, 50) : [],
   }
 }
 
@@ -301,6 +315,8 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   if (typeof d.recoveryEmailVerified === 'boolean') out.recoveryEmailVerified = d.recoveryEmailVerified
   if (typeof d.recoveryPhoneVerified === 'boolean') out.recoveryPhoneVerified = d.recoveryPhoneVerified
   if (typeof d.twoFactorEnabled === 'boolean') out.twoFactorEnabled = d.twoFactorEnabled
+  // প্রগ্রেসিভ KYC — ডেটিং চ্যাটের সংখ্যা শুধু users/{uid} ব্যক্তিগত ডক থেকে পড়া হয়।
+  if (Array.isArray(d.datingChatPartnerIds)) out.datingChatPartnerIds = (d.datingChatPartnerIds as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 50)
   // KYC: শুধু নিরাপদ ঘরগুলো ফেরে; idNumber/selfie/selfieVideo ডকে থাকার কথা নয়,
   // থাকলেও এখানে পড়া হয় না (সেগুলো শুধু এই ডিভাইসের localStorage-এ থাকে)।
   // ডকে KYC-র স্ট্যাটাস না থাকলে (পুরোনো ডক) স্ট্যাটাস বদলানো হয় না।

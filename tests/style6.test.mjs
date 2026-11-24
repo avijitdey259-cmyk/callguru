@@ -216,7 +216,7 @@ check("Match panel: pink→red gradient + 'Say something nice' + reaction pills 
   assert.ok(pages.includes('placeholder="Say something nice"'), 'Say something nice বক্স নেই')
   for (const r of ['👋', '😊', '❤️']) assert.ok(pages.includes(`'${r}'`), `reaction pill ${r} নেই`)
   assert.ok(pages.includes('💬 Send message'), 'Send message বোতাম নেই')
-  assert.ok(pages.includes("navigate('/chat', { state: { with: matched, draft: matchMsg } })"), 'match draft চ্যাটে যায় না')
+  assert.ok(pages.includes("navigate('/chat', { state: { with: matched, draft: matchMsg, datingPartnerId: matchedId } })"), 'match draft চ্যাটে যায় না')
 })
 check('ChatPage pre-fills the match message draft', () => {
   assert.ok(pages.includes("if (st?.draft) setDraft(st.draft)"), 'draft pre-fill নেই')

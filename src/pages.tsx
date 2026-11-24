@@ -23,6 +23,7 @@ import {
 } from './data'
 import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPlaylist'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
+import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, getFirebaseApp } from './firebase'
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { updateProfile } from 'firebase/auth'
@@ -52,16 +53,25 @@ function currentWeekLabel(): string {
   return `${fmt(mon)} – ${fmt(sun)}`
 }
 
-// রেফার লিংকে এসে থাকলে ফিডের উপরে ওয়েলকাম ব্যানার
+// রেফার লিংকে এসে থাকলে ফিডের উপরে ওয়েলকাম ব্যানার — KYC না থাকলে বোনাস
+// আটকে থাকে, KYC হলে এখান থেকেই দাবি করা যায়।
 export function RefWelcomeBanner() {
-  const { refNotice, dismissRefNotice } = useStore()
+  const { refNotice, dismissRefNotice, referrer, refWelcomeClaimed, claimReferralBonus } = useStore()
+  const [claimMsg, setClaimMsg] = useState('')
   if (!refNotice) return null
+  const heldBonus = !!referrer && !refWelcomeClaimed
+  function claim() {
+    if (claimReferralBonus()) setClaimMsg('🎉 Referral bonus claimed!')
+    else setClaimMsg('Complete KYC once to claim your referral bonus.')
+  }
   return (
     <Card className="!bg-green-50 dark:!bg-green-900">
       <div className="flex items-start gap-2">
         <p className="text-sm font-medium flex-1">{refNotice}</p>
         <button className="text-gray-400" onClick={dismissRefNotice}>✕</button>
       </div>
+      {heldBonus && <Btn className="mt-2" onClick={claim}>Claim referral bonus</Btn>}
+      {claimMsg && <p className="text-sm text-green-600 mt-2">{claimMsg}</p>}
       <p className="text-xs text-gray-500 mt-1">First call's first 1 minute free — applies to new users.</p>
     </Card>
   )
@@ -99,13 +109,15 @@ export function InviteCard() {
 
 // ডেইলি বোনাস — ৭ দিনের চক্র, একদিন মিস করলে স্ট্রিক আবার ১ম দিন থেকে
 export function DailyBonusCard() {
-  const { streak, dailyClaimedToday, claimDailyBonus, totalPi, giftBoxDays, giftBoxClaimed, canClaimGiftBox, claimGiftBox } = useStore()
+  const { streak, dailyClaimedToday, claimDailyBonus, totalPi, giftBoxDays, giftBoxClaimed, canClaimGiftBox, claimGiftBox, kycVerified } = useStore()
   const [msg, setMsg] = useState('')
   function claim() {
     const r = claimDailyBonus()
     if (r) setMsg(`🎉 Day ${r.day} — you got ${r.pi} π! Total Pi: ${formatPi(totalPi + r.pi)}.`)
   }
   function claimBox() {
+    // গিফট বক্সের পুরস্কার তোলা যায় এমন Pi — অনুমোদিত KYC ছাড়া দাবি করা যায় না
+    if (!kycVerified) { setMsg('Gift box needs approved KYC — complete Dating KYC first.'); return }
     const r = claimGiftBox()
     if (r) setMsg(r.jackpot ? `🎉 Congratulations! You won 1 π! Total Pi: ${formatPi(totalPi + r.pi)}.` : `🎁 You got ${r.pi} π — try again! Total Pi: ${formatPi(totalPi + r.pi)}.`)
   }
@@ -993,7 +1005,7 @@ export function CallPage() {
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, kycVerified, soundSettings, friends, uid, referralCode } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -1329,8 +1341,9 @@ export function CallPage() {
     }
   }
 
-  // KYC ছাড়া ডেটিং কল শুরু করা যাবে না — কল শুরু হলে টাকাও কাটবে না
-  if (isDating && !kycVerified) {
+  // প্রগ্রেসিভ KYC — ৫ জন আলাদা মানুষের সাথে ডেটিংয়ে চ্যাট করার পর KYC
+  // বাধ্যতামূলক হলে ডেটিং কল শুরু করা যাবে না — কল শুরু হলে টাকাও কাটবে না
+  if (isDating && datingKycRequired) {
     return <DatingKycBlocked />
   }
 
@@ -1575,7 +1588,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings } = useStore()
+  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings, kycVerified } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -1620,6 +1633,8 @@ export function WalletPage() {
     setDepAmount(''); setDepRef('')
   }
   function doWithdraw() {
+    // Pi তোলা সবসময় অনুমোদিত KYC চায় — KYC ছাড়া তোলা যায় না
+    if (!kycVerified) { setWdMsg('Pi withdrawal needs approved KYC — complete Dating KYC first.'); return }
     const m = Number(wdAmount)
     const a = wdAddress.trim()
     if (a.length !== 56 || !a.startsWith('G')) { setWdMsg('Invalid address — a Pi address starts with G and is 56 characters.'); return }
@@ -1841,7 +1856,7 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, soundSettings, setSoundSettings, uid } = useStore()
+  const { user, friends, soundSettings, setSoundSettings, uid, recordDatingChat } = useStore()
   const location = useLocation()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'Rima')
@@ -1871,11 +1886,15 @@ export function ChatPage() {
   const typingTimersRef = useRef<number[]>([])
   const lastReplyRef = useRef<Record<string, string>>({})
   const lastFunRef = useRef<Record<string, boolean>>({})
+  // ডেটিং থেকে আসা চ্যাট — ম্যাচ কার্ডের "Send message" থেকে partnerId আসে;
+  // প্রথম মেসেজ পাঠালেই ওই মানুষটা ডেটিং চ্যাটের হিসাবে ধরা হয় (৫ জন হলে KYC)।
+  const datingPartnerIdRef = useRef<string | null>(null)
   // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায় (শুধু আসল বন্ধুর নামে)
   useEffect(() => {
-    const st = location.state as { with?: string; draft?: string } | null
+    const st = location.state as { with?: string; draft?: string; datingPartnerId?: string } | null
     if (st?.with && friends.some(f => f.name === st.with)) setActive(st.with)
     if (st?.draft) setDraft(st.draft)
+    datingPartnerIdRef.current = st?.datingPartnerId ?? null
   }, [location.state])
   useEffect(() => {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
@@ -1916,6 +1935,9 @@ export function ChatPage() {
     const text = draft
     const to = active
     setDraft(''); setBan('')
+    // ডেটিং চ্যাটের হিসাব — এই চ্যাটটা ডেটিং থেকে খোলা হলে প্রথম মেসেজেই
+    // ওই মানুষটা গোনা হয় (একই মানুষ বারবার গোনা হয় না)।
+    if (datingPartnerIdRef.current) recordDatingChat(datingPartnerIdRef.current)
     // আসল বন্ধু — Firestore-এ লিখি; সাবস্ক্রিপশন থেকেই মেসেজ ফিরে এসে দেখাবে।
     // সার্ভারে না পৌঁছালে মেসেজ শুধু এই ডিভাইসে থাকে।
     if (isRealUser && roomId && uid) {
@@ -1947,7 +1969,7 @@ export function ChatPage() {
         <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? 'Sound on — tap to turn off' : 'Sound off — tap to turn on'}</button>
         {contacts.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
         {contacts.map(n => (
-          <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
+          <button key={n} onClick={() => { setActive(n); datingPartnerIdRef.current = null }} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
         ))}
         <p className="text-xs text-gray-400 mt-3">Phone numbers, WhatsApp/Facebook/Telegram links or emails cannot be shared — they will be blocked automatically.</p>
         {warn > 0 && <p className="text-xs text-red-500 mt-1">Warning: {warn} times the rules were tried to be broken.</p>}
@@ -1970,7 +1992,8 @@ export function ChatPage() {
 }
 
 // ---------- ডেটিং KYC (একবারই) ----------
-// KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না। সম্পন্ন হলে আর কখনো চাওয়া হয় না।
+// প্রগ্রেসিভ KYC — ডেটিং প্রথমে খোলা; ৫ জন আলাদা মানুষের সাথে চ্যাট করলে KYC
+// বাধ্যতামূলক হয়। সম্পন্ন হলে আর কখনো চাওয়া হয় না।
 // ডেমো KYC — আসল যাচাইয়ের জন্য ভেরিফায়েড KYC সার্ভিস লাগবে।
 function ageFromDob(dobStr: string): number | null {
   if (!dobStr) return null
@@ -1995,7 +2018,7 @@ function downscaleImage(source: HTMLVideoElement | HTMLImageElement, w: number, 
 }
 
 function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () => void }) {
-  const { submitKyc: submitKycToStore, kycStatus, kycInfo, kycRejectReason, resetKyc } = useStore()
+  const { submitKyc: submitKycToStore, kycStatus, kycInfo, kycRejectReason, resetKyc, datingKycRequired } = useStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [resubmit, setResubmit] = useState(false)
   const [name, setName] = useState('')
@@ -2162,7 +2185,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   return (
     <div className="max-w-md mx-auto"><Card>
       <h1 className="text-xl font-bold text-center flex items-center justify-center gap-2"><IconShield className="w-6 h-6" /> Dating KYC — Do It Once Only</h1>
-      <p className="text-sm text-gray-500 mt-2 text-center">To see anything in Dating, you must first complete live KYC. Without KYC, you will see no Dating profiles, lives or calls.</p>
+      <p className="text-sm text-gray-500 mt-2 text-center">{datingKycRequired ? `You've chatted with ${DATING_KYC_CHAT_LIMIT} people in Dating — to keep Dating safe and real (18+ only), please complete KYC once. Until it's approved, new matches, chats and calls in Dating are paused.` : 'To see anything in Dating, you must first complete live KYC. Without KYC, you will see no Dating profiles, lives or calls.'}</p>
       <div className="flex gap-2 mt-4 justify-center text-sm">
         <span className={`px-3 py-1 rounded-full font-bold ${step === 1 ? 'bg-fb-blue text-white' : 'bg-gray-200 dark:bg-slate-700'}`}>1. Identity</span>
         <span className={`px-3 py-1 rounded-full font-bold ${step === 2 ? 'bg-fb-blue text-white' : 'bg-gray-200 dark:bg-slate-700'}`}>2. Live Selfie</span>
@@ -2215,7 +2238,8 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   )
 }
 
-// KYC না থাকলে ডেটিংয়ের ভেতরের রুটগুলোতে (সরাসরি লিংকেও) এই স্ক্রিন দেখাবে
+// ৫ জন আলাদা মানুষের সাথে ডেটিংয়ে চ্যাট করার পর KYC বাধ্যতামূলক হলে ডেটিংয়ের
+// ভেতরের রুটগুলোতে (সরাসরি লিংকেও) এই স্ক্রিন দেখাবে
 function DatingKycBlocked() {
   const navigate = useNavigate()
   const { kycStatus, kycRejectReason } = useStore()
@@ -2237,8 +2261,8 @@ function DatingKycBlocked() {
           </>
         ) : (
           <>
-            <h1 className="text-xl font-bold">🔒 Dating cannot be used without KYC</h1>
-            <p className="text-sm text-gray-300 mt-2">For Dating, you must first do KYC once (live identity verification). Without KYC, nothing in Dating will be visible.</p>
+            <h1 className="text-xl font-bold">🔒 KYC needed to continue Dating</h1>
+            <p className="text-sm text-gray-300 mt-2">{`You've chatted with ${DATING_KYC_CHAT_LIMIT} people in Dating — to keep Dating safe and real (18+ only), please complete KYC once. Until it's approved, new matches, chats and calls in Dating are paused.`}</p>
             <Btn className="mt-4" onClick={() => navigate('/dating')}>Do KYC</Btn>
           </>
         )}
@@ -2251,7 +2275,7 @@ function DatingKycBlocked() {
 function compatFor(p: DatingProfile) { return p.compat ?? 86 }
 
 export function DatingPage() {
-  const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, kycVerified, district: myDistrict, interests: myInterests, uid } = useStore()
+  const { likesUsed, useLike, premium, setPremium, totalPi, addPi, datingRate, liveRate, liveEarnings, datingKycRequired, claimReferralBonus, district: myDistrict, interests: myInterests, uid } = useStore()
   const navigate = useNavigate()
   // KYC একবার সম্পন্ন হলে আর দেখানো হয় না; সফলতার স্ক্রিনটি দেখানোর জন্য স্থানীয় অবস্থা
   const [kycSuccess, setKycSuccess] = useState(false)
@@ -2288,9 +2312,11 @@ export function DatingPage() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates, uid, myDistrict, myInterests])
-  // KYC ছাড়া ডেটিংয়ের কিছুই দেখা যাবে না — প্রোফাইল, লাইভ, ম্যাচ, কল — সব বন্ধ
-  if (!kycVerified || kycSuccess) {
-    return <KycPage onComplete={() => setKycSuccess(true)} onEnter={() => setKycSuccess(false)} />
+  // প্রগ্রেসিভ KYC — ডেটিং প্রথমে খোলা; ৫ জন আলাদা মানুষের সাথে চ্যাট করলে
+  // KYC বাধ্যতামূলক হয় (নতুন ম্যাচ/চ্যাট/কল বন্ধ, অনুমোদন পেলে আবার খুলবে)।
+  // অনুমোদনের পর ডেটিংয়ে ঢুকলে আটকে থাকা রেফারেল বোনাস থাকলে সেটাও দাবি হয়।
+  if (datingKycRequired || kycSuccess) {
+    return <KycPage onComplete={() => setKycSuccess(true)} onEnter={() => { claimReferralBonus(); setKycSuccess(false) }} />
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -2351,7 +2377,7 @@ export function DatingPage() {
           ))}
         </div>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
-          <Btn className="!bg-white !text-pink-600 font-bold" onClick={() => navigate('/chat', { state: { with: matched, draft: matchMsg } })}>💬 Send message</Btn>
+          <Btn className="!bg-white !text-pink-600 font-bold" onClick={() => navigate('/chat', { state: { with: matched, draft: matchMsg, datingPartnerId: matchedId } })}>💬 Send message</Btn>
           <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 Video Call (Prepaid)</Btn>
         </div>
         <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
@@ -2410,7 +2436,7 @@ const LIVE_GIFTS = [
 // লাইভ দেখা — প্রিপেইড, প্রতি মিনিটে; শুধু দর্শক দেবে
 export function DatingLivePage() {
   const { id } = useParams()
-  const { totalPi, addPi, liveRate, user, kycVerified, recordShare, addGiftsSent, spendGiftPi, soundSettings } = useStore()
+  const { totalPi, addPi, liveRate, user, datingKycRequired, recordShare, addGiftsSent, spendGiftPi, soundSettings } = useStore()
   const navigate = useNavigate()
   // ডেমো হোস্ট সরানো — শুধু আসল রুম (PiCall লাইভ সার্ভার) দেখাবে
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
@@ -2544,8 +2570,8 @@ export function DatingLivePage() {
     if (realRoom) sendSignal(wsRef.current, { type: 'chat', roomId: realRoom.id, name: user?.name || 'You', text })
   }
 
-  // KYC ছাড়া সরাসরি লিংকেও ডেটিং লাইভ দেখা যাবে না
-  if (!kycVerified) {
+  // প্রগ্রেসিভ KYC — ৫ চ্যাটের পর KYC বাধ্যতামূলক হলে সরাসরি লিংকেও ডেটিং লাইভ দেখা যাবে না
+  if (datingKycRequired) {
     return <DatingKycBlocked />
   }
 
@@ -2691,7 +2717,7 @@ export function DatingLivePage() {
 
 // নিজে লাইভে যাওয়া — হোস্টের আয় প্রতি মিনিটে রেটের ৭০%
 export function DatingGoLivePage() {
-  const { user, liveRate, liveEarnings, addLiveEarnings, kycVerified, recordShare, soundSettings } = useStore()
+  const { user, liveRate, liveEarnings, addLiveEarnings, datingKycRequired, recordShare, soundSettings } = useStore()
   const navigate = useNavigate()
   const rate = liveRate // লাইভ রেট কলের রেট থেকে আলাদা (ডিফল্ট π ০.০৫/মিনিট)
   const [started, setStarted] = useState(false)
@@ -2842,8 +2868,8 @@ export function DatingGoLivePage() {
     teardownHostLive()
   }
 
-  // KYC ছাড়া সরাসরি লিংকেও লাইভে যাওয়া যাবে না
-  if (!kycVerified) {
+  // প্রগ্রেসিভ KYC — ৫ চ্যাটের পর KYC বাধ্যতামূলক হলে সরাসরি লিংকেও লাইভে যাওয়া যাবে না
+  if (datingKycRequired) {
     return <DatingKycBlocked />
   }
 
