@@ -62,7 +62,10 @@ check('pages.tsx: real empty states where demo lists went empty', () => {
   // 'No home services yet.' সরানো হয়েছে 2026-11-24: "Home Service"
   // (সামনাসামনি বুকিং) পাতাটি ভার্চুয়াল Services দিয়ে বদলে গেছে —
   // খালি অবস্থা এখন "No services yet. Offer the first one!" (services.test.mjs দেখে)।
-  for (const s of ['No services yet.', 'No profiles yet', 'No groups or pages yet.', 'No reviews yet.', 'No user totals yet', 'No recordings yet.', 'No attempts logged yet.', 'No reported profiles.']) {
+  // Groups & Pages empty states (2026-11-24): the old single placeholder
+  // "No groups or pages yet." is gone — the page now has separate real
+  // empty states for groups and pages, each pointing at its create form.
+  for (const s of ['No services yet.', 'No profiles yet', 'No groups yet', 'No pages yet', 'No reviews yet.', 'No user totals yet', 'No recordings yet.', 'No attempts logged yet.', 'No reported profiles.']) {
     assert.ok(pages.includes(s), `খালি অবস্থা নেই: "${s}"`)
   }
 })

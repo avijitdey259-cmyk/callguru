@@ -29,9 +29,10 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage } from './firestore'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
+import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, type GroupItem, type PageItem } from './groups'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
@@ -3534,11 +3535,184 @@ export function ServicesPage() {
   )
 }
 
+// ---------- Groups & Pages ----------
+// A group is a member community (public/private); a page is a public
+// presence (business/creator/community). Both start empty — member/follower
+// counts come only from real uid arrays, never invented. Clicking one opens
+// its detail view at /groups/:id (group) or /pages/:id (page) with a
+// Join/Follow button and an honest "posts coming" note — no fake posts.
 export function GroupsPage() {
+  const { user, uid } = useStore()
+  const [groups, setGroups] = useState<GroupItem[]>(() => loadLocalGroups())
+  const [pages, setPages] = useState<PageItem[]>(() => loadLocalPages())
+  const [gName, setGName] = useState('')
+  const [gDesc, setGDesc] = useState('')
+  const [gVis, setGVis] = useState<'public' | 'private'>('public')
+  const [gErr, setGErr] = useState('')
+  const [gBusy, setGBusy] = useState(false)
+  const [gDone, setGDone] = useState(false)
+  const [pName, setPName] = useState('')
+  const [pCat, setPCat] = useState('')
+  const [pDesc, setPDesc] = useState('')
+  const [pErr, setPErr] = useState('')
+  const [pBusy, setPBusy] = useState(false)
+  const [pDone, setPDone] = useState(false)
+  useEffect(() => {
+    fetchGroups(50).then(list => { if (list.length > 0) { const m = mergeGroupLists(loadLocalGroups(), list); setGroups(m); saveLocalGroups(m) } })
+    fetchPages(50).then(list => { if (list.length > 0) { const m = mergePageLists(loadLocalPages(), list); setPages(m); saveLocalPages(m) } })
+    const unG = subscribeGroups(list => { setGroups(list); if (list.length > 0) saveLocalGroups(mergeGroupLists(loadLocalGroups(), list)) })
+    const unP = subscribePages(list => { setPages(list); if (list.length > 0) saveLocalPages(mergePageLists(loadLocalPages(), list)) })
+    return () => { unG?.(); unP?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  async function submitGroup() {
+    const vErr = validateGroupInput({ name: gName, description: gDesc, visibility: gVis })
+    if (vErr) { setGErr(vErr); return }
+    if (!uid || !user) { setGErr('Log in first to create a group.'); return }
+    setGBusy(true); setGErr('')
+    const id = await createGroupDoc({ ownerUid: uid, ownerName: user.name, name: gName.trim(), description: gDesc.trim(), visibility: gVis })
+    const saved: GroupItem = { id: id ?? ('local-' + Date.now()), ownerUid: uid, ownerName: user.name, name: gName.trim(), description: gDesc.trim(), visibility: gVis, memberUids: [uid], createdAtMs: Date.now() }
+    const merged = mergeGroupLists(loadLocalGroups(), [saved])
+    saveLocalGroups(merged); setGroups(merged)
+    setGDone(true); setGBusy(false)
+    setGName(''); setGDesc(''); setGVis('public')
+  }
+  async function submitPage() {
+    const vErr = validatePageInput({ name: pName, category: pCat, description: pDesc })
+    if (vErr) { setPErr(vErr); return }
+    if (!uid || !user) { setPErr('Log in first to create a page.'); return }
+    setPBusy(true); setPErr('')
+    const id = await createPageDoc({ ownerUid: uid, ownerName: user.name, name: pName.trim(), category: pCat.trim(), description: pDesc.trim() })
+    const saved: PageItem = { id: id ?? ('local-' + Date.now()), ownerUid: uid, ownerName: user.name, name: pName.trim(), category: pCat.trim(), description: pDesc.trim(), followerUids: [], createdAtMs: Date.now() }
+    const merged = mergePageLists(loadLocalPages(), [saved])
+    saveLocalPages(merged); setPages(merged)
+    setPDone(true); setPBusy(false)
+    setPName(''); setPCat(''); setPDesc('')
+  }
   return (
-    <div className="space-y-3 max-w-2xl mx-auto">
+    <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">👥 Groups & Pages</h1>
-      <p className="text-sm text-gray-500">No groups or pages yet.</p>
+      <Card>
+        <h2 className="font-bold">Create Group</h2>
+        <label className="text-sm font-medium block mt-3">Group name</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={gName} onChange={e => setGName(e.target.value)} placeholder="e.g. Chattogram Book Lovers" />
+        <label className="text-sm font-medium block mt-3">Description</label>
+        <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={gDesc} onChange={e => setGDesc(e.target.value)} placeholder="What is this group about?" rows={2} />
+        <label className="text-sm font-medium block mt-3">Privacy</label>
+        <select className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={gVis} onChange={e => setGVis(e.target.value as 'public' | 'private')}>
+          <option value="public">Public — anyone can join</option>
+          <option value="private">Private — members join by owner</option>
+        </select>
+        {gErr && <p className="text-sm text-red-600 mt-2">{gErr}</p>}
+        {gDone && <p className="text-sm text-green-600 mt-2">✅ Group created — you are its first member.</p>}
+        <Btn className="w-full mt-4" disabled={gBusy} onClick={submitGroup}>{gBusy ? 'Creating…' : 'Create Group'}</Btn>
+      </Card>
+      <Card>
+        <h2 className="font-bold">Create Page</h2>
+        <label className="text-sm font-medium block mt-3">Page name</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={pName} onChange={e => setPName(e.target.value)} placeholder="e.g. Jhuli BD" />
+        <label className="text-sm font-medium block mt-3">Category</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={pCat} onChange={e => setPCat(e.target.value)} placeholder="e.g. Bookstore" />
+        <label className="text-sm font-medium block mt-3">Description</label>
+        <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={pDesc} onChange={e => setPDesc(e.target.value)} placeholder="What is this page about?" rows={2} />
+        {pErr && <p className="text-sm text-red-600 mt-2">{pErr}</p>}
+        {pDone && <p className="text-sm text-green-600 mt-2">✅ Page created.</p>}
+        <Btn className="w-full mt-4" disabled={pBusy} onClick={submitPage}>{pBusy ? 'Creating…' : 'Create Page'}</Btn>
+      </Card>
+      <Card>
+        <h2 className="font-bold">Groups</h2>
+        {groups.length === 0 && <p className="text-sm text-gray-500 mt-2">No groups yet — create the first one above.</p>}
+        {groups.map(g => (
+          <Link key={g.id} to={`/groups/${g.id}`} className="block py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+            <p className="font-bold text-sm">{g.name} {g.visibility === 'private' && <span className="text-xs text-gray-400">🔒 Private</span>}</p>
+            <p className="text-xs text-gray-500 mt-1">{g.description || 'No description.'}</p>
+            <p className="text-xs text-gray-400 mt-1">{memberCount(g)} member{memberCount(g) === 1 ? '' : 's'} • by {g.ownerName}</p>
+          </Link>
+        ))}
+      </Card>
+      <Card>
+        <h2 className="font-bold">Pages</h2>
+        {pages.length === 0 && <p className="text-sm text-gray-500 mt-2">No pages yet — create the first one above.</p>}
+        {pages.map(p => (
+          <Link key={p.id} to={`/pages/${p.id}`} className="block py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+            <p className="font-bold text-sm">{p.name}</p>
+            <p className="text-xs text-gray-500 mt-1">{p.category || 'Page'}{p.description ? ` • ${p.description}` : ''}</p>
+            <p className="text-xs text-gray-400 mt-1">{followerCount(p)} follower{followerCount(p) === 1 ? '' : 's'} • by {p.ownerName}</p>
+          </Link>
+        ))}
+      </Card>
+    </div>
+  )
+}
+
+export function GroupDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { uid } = useStore()
+  const [group, setGroup] = useState<GroupItem | null>(() => loadLocalGroups().find(g => g.id === id) ?? null)
+  const [page, setPage] = useState<PageItem | null>(() => loadLocalPages().find(p => p.id === id) ?? null)
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!id) return
+    fetchGroup(id).then(g => { if (g) { setGroup(g); saveLocalGroups(mergeGroupLists(loadLocalGroups(), [g])) } })
+    fetchPage(id).then(p => { if (p) { setPage(p); saveLocalPages(mergePageLists(loadLocalPages(), [p])) } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+  if (!group && !page) {
+    return (
+      <div className="space-y-3 max-w-2xl mx-auto">
+        <Card><p className="text-sm text-gray-500">This group or page was not found.</p><Btn className="mt-3" onClick={() => navigate('/groups')}>Back to Groups & Pages</Btn></Card>
+      </div>
+    )
+  }
+  async function toggleGroup() {
+    if (!group || !uid) return
+    setBusy(true); setMsg('')
+    const joined = isMember(group, uid)
+    const ok = joined ? await leaveGroup(group.id, uid) : await joinGroup(group.id, uid)
+    if (ok) {
+      const next: GroupItem = { ...group, memberUids: joined ? group.memberUids.filter(u => u !== uid) : [...group.memberUids, uid] }
+      setGroup(next); saveLocalGroups(mergeGroupLists(loadLocalGroups(), [next]))
+      setMsg(joined ? 'You left the group.' : '✅ You joined the group.')
+    } else {
+      setMsg(group.visibility === 'private' && !joined ? 'This group is private — only the owner can add members.' : 'Could not update — check the connection and try again.')
+    }
+    setBusy(false)
+  }
+  async function togglePage() {
+    if (!page || !uid) return
+    setBusy(true); setMsg('')
+    const following = isFollower(page, uid)
+    const ok = following ? await unfollowPage(page.id, uid) : await followPage(page.id, uid)
+    if (ok) {
+      const next: PageItem = { ...page, followerUids: following ? page.followerUids.filter(u => u !== uid) : [...page.followerUids, uid] }
+      setPage(next); saveLocalPages(mergePageLists(loadLocalPages(), [next]))
+      setMsg(following ? 'You unfollowed the page.' : '✅ You followed the page.')
+    } else {
+      setMsg('Could not update — check the connection and try again.')
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <Btn variant="ghost" onClick={() => navigate('/groups')}>← Back to Groups & Pages</Btn>
+      {group && <Card>
+        <h1 className="text-xl font-bold">{group.name} {group.visibility === 'private' && <span className="text-xs text-gray-400">🔒 Private</span>}</h1>
+        <p className="text-sm text-gray-500 mt-1">{group.description || 'No description.'}</p>
+        <p className="text-sm text-gray-500 mt-2">{memberCount(group)} member{memberCount(group) === 1 ? '' : 's'} • by {group.ownerName}</p>
+        <Btn className="mt-3" disabled={busy || !uid} onClick={toggleGroup}>{isMember(group, uid) ? 'Leave Group' : 'Join Group'}</Btn>
+        {msg && <p className="text-sm text-gray-500 mt-2">{msg}</p>}
+        <p className="text-sm text-gray-400 mt-4 pt-3 border-t">No posts here yet — group posts are coming.</p>
+      </Card>}
+      {page && <Card>
+        <h1 className="text-xl font-bold">{page.name}</h1>
+        <p className="text-sm text-gray-500 mt-1">{page.category || 'Page'}{page.description ? ` — ${page.description}` : ''}</p>
+        <p className="text-sm text-gray-500 mt-2">{followerCount(page)} follower{followerCount(page) === 1 ? '' : 's'} • by {page.ownerName}</p>
+        <Btn className="mt-3" disabled={busy || !uid} onClick={togglePage}>{isFollower(page, uid) ? 'Unfollow' : 'Follow'}</Btn>
+        {msg && <p className="text-sm text-gray-500 mt-2">{msg}</p>}
+        <p className="text-sm text-gray-400 mt-4 pt-3 border-t">No posts here yet — page posts are coming.</p>
+      </Card>}
     </div>
   )
 }

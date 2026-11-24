@@ -3,11 +3,12 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
+import { mapGroupDoc, mapPageDoc, type GroupItem, type PageItem } from './groups'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
 
 let db: Firestore | null = null
@@ -480,3 +481,161 @@ export async function recordAdClick(id: string): Promise<void> {
   try { await updateDoc(doc(d, 'ads', id), { clicks: increment(1) }) } catch { /* best-effort */ }
 }
 
+// ---------- groups/{groupId} + pages/{pageId} — Groups & Pages ----------
+// A group is a member community (public/private); a page is a public
+// presence (business/creator/community). Both start empty — member/follower
+// counts come only from real uid arrays, never invented. Firestore off or
+// rules not published yet → [] / null / false, and the UI falls back to its
+// localStorage cache (graceful degradation, like services). Never throws.
+export type NewGroupDoc = {
+  ownerUid: string
+  ownerName: string
+  name: string
+  description: string
+  visibility: 'public' | 'private'
+}
+
+export type NewPageDoc = {
+  ownerUid: string
+  ownerName: string
+  name: string
+  category: string
+  description: string
+}
+
+export async function fetchGroups(limitN = 50): Promise<GroupItem[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'groups'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapGroupDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((g): g is GroupItem => g !== null)
+  } catch { return [] }
+}
+
+export async function fetchGroup(id: string): Promise<GroupItem | null> {
+  const d = getDb()
+  if (!d || !id) return null
+  try {
+    const snap = await getDoc(doc(d, 'groups', id))
+    if (!snap.exists()) return null
+    return mapGroupDoc(snap.id, snap.data() as Record<string, unknown>)
+  } catch { return null }
+}
+
+export function subscribeGroups(cb: (groups: GroupItem[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const q = query(collection(d, 'groups'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapGroupDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((g): g is GroupItem => g !== null))
+    }, () => { /* subscription failed — the page keeps its local cache */ })
+  } catch { return null }
+}
+
+export async function createGroupDoc(data: NewGroupDoc): Promise<string | null> {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const ref = await addDoc(collection(d, 'groups'), {
+      ...data,
+      description: data.description || '',
+      memberUids: [data.ownerUid],
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// Join a public group (the owner is already a member). Private groups: only
+// the owner can add members — a non-owner join attempt is refused by rules.
+export async function joinGroup(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'groups', id), { memberUids: arrayUnion(uid) })
+    return true
+  } catch { return false }
+}
+
+export async function leaveGroup(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'groups', id), { memberUids: arrayRemove(uid) })
+    return true
+  } catch { return false }
+}
+
+export async function fetchPages(limitN = 50): Promise<PageItem[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'pages'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapPageDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((p): p is PageItem => p !== null)
+  } catch { return [] }
+}
+
+export async function fetchPage(id: string): Promise<PageItem | null> {
+  const d = getDb()
+  if (!d || !id) return null
+  try {
+    const snap = await getDoc(doc(d, 'pages', id))
+    if (!snap.exists()) return null
+    return mapPageDoc(snap.id, snap.data() as Record<string, unknown>)
+  } catch { return null }
+}
+
+export function subscribePages(cb: (pages: PageItem[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const q = query(collection(d, 'pages'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapPageDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((p): p is PageItem => p !== null))
+    }, () => { /* subscription failed — the page keeps its local cache */ })
+  } catch { return null }
+}
+
+export async function createPageDoc(data: NewPageDoc): Promise<string | null> {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const ref = await addDoc(collection(d, 'pages'), {
+      ...data,
+      category: data.category || '',
+      description: data.description || '',
+      followerUids: [],
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+export async function followPage(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'pages', id), { followerUids: arrayUnion(uid) })
+    return true
+  } catch { return false }
+}
+
+export async function unfollowPage(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'pages', id), { followerUids: arrayRemove(uid) })
+    return true
+  } catch { return false }
+}

@@ -27,6 +27,14 @@
 //                    পারেন; জমা দিতে পারেন শুধু মালিক নিজে (ownerUid নিজের
 //                    UID, স্ট্যাটাস সবসময় pending); অনুমোদন/বাতিল শুধু
 //                    অ্যাডমিন। Adsterra-র সাথে এর কোনো সম্পর্ক নেই।
+//   groups/{groupId} — গ্রুপ: লগইন করা সবাই পড়তে পারেন; তৈরি করতে পারেন
+//                    শুধু মালিক নিজে (ownerUid নিজের UID, নিজেই প্রথম
+//                    সদস্য); পাবলিক গ্রুপে যে কেউ যোগ দিতে/ছাড়তে পারেন
+//                    (memberUids-এ শুধু নিজের UID যোগ/বাদ); বাকি বদল শুধু
+//                    মালিক/অ্যাডমিন। মোছা বন্ধ।
+//   pages/{pageId}  — পেজ: লগইন করা সবাই পড়তে পারেন; তৈরি করতে পারেন শুধু
+//                    মালিক নিজে; যে কেউ ফলো/আনফলো করতে পারেন (followerUids-এ
+//                    শুধু নিজের UID যোগ/বাদ); বাকি বদল শুধু মালিক/অ্যাডমিন।
 //   বাকি সব — ডিফল্টভাবে বন্ধ।
 // NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
 // সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
@@ -125,6 +133,45 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views', 'clicks'])
           && ((request.resource.data.views == resource.data.views + 1 && request.resource.data.clicks == resource.data.clicks)
             || (request.resource.data.clicks == resource.data.clicks + 1 && request.resource.data.views == resource.data.views)));
+      allow delete: if false;
+    }
+
+    // গ্রুপ — তৈরি করেন মালিক নিজে (নিজেই প্রথম সদস্য); পাবলিক গ্রুপে যে
+    // কেউ যোগ দিতে/ছাড়তে পারেন (memberUids-এ শুধু নিজের UID যোগ/বাদ)।
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.memberUids == [request.auth.uid];
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid)
+        || (isSignedIn() && resource.data.visibility == 'public'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids'])
+          && ((request.resource.data.memberUids.hasAll(resource.data.memberUids)
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size() + 1
+            && request.auth.uid in request.resource.data.memberUids)
+          || (resource.data.memberUids.hasAll(request.resource.data.memberUids)
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size() - 1
+            && !(request.auth.uid in request.resource.data.memberUids))));
+      allow delete: if false;
+    }
+
+    // পেজ — তৈরি করেন মালিক নিজে; যে কেউ ফলো/আনফলো করতে পারেন
+    // (followerUids-এ শুধু নিজের UID যোগ/বাদ)।
+    match /pages/{pageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid)
+        || (isSignedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followerUids'])
+          && ((request.resource.data.followerUids.hasAll(resource.data.followerUids)
+            && request.resource.data.followerUids.size() == resource.data.followerUids.size() + 1
+            && request.auth.uid in request.resource.data.followerUids)
+          || (resource.data.followerUids.hasAll(request.resource.data.followerUids)
+            && request.resource.data.followerUids.size() == resource.data.followerUids.size() - 1
+            && !(request.auth.uid in request.resource.data.followerUids))));
       allow delete: if false;
     }
 

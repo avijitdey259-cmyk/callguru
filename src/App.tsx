@@ -6,8 +6,8 @@ import { installAudioUnlock } from './sounds'
 import { IncomingCallHost } from './IncomingCallOverlay'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
-  ExpertProfile, Feed, FriendsPage, GroupsPage, Landing, LiveTV, LoginPage,
-  Marketplace, MenuPage, ReelsPage, ServicesPage, WalletPage
+  ExpertProfile, Feed, FriendsPage, GroupsPage, GroupDetailPage, Landing, LiveTV, LoginPage,
+  MenuPage, ReelsPage, ServicesPage, WalletPage
 } from './pages'
 
 // অ্যাডমিন নয় এমন ব্যবহারকারী /admin খুললে — কোনো অ্যাডমিন তথ্য (রেট, KYC, টপ-আপ অনুমোদন, ব্যবহারকারী তালিকা) না দেখিয়ে ব্লক করা হয়
@@ -48,7 +48,6 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/feed" element={<Feed />} />
         <Route path="/marketplace" element={<Navigate to="/services" replace />} />
-        <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/expert/:id" element={<ExpertProfile />} />
         <Route path="/create-service" element={<CreateService />} />
         <Route path="/wallet" element={<WalletPage />} />
@@ -59,6 +58,8 @@ export default function App() {
         <Route path="/live-tv" element={<LiveTV />} />
         <Route path="/services" element={<ServicesPage />} />
         <Route path="/groups" element={<GroupsPage />} />
+        <Route path="/groups/:id" element={<GroupDetailPage />} />
+        <Route path="/pages/:id" element={<GroupDetailPage />} />
         <Route path="/reels" element={<ReelsPage />} />
         <Route path="/ads" element={<AdsPage />} />
         <Route path="/admin" element={isAdmin ? <AdminPage /> : <AdminBlocked />} />
