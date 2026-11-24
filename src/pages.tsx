@@ -26,7 +26,7 @@ import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPla
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
-import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage } from './firestore'
@@ -37,7 +37,7 @@ import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
-import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, markSignupRecorded, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, wasSignupRecorded, type AnalyticsIds, type SignupMethod } from './analytics'
+import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, type AnalyticsIds, type SignupMethod } from './analytics'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -259,71 +259,25 @@ export function LoginPage() {
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  // ইমেইল লিংক: লিংক পাঠানো হয়েছে কি না
-  const [linkSent, setLinkSent] = useState(false)
-  // ইমেইল OTP: কোড পাঠানো হয়েছে কি না + কোড ইনপুট
-  const [otpSent, setOtpSent] = useState(false)
-  const [otp, setOtp] = useState('')
   // ইমেইল + পাসওয়ার্ড লগইন / অ্যাকাউন্ট তৈরি — Google 1-ক্লিক লগইনের
   // পাশাপাশি থাকে, ব্যবহারকারী নিজে বেছে নেন। SMS OTP বন্ধ (মালিকের
   // সিদ্ধান্ত ২০২৬-১১-২৪) — লগইন পেজে মোবাইল/SMS ট্যাব নেই।
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  // লিংক দিয়ে ফিরে এসে সংরক্ষিত ইমেইল না পেলে ইমেইল চাওয়া হয়
-  const [linkEmailNeeded, setLinkEmailNeeded] = useState(false)
-  const [completingLink, setCompletingLink] = useState(false)
 
-  const displayName = (mail: string) => name.trim() || mail.split('@')[0] || 'PiCall User'
   // সাইন-আপ সম্পূর্ণ হলে (প্রথমবারই শুধু — বারবার লগইনে নয়) Pixel-এ
-  // CompleteRegistration + GA4-এ sign_up যায়। OTP-তে প্রথমবার কি না তা এই
-  // ডিভাইসের রেকর্ডে দেখা হয়; Google/লিংকে Firebase-র isNewUser দেখা হয়।
-  // key = সাইন-আপ করা অ্যাকাউন্টের পরিচয় — একই সাইন-আপ দুবার ট্রিগার
-  // হলেও (ডাবল ট্যাপ/ডাবল ইফেক্ট) ইভেন্ট একবারই যায় (trackSignup-এর
+  // CompleteRegistration + GA4-এ sign_up যায়। Google-এ Firebase-র isNewUser
+  // দেখা হয়। key = সাইন-আপ করা অ্যাকাউন্টের পরিচয় — একই সাইন-আপ দুবার
+  // ট্রিগার হলেও (ডাবল ট্যাপ/ডাবল ইফেক্ট) ইভেন্ট একবারই যায় (trackSignup-এর
   // idempotency key); অন্য অ্যাকাউন্টের সাইন-আপে আলাদা key যায়।
   const noteSignup = (method: SignupMethod, key: string) => {
     initAnalytics(resolveAnalyticsIds(envAnalyticsIds(), adminSettings.analytics))
     trackSignup(method, undefined, key)
   }
-  const noteOtpSignup = (key: string, method: SignupMethod) => {
-    if (wasSignupRecorded(key)) return
-    markSignupRecorded(key)
-    noteSignup(method, key)
-  }
   // লগইন ইনপুটের একই চেহারা — আইকনসহ, গোল কোণা, ফোকাসে Pi purple রিং (দুই থিমেই)
   const inputCls = 'w-full border border-gray-200 dark:border-slate-600 rounded-xl px-3 py-2.5 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500'
   const inputIconCls = 'w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none'
-
-  // ইমেইল লিংকে ট্যাপ করে ফিরে এলে লগইন সম্পূর্ণ করা হয় (যাচাই ছাড়া কেউ ঢুকতে পারে না)
-  useEffect(() => {
-    if (!isEmailLinkSignIn()) return
-    let stored: string | null = null
-    try { stored = localStorage.getItem('callguru:emailForSignIn') } catch { stored = null }
-    if (stored) {
-      setCompletingLink(true)
-      completeEmailLink(stored).then(u => {
-        if (u) { if (u.isNewUser) noteSignup('email_link', 'email_link:' + u.email.toLowerCase()); login(u.name, u.email); navigate('/feed'); return }
-        setMsg('The link has expired or is wrong — send the link again.')
-      }).catch(() => setMsg('The link has expired or is wrong — send the link again.'))
-        .finally(() => setCompletingLink(false))
-    } else {
-      setLinkEmailNeeded(true)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const finishLinkWithEmail = async () => {
-    const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
-    setBusy(true); setMsg('')
-    try {
-      const u = await completeEmailLink(mail)
-      if (u) { if (u.isNewUser) noteSignup('email_link', 'email_link:' + u.email.toLowerCase()); login(displayName(u.email), u.email); navigate('/feed'); return }
-      setMsg('The link has expired or is wrong — send the link again.')
-    } catch {
-      setMsg('The link has expired or is wrong — send the link again.')
-    } finally { setBusy(false) }
-  }
 
   const googleLogin = async () => {
     // আসল Google Sign-In — Firebase সেটআপ না থাকলে ভুল বার্তা, ডেমো লগইন কখনো নয়
@@ -342,64 +296,6 @@ export function LoginPage() {
     } finally {
       setBusy(false)
     }
-  }
-
-  const sendLink = async () => {
-    const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
-    if (!isFirebaseConfigured) {
-      setMsg('Email link login is not set up — contact the admin.')
-      return
-    }
-    setBusy(true); setMsg('')
-    try {
-      await sendEmailLink(mail)
-      setLinkSent(true)
-      setMsg('Check your email — tap the link to log in.')
-    } catch {
-      setMsg('Could not send the link — check the email and try again.')
-    } finally { setBusy(false) }
-  }
-
-  const sendOtp = async () => {
-    const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
-    setBusy(true); setMsg('')
-    const r = await sendEmailOtp(mail)
-    setBusy(false)
-    if (!r || !r.ok) {
-      if (r && r.error === 'not_configured') {
-        setMsg('Email OTP is not on yet — the admin is setting it up.')
-      } else if (r && r.error === 'rate_limited') {
-        setMsg('Too many attempts — please try again in a little while.')
-      } else if (r && r.error === 'invalid_email') {
-        setMsg('Enter a valid email.')
-      } else {
-        setMsg('Email OTP is not on yet — the admin is setting it up.')
-      }
-      return
-    }
-    setOtpSent(true)
-    setMsg('A 6-digit code has been sent to your email — valid for 10 minutes.')
-  }
-
-  const verifyOtp = async () => {
-    const code = otp.trim()
-    if (!/^\d{6}$/.test(code)) { setMsg('Enter the 6-digit code.'); return }
-    const mail = email.trim().toLowerCase()
-    setBusy(true); setMsg('')
-    const r = await verifyEmailOtp(mail, code)
-    setBusy(false)
-    if (r && r.ok) {
-      noteOtpSignup(`email:${mail}`, 'email_otp')
-      login(displayName(mail), mail)
-      navigate('/feed')
-      return
-    }
-    if (r && r.error === 'expired') setMsg('The code has expired — send OTP again.')
-    else if (r && r.error === 'too_many_attempts') setMsg('Wrong code entered many times — send OTP again.')
-    else if (r && r.error === 'not_configured') setMsg('Email OTP is not on yet — the admin is setting it up.')
-    else setMsg('The code is wrong — check and enter it again.')
   }
 
   // পাসওয়ার্ড লগইনের ভুল কোড -> পরিষ্কার বার্তা (Firebase-র কোড কখনো সরাসরি দেখানো হয় না)।
@@ -496,54 +392,9 @@ export function LoginPage() {
         </div>
         <Card className="mt-5 !p-5 sm:!p-6 !shadow-md">
           <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Gmail 1-Click Login • Email + Password • Email Link • Email OTP</p>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Email + Password • Gmail 1-Click Login</p>
           <p className="text-xs text-center text-gray-400 mt-1">Email sign up only, mobile sign up is off for now.</p>
-          <p className="text-sm font-semibold text-center mt-4">1-Click Login with Gmail</p>
-          <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-xl border border-gray-200 dark:border-slate-600 font-semibold flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-100 disabled:opacity-60 shadow-sm transition">
-            <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
-            {busy ? 'Logging in…' : 'Continue with Google'}
-          </button>
-          <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
-          <div className="my-5 border-t border-gray-100 dark:border-white/10" />
-        {completingLink && <p className="text-sm text-center text-gray-600 dark:text-gray-300">Verifying link…</p>}
-        {linkEmailNeeded && (
-          <div className="mb-4 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
-            <p className="text-sm text-center mb-2">Enter your email to complete login — it must be the email the link was sent to.</p>
-            <div className="relative">
-              <IconMail className={inputIconCls} />
-              <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
-            </div>
-            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={finishLinkWithEmail}>Complete Login</Btn>
-          </div>
-        )}
-        <label className="text-sm font-medium">Name <span className="text-gray-400 font-normal">(will be shown after verification)</span></label>
-        <div className="relative mt-1">
-          <IconUser className={inputIconCls} />
-          <input className={inputCls + ' pl-10'} value={name} onChange={e => setName(e.target.value)} placeholder="Your Name" />
-        </div>
-        <label className="text-sm font-medium mt-3 block">Email</label>
-        <div className="relative mt-1">
-          <IconMail className={inputIconCls} />
-          <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
-        </div>
-        <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={sendLink}>Send Login Link by Email</Btn>
-        {linkSent && <p className="text-sm text-center mt-2 text-green-700 dark:text-green-400">Check your email — tap the link to log in.</p>}
-        <div className="my-5 border-t border-gray-100 dark:border-white/10" />
-        <p className="text-sm font-semibold text-center flex items-center justify-center gap-2"><IconMail className="w-4 h-4 text-violet-500" />Or log in with email OTP</p>
-        <Btn variant="ghost" className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={sendOtp}>{otpSent ? 'Send OTP again' : 'Send OTP'}</Btn>
-        {otpSent && (
-          <div className="mt-3 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
-            <label className="text-sm font-medium">6-digit code</label>
-            <div className="relative mt-1">
-              <IconLock className={inputIconCls} />
-              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
-            </div>
-            <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
-            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={verifyOtp}>Verify the code to log in</Btn>
-          </div>
-        )}
-        <div className="my-5 border-t border-gray-100 dark:border-white/10" />
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 dark:bg-slate-800 p-1" role="tablist" aria-label="Log in or create account">
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 dark:bg-slate-800 p-1 mt-4" role="tablist" aria-label="Log in or create account">
           <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'login' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Log in</button>
           <button type="button" role="tab" aria-selected={authMode === 'signup'} onClick={() => { setAuthMode('signup'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'signup' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Create account</button>
         </div>
@@ -592,6 +443,13 @@ export function LoginPage() {
             <p className="text-xs text-center text-gray-400 mt-2">Your account is created right away — no code needed.</p>
           </>
         )}
+        <div className="my-5 border-t border-gray-100 dark:border-white/10" />
+        <p className="text-sm font-semibold text-center">1-Click Login with Gmail</p>
+        <button disabled={busy} onClick={googleLogin} className="w-full mt-3 py-3 rounded-xl border border-gray-200 dark:border-slate-600 font-semibold flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-100 disabled:opacity-60 shadow-sm transition">
+          <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
+          {busy ? 'Logging in…' : 'Continue with Google'}
+        </button>
+        <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
         {msg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy. Only the admin can view call recordings (for appeals/disputes, stored 30 days).</p>
         </Card>

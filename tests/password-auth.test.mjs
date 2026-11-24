@@ -101,13 +101,14 @@ await check('SMS / mobile tab is ABSENT from the login page', () => {
   }
 })
 
-await check('Google 1-click login stays, equally visible, and email flows are untouched', () => {
+await check('Google 1-click login stays at the bottom; Email Link + Email OTP are gone from the login page', () => {
   assert.ok(login.includes('1-Click Login with Gmail'), 'Gmail লগইন নেই')
   assert.ok(login.includes('googleLogin') && login.includes('signInWithGoogle'), 'Google হ্যান্ডলার নেই')
-  for (const s of ['sendLink', 'sendOtp', 'verifyOtp', 'finishLinkWithEmail', 'completeEmailLink', 'sendEmailLink', 'sendEmailOtp', 'verifyEmailOtp', 'Send Login Link by Email', 'Or log in with email OTP']) {
-    assert.ok(login.includes(s), `${s} নেই — ইমেইল লগইন ভেঙেছে`)
+  // মালিকের সিদ্ধান্ত ২০২৬-১১-২৪: Email Link ও Email OTP লগইন পেজ থেকে গেছে
+  for (const s of ['sendLink', 'finishLinkWithEmail', 'completeEmailLink', 'sendEmailLink', 'sendOtp', 'verifyOtp', 'sendEmailOtp', 'verifyEmailOtp', 'Send Login Link by Email', 'Or log in with email OTP']) {
+    assert.ok(!login.includes(s), `${s} এখনো আছে — লগইন পেজ থেকে সরানোর কথা`)
   }
-  assert.ok(login.includes('Gmail 1-Click Login • Email + Password • Email Link • Email OTP'), 'সাবটাইটেলে Email + Password নেই')
+  assert.ok(login.includes('Email + Password • Gmail 1-Click Login'), 'সাবটাইটেল নতুন ক্রমে নেই')
 })
 
 await check('Profile Settings: recovery-mobile SMS verification is ABSENT, number field stays as plain storage', () => {

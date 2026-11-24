@@ -229,16 +229,19 @@ check('toPublicConfig without analytics arg: defaults to empty (old callers safe
 })
 
 // ---------- ওয়্যারিং (সোর্স-টেক্সট) ----------
-check('LoginPage: all signup paths report first signup (google/link/OTP/password)', () => {
-  for (const call of ["noteSignup('google', 'google:' + u.email.toLowerCase())", "noteSignup('email_link', 'email_link:' + u.email.toLowerCase())", "noteOtpSignup(`email:${mail}`, 'email_otp')", "noteSignup('password', 'password:' + u.email.toLowerCase())"]) {
+check('LoginPage: all signup paths report first signup (google/password)', () => {
+  for (const call of ["noteSignup('google', 'google:' + u.email.toLowerCase())", "noteSignup('password', 'password:' + u.email.toLowerCase())"]) {
     assert.ok(pages.includes(call), `missing ${call}`)
   }
-  assert.equal((pages.match(/noteSignup\('email_link', 'email_link:' \+ u\.email\.toLowerCase\(\)\)/g) || []).length, 2)
-  // রিপিট লগইনে ইভেন্ট নয় — শুধু প্রথম সাইন-আপে
+  // মালিকের সিদ্ধান্ত ২০২৬-১১-২৪: Email Link ও Email OTP লগইন পেজ থেকে গেছে,
+  // তাই এই পেজে আর email_link/email_otp সাইন-আপ রিপোর্ট নেই (analytics
+  // মডিউলে মেথডগুলো আছে; firebase-র লিংক হেল্পারও আছে)।
+  assert.ok(!pages.includes("noteSignup('email_link'"), 'email_link সাইন-আপ এখনো লগইন পেজে আছে')
+  assert.ok(!pages.includes("noteOtpSignup(`email:${mail}`, 'email_otp')"), 'email_otp সাইন-আপ এখনো লগইন পেজে আছে')
+  // রিপিট লগইনে ইভেন্ট নয় — শুধু প্রথম সাইন-আপে (isNewUser দেখে)
   assert.ok(pages.includes('if (u.isNewUser) noteSignup'))
-  assert.ok(pages.includes('if (wasSignupRecorded(key)) return'))
-  // ডাবল ট্রিগারেও একবারই — প্রতিটি সাইন-আপে অ্যাকাউন্ট-পরিচয়ের key যায়
-  assert.ok(pages.includes('noteSignup(method, key)'))
+  // ডাবল ট্রিগারেও একবারই — key দিয়ে idempotency analytics মডিউলেই থাকে
+  // (fireSignupOnce/firedSignupKeys, analytics-doublefire.test.mjs দেখে)
   assert.ok(pages.includes('trackSignup(method, undefined, key)'))
 })
 

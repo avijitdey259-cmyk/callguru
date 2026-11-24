@@ -122,13 +122,14 @@ check('two different methods, different accounts: both fire', () => {
 })
 
 check('LoginPage: every signup path passes an account-identity key', () => {
-  assert.ok(pages.includes("noteSignup('email_link', 'email_link:' + u.email.toLowerCase())"))
-  assert.equal((pages.match(/noteSignup\('email_link', 'email_link:' \+ u\.email\.toLowerCase\(\)\)/g) || []).length, 2)
+  // মালিকের সিদ্ধান্ত ২০২৬-১১-২৪: Email Link ও Email OTP লগইন পেজ থেকে গেছে —
+  // এই পেজে শুধু google + password সাইন-আপ রিপোর্ট থাকে।
+  assert.ok(!pages.includes("noteSignup('email_link'"), 'email_link সাইন-আপ এখনো লগইন পেজে আছে')
   assert.ok(pages.includes("noteSignup('google', 'google:' + u.email.toLowerCase())"))
-  // OTP paths reuse the recorded key (email:/phone:) as the idempotency key.
-  assert.ok(pages.includes('noteSignup(method, key)'))
-  assert.ok(pages.includes("noteOtpSignup(`email:${mail}`, 'email_otp')"))
-  assert.ok(pages.includes("noteOtpSignup(`phone:${ph}`, 'sms_otp')"))
+  // idempotency key এখন noteSignup-এর ভেতরেই trackSignup-এ যায়
+  assert.ok(pages.includes('trackSignup(method, undefined, key)'))
+  assert.ok(!pages.includes("noteOtpSignup(`email:${mail}`, 'email_otp')"), 'email_otp সাইন-আপ এখনো লগইন পেজে আছে')
+  assert.ok(pages.includes("noteSignup('password', 'password:' + u.email.toLowerCase())"))
   assert.ok(analyticsSrc.includes('firedSignupKeys'))
   assert.ok(analyticsSrc.includes('fireSignupOnce'))
 })
