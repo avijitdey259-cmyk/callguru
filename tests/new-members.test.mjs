@@ -129,7 +129,7 @@ check('হোমে "নতুন সদস্য" সেকশন: সার্
   const searchEnd = feed.indexOf('No posts found.')
   const banner = feed.indexOf('<RefWelcomeBanner />')
   const section = feed.indexOf('<NewMembersSection />')
-  const h = pagesSrc.indexOf('🆕 New Members')
+  const h = pagesSrc.indexOf('> New Members</h2>')
   assert.ok(feedStart > 0 && h > 0 && searchEnd > 0 && banner > 0 && section > 0)
   assert.ok(searchEnd < section && section < banner, 'সেকশনের জায়গা ঠিক নেই')
   assert.ok(pagesSrc.includes('Nobody new has joined yet — invite your friend!'))

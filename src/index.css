@@ -14,9 +14,9 @@ body { font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Bengali', s
 /* ---------- Style 6 · Pinterest Blend ---------- */
 /* Instagram-style conic gradient ring for story avatars */
 .story-ring { background: conic-gradient(from 210deg, #FEDA75, #FA7E1E, #D62976, #962FBF, #4F5BD5); }
-/* Primary violet → pink gradient (buttons, active nav pill, logo) */
-.pb-gradient { background-image: linear-gradient(135deg, #7C3AED, #EC4899); }
-.pb-gradient-text { background-image: linear-gradient(135deg, #7C3AED, #EC4899); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Primary Pi purple → gold gradient (buttons, active nav pill, logo) — UI refresh */
+.pb-gradient { background-image: linear-gradient(135deg, #7C3AED, #F59E0B); }
+.pb-gradient-text { background-image: linear-gradient(135deg, #7C3AED, #F59E0B); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* "It's a Match!" panel — pink → red */
 .pb-match { background-image: linear-gradient(135deg, #EC4899, #EF4444); }
 /* Floating glass controls over video */

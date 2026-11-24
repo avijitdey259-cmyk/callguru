@@ -117,8 +117,8 @@ check('pages.tsx: Pi chain is Mainnet-only (owner: no Testnet, no BNB)', () => {
 })
 
 check('pages.tsx: Pi Wallet card comes before Top Up; only one Pi total on Wallet', () => {
-  assert.ok(pages.indexOf('π Pi Wallet') !== -1, 'π Pi Wallet কার্ড নেই')
-  assert.ok(pages.indexOf('π Pi Wallet') < pages.indexOf('💰 Top Up'), 'Pi Wallet উপরে নেই — Top Up আগে আছে')
+  assert.ok(pages.indexOf('Pi Wallet</h2>') !== -1, 'Pi Wallet কার্ড নেই')
+  assert.ok(pages.indexOf('Pi Wallet</h2>') < pages.indexOf('Top Up</h2>'), 'Pi Wallet উপরে নেই — Top Up আগে আছে')
   assert.ok(!pages.includes('Total Pi: <b>'), 'Pi Wallet-এ "Total Pi:" এখনো আছে')
   assert.ok(!pages.includes('Current Pi Balance: <b className="text-purple-600">'), 'Pi Report-এ "Current Pi Balance:" এখনো আছে')
 })

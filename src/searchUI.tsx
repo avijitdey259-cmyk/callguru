@@ -10,6 +10,7 @@ import { buildSearchablePeople, mergeAllUsers, searchPeople, searchPosts, sugges
 import { fetchAllPublicProfiles } from './firestore'
 import { FRIEND_SUGGESTIONS } from './data'
 import { BUDDIES } from './buddies'
+import { IconFriends, IconSearch } from './icons'
 import type { NewMember } from './newMembers'
 
 // টাইপ করা মান ~২৫০ মিলিসেকেন্ড পরে ধরা হয় (debounce) — প্রতি অক্ষরে খোঁজা চলে না।
@@ -67,7 +68,7 @@ export function SearchSuggestions({ suggestions, onPick }: { suggestions: Search
 // সার্চ বাক্স নেই। টাইপ করলে ড্রপডাউনে মেলা নাম/পোস্ট আসে (সর্বোচ্চ ৮টি:
 // বন্ধু ৫ + পোস্ট ৩); বন্ধুর সাজেশনে ট্যাপ করলে ফিডে তার ফল দেখায়, পোস্টের
 // সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যায়। মোবাইলেও একই বাক্স, একই আচরণ
-// (লোগোর পাশের 🔍 বোতামে বাক্সটা খোলে)।
+// (লোগোর পাশের সার্চ বোতামে বাক্সটা খোলে)।
 export function HeaderSearch() {
   const { friends, feedQuery, setFeedQuery, posts } = useStore()
   const { suggestions } = useAllUserSearch(friends, feedQuery)
@@ -97,7 +98,7 @@ export function HeaderSearch() {
   return (
     <div className="relative w-full">
       {showSugg && <div className="fixed inset-0 z-40" onClick={() => setShowSugg(false)} />}
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 z-50 text-gray-400 pointer-events-none">🔍</span>
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 z-50 text-gray-400 pointer-events-none flex"><IconSearch className="w-4 h-4" /></span>
       <input
         className="relative z-50 w-full bg-gray-100 dark:bg-slate-700 rounded-full pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-fb-blue"
         value={feedQuery}
@@ -111,21 +112,21 @@ export function HeaderSearch() {
       />
       {hasSugg && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
-          {peopleSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">👥 Friends</p>}
+          {peopleSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400 flex items-center gap-1.5"><IconFriends className="w-3.5 h-3.5" /> Friends</p>}
           {peopleSuggestions.map(p => (
             <button key={p.id} onClick={() => pickPerson(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
               <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
               <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
             </button>
           ))}
-          {postSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">📝 Post</p>}
+          {postSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400">Post</p>}
           {postSuggestions.map(p => (
             <button key={p.id} onClick={() => pickPost(p)} className="block w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
               <span className="font-medium text-sm block truncate">{p.author}</span>
               <span className="block text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{p.text}</span>
             </button>
           ))}
-          <button onClick={submit} className="block w-full text-left px-3 py-2 text-sm font-medium text-fb-blue border-t dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700">🔍 “{feedQuery.trim()}” — See all results</button>
+          <button onClick={submit} className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm font-medium text-fb-blue border-t dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700"><IconSearch className="w-4 h-4 shrink-0" /> “{feedQuery.trim()}” — See all results</button>
         </div>
       )}
       {showEmpty && (

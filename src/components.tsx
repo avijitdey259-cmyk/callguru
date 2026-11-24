@@ -3,22 +3,23 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useStore } from './store'
 import { HeaderSearch } from './searchUI'
 import { formatPi } from './data'
+import { IconBell, IconCall, IconChat, IconDating, IconDownload, IconFriends, IconHome, IconLiveTV, IconMegaphone, IconMoon, IconReels, IconSettings, IconShield, IconStore, IconSun, IconUser, IconWallet } from './icons'
 
 // হেডারের মাঝের নেভ — মোবাইলেও একই, কম্পিউটারেও একই (শুধু জায়গা বদলায়:
-// কম্পিউটারে হেডারের মাঝে, মোবাইলে হেডারের নিচের ট্যাব সারিতে)। Facebook-এর
-// মতো আইকন + নাম, সক্রিয় ট্যাবে নীল রং + নিচে নীল দাগ।
+// কম্পিউটারে হেডারের মাঝে, মোবাইলে নিচের BottomNav-এ)। Facebook-এর
+// মতো আইকন + নাম, সক্রিয় ট্যাবে Pi purple→gold গ্রেডিয়েন্ট।
 const CENTER_NAV = [
-  { to: '/feed', label: 'Home', icon: '🏠' },
-  { to: '/friends', label: 'Friends', icon: '👥' },
-  { to: '/reels', label: 'Video', icon: '▶️' },
-  { to: '/dating', label: 'Dating', icon: '❤️' },
-  { to: '/live-tv', label: 'Live TV', icon: '📺' },
+  { to: '/feed', label: 'Home', icon: IconHome },
+  { to: '/friends', label: 'Friends', icon: IconFriends },
+  { to: '/reels', label: 'Video', icon: IconReels },
+  { to: '/dating', label: 'Dating', icon: IconDating },
+  { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
 ]
 
 export function TopBar() {
-  const { user, totalPi, dark, toggleDark } = useStore()
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const { user, totalPi, dark, toggleDark, requests } = useStore()
   const navigate = useNavigate()
+  const pendingCount = requests.length
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-fb-card shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center gap-2 px-3 h-[52px]">
@@ -27,57 +28,65 @@ export function TopBar() {
         <div className="hidden md:block w-60 shrink-0"><HeaderSearch /></div>
         <div className="hidden md:flex flex-1 justify-center gap-1">
           {CENTER_NAV.map(n => (
-            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}>{n.icon} {n.label}</NavLink>
+            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}><n.icon className="w-5 h-5" /> {n.label}</NavLink>
           ))}
         </div>
         <div className="flex-1 md:hidden" />
         <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">π {formatPi(totalPi)}</button>
-        <button onClick={() => setMobileSearchOpen(o => !o)} className="md:hidden w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Search">🔍</button>
-        <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? '☀️' : '🌙'}</button>
-        <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger">💬</button>
+        {/* নোটিফিকেশন ঘণ্টা — ঝুলে থাকা বন্ধু-অনুরোধের সংখ্যা সোনালি ব্যাজে, ট্যাপে Friends পাতা */}
+        <button onClick={() => navigate('/friends')} className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Notifications">
+          <IconBell className="w-5 h-5" />
+          {pendingCount > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}
+        </button>
+        <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
+        <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" /></button>
         <InstallButton compact />
-        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : '👤'}</button>
+        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />}</button>
       </div>
-      {/* মোবাইলে 🔍 চাপলে লোগোর নিচে পুরো চওড়া সার্চ বাক্স খোলে — একই HeaderSearch, একই আচরণ */}
-      {mobileSearchOpen && (
-        <div className="md:hidden px-3 pb-2"><HeaderSearch /></div>
-      )}
-      {/* মোবাইলে হেডারের নিচে ট্যাব সারি — কম্পিউটারের মাঝের নেভের একই ৫টি গন্তব্য */}
-      <div className="md:hidden border-t border-gray-100 dark:border-slate-700">
-        <div className="flex justify-around">
-          {CENTER_NAV.map(n => (
-            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-col items-center py-1.5 px-3 text-[11px] font-medium rounded-full ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}>
-              <span className="text-xl leading-none">{n.icon}</span>{n.label}
-            </NavLink>
-          ))}
-        </div>
-      </div>
+      {/* মোবাইলে হেডারের নিচে সবসময় পুরো চওড়া সার্চ সারি — একই HeaderSearch, একই আচরণ */}
+      <div className="md:hidden px-3 pb-2"><HeaderSearch /></div>
     </header>
+  )
+}
+
+// মোবাইলে নিচের নেভ — হেডারের মাঝের নেভের একই ৫টি গন্তব্য, সক্রিয়টায়
+// Pi purple→gold গ্রেডিয়েন্ট পিল। কম্পিউটারে দেখায় না।
+export function BottomNav() {
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-fb-card border-t border-gray-100 dark:border-slate-700 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+      <div className="flex justify-around px-2 py-1.5">
+        {CENTER_NAV.map(n => (
+          <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-col items-center gap-0.5 py-1.5 px-3 text-[11px] font-medium rounded-full ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}>
+            <n.icon className="w-5 h-5" />{n.label}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
   )
 }
 
 export function Sidebar() {
   const { user, isAdmin } = useStore()
   const links = [
-    { to: '/feed', label: '📰 Feed' }, { to: '/friends', label: '👥 Friends' },
-    { to: '/dating', label: '❤️ Dating 18+' }, { to: '/live-tv', label: '📺 Live TV' },
-    { to: '/wallet', label: '💰 Wallet' },
-    { to: '/services', label: '🏠 Home Service' }, { to: '/groups', label: '👥 Groups & Pages' },
-    { to: '/reels', label: '🎬 Reels' }, { to: '/ads', label: '📢 Place an Ad' },
-    { to: '/call-history', label: '📞 Call History' },
-    { to: '/menu', label: '⚙️ Settings' },
+    { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
+    { to: '/dating', label: 'Dating 18+', icon: IconDating }, { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
+    { to: '/wallet', label: 'Wallet', icon: IconWallet },
+    { to: '/services', label: 'Home Service', icon: IconStore }, { to: '/groups', label: 'Groups & Pages', icon: IconFriends },
+    { to: '/reels', label: 'Reels', icon: IconReels }, { to: '/ads', label: 'Place an Ad', icon: IconMegaphone },
+    { to: '/call-history', label: 'Call History', icon: IconCall },
+    { to: '/menu', label: 'Settings', icon: IconSettings },
     // অ্যাডমিন লিংক শুধু অ্যাডমিনের সাইডবারে দেখায় — সাধারণ ব্যবহারকারী কোথাও অ্যাডমিন লিংক দেখেন না
-    ...(isAdmin ? [{ to: '/admin', label: '🛡️ Admin' }] : [])
+    ...(isAdmin ? [{ to: '/admin', label: 'Admin', icon: IconShield }] : [])
   ]
   return (
     <aside className="hidden md:block w-60 shrink-0">
       <div className="sticky top-[64px] space-y-1 p-2">
         <Link to="/menu" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-fb-card font-medium">
-          <span className="w-9 h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>
+          <span className="w-9 h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />}</span>
           {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
-          <NavLink key={l.to} to={l.to} className={({ isActive }) => `block px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}>{l.label}</NavLink>
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}><l.icon className="w-5 h-5 shrink-0" />{l.label}</NavLink>
         ))}
         <div className="mt-4 p-3 bg-violet-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
           <b className="text-fb-blue">First call's first 1 minute free</b><br />Only for the first user / first friend. Not 2 minutes free.
@@ -123,7 +132,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-fb-bg dark:bg-fb-dark text-gray-900 dark:text-gray-100">
       <TopBar />
-      <div className="max-w-6xl mx-auto flex gap-4 px-0 sm:px-3 pb-8">
+      <div className="max-w-6xl mx-auto flex gap-4 px-0 sm:px-3 pb-20 md:pb-8">
         <Sidebar />
         <main className="flex-1 min-w-0 py-3 px-3 sm:px-0"><Outlet /></main>
         <aside className="hidden lg:block w-72 shrink-0">
@@ -133,6 +142,7 @@ export function Layout() {
           </div>
         </aside>
       </div>
+      <BottomNav />
     </div>
   )
 }
@@ -168,14 +178,14 @@ export function InstallButton({ compact = false, showOffer = true }: { compact?:
   }
   return (
     <span className={compact ? '' : 'block'}>
-      <button onClick={install} title="Install App" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm pb-gradient text-white shadow-sm'}>
-        📲 {compact ? '' : 'Install App'}
+      <button onClick={install} title="Install App" className={compact ? 'w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0' : 'w-full px-4 py-2.5 rounded-lg font-medium text-sm pb-gradient text-white shadow-sm flex items-center justify-center gap-2'}>
+        <IconDownload className="w-5 h-5 shrink-0" /> {compact ? '' : 'Install App'}
       </button>
-      {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90">📲 Install the app for a 5 π bonus — gifts only.</p>}
+      {!compact && showOffer && !installBonusClaimed && <p className="text-xs mt-1 opacity-90 flex items-center gap-1"><IconDownload className="w-3.5 h-3.5 shrink-0" /> Install the app for a 5 π bonus — gifts only.</p>}
       {msg && <p className="text-xs text-green-600 mt-1">{msg}</p>}
       {showHelp && (
         <div className="mt-2 text-left bg-violet-50 dark:bg-slate-800 rounded-xl p-3 text-xs space-y-1">
-          <p className="font-bold">📲 How to Install the PiCall App on Your Phone</p>
+          <p className="font-bold flex items-center gap-1.5"><IconDownload className="w-4 h-4 shrink-0" /> How to Install the PiCall App on Your Phone</p>
           <p><b>Android (Chrome):</b> Tap the browser ⋮ menu → “Install app” / “Add to Home screen”.</p>
           <p><b>iPhone (Safari):</b> Tap the Share ⬆️ button below → “Add to Home Screen”.</p>
           <p className="text-gray-500">After installing, the PiCall icon will appear on your home screen and open like an app.</p>

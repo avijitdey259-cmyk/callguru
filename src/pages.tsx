@@ -10,6 +10,7 @@ import { sendCallInvite, onInviteResponse } from './presence'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
+import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconPhoto, IconPlus, IconReels, IconSearch, IconSettings, IconShare, IconShield, IconSparkle, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
@@ -214,7 +215,7 @@ export function Landing() {
         {[
           { t: '🎓 Expert Call', d: 'Doctors, lawyers, teachers — pay per minute. Top up first, call after.' },
           { t: '💬 Free Chat', d: 'Friends, experts, dating — all chats are completely free. Sharing numbers/links is blocked.' },
-          { t: '📺 Live TV', d: 'Popular channels of the country — free with ads. Official streams only.' }
+          { t: '📺 Live TV', d: 'Popular channels of the country. Official streams only.' }
         ].map(f => <Card key={f.t}><h3 className="font-bold">{f.t}</h3><p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{f.d}</p></Card>)}
       </div>
       <Card>
@@ -499,7 +500,7 @@ function NewMembersSection() {
   }
   return (
     <Card>
-      <h2 className="font-bold">🆕 New Members</h2>
+      <h2 className="font-bold flex items-center gap-2"><IconSparkle className="w-5 h-5 text-pi-gold" /> New Members</h2>
       {!loaded && <p className="text-sm text-gray-400 mt-1">Searching…</p>}
       {loaded && members.length === 0 && (
         <>
@@ -627,7 +628,7 @@ export function Feed() {
       {installBonusClaimed ? (
         <p className="text-sm text-green-600">✅ Install bonus received — 5 π gift Pi added</p>
       ) : (
-        <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #7C3AED, #EC4899)' }}>
+        <div className="rounded-xl p-4 text-white shadow-sm pb-gradient">
           <p className="text-lg font-extrabold">🎁 Install the app and get 5 π free!</p>
           <p className="text-sm mt-1">Install and get a 5 π bonus — gifts only.</p>
           <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
@@ -635,7 +636,7 @@ export function Feed() {
       )}
       <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #0F2027, #203A43, #2C5364)' }}>
         <div className="flex items-center gap-3">
-          <span className="text-3xl">📺</span>
+          <span className="text-white flex shrink-0"><IconLiveTV className="w-8 h-8" /></span>
           <div className="flex-1">
             <p className="text-lg font-extrabold">Live TV — Free!</p>
             <p className="text-sm mt-0.5 text-white/85">Jamuna, Ekattor, NTV, Channel 24, Zee Bangla, Star Jalsha — watch free, no payment.</p>
@@ -643,14 +644,14 @@ export function Feed() {
         </div>
         <div className="flex gap-2 mt-3 flex-wrap">
           <button onClick={() => navigate('/live-tv')} className="px-4 py-2 rounded-full bg-white text-slate-900 font-bold text-sm">▶ Watch Now</button>
-          <button onClick={async () => { const r = await shareLink('PiCall Live TV', 'Watch free Live TV on PiCall — Jamuna, Ekattor, NTV, Zee Bangla, Star Jalsha and more!', INVITE_BASE_URL); setTvShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-4 py-2 rounded-full bg-white/20 text-white font-medium text-sm">↗ Share TV</button>
+          <button onClick={async () => { const r = await shareLink('PiCall Live TV', 'Watch free Live TV on PiCall — Jamuna, Ekattor, NTV, Zee Bangla, Star Jalsha and more!', INVITE_BASE_URL); setTvShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-4 py-2 rounded-full bg-white/20 text-white font-medium text-sm flex items-center gap-1.5"><IconShare className="w-4 h-4" /> Share TV</button>
         </div>
         {tvShareMsg && <p className="text-sm text-green-200 mt-2">{tvShareMsg}</p>}
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
           <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
-            <span className="w-full h-full rounded-full bg-white dark:bg-fb-card flex items-center justify-center text-2xl relative">➕<span className="absolute bottom-0 right-0 w-5 h-5 rounded-full pb-gradient text-white flex items-center justify-center text-sm border-2 border-white dark:border-fb-card">+</span></span>
+            <span className="w-full h-full rounded-full bg-white dark:bg-fb-card flex items-center justify-center text-2xl relative"><IconPlus className="w-6 h-6 text-gray-400" /><span className="absolute bottom-0 right-0 w-5 h-5 rounded-full pb-gradient text-white flex items-center justify-center text-sm border-2 border-white dark:border-fb-card">+</span></span>
           </span>
           <span className="text-[11px] font-medium text-center leading-tight">Your Story</span>
         </button>
@@ -699,9 +700,9 @@ export function Feed() {
               <button onClick={() => setComposerVideoUrl(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
             </div>}
             <div className="flex gap-2 mt-2 flex-wrap">
-              <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">📷 Photo</button>
-              <button onClick={() => videoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">🎥 Video (max 50 MB)</button>
-              <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700">🖼️ Set profile photo</button>
+              <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconPhoto className="w-4 h-4" /> Photo</button>
+              <button onClick={() => videoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconVideo className="w-4 h-4" /> Video (max 50 MB)</button>
+              <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconImage className="w-4 h-4" /> Set profile photo</button>
             </div>
             <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerPhoto} />
             <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={onComposerVideo} />
@@ -739,20 +740,20 @@ export function Feed() {
       </Card>
       {searching && (
         <Card>
-          <h2 className="font-bold">👥 Friends ({results.length} people)</h2>
+          <h2 className="font-bold flex items-center gap-2"><IconFriends className="w-5 h-5" /> Friends ({results.length} people)</h2>
           {results.length === 0 && <p className="text-sm text-gray-500 mt-1">Nobody found — check whether the name or ID is correct.</p>}
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
-                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 Chat</Btn>
+                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
                 : sent[p.id]
                   ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
                   : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true }) }}>Add Friend</Btn>}
             </div>
           ))}
-          <h2 className="font-bold mt-4">📝 Posts ({postResults.length})</h2>
+          <h2 className="font-bold mt-4">Posts ({postResults.length})</h2>
           {postResults.length === 0 && <p className="text-sm text-gray-500 mt-1">No posts found.</p>}
           {postResults.map(p => (
             <button key={p.id} onClick={() => jumpToPost(p.id)} className="block w-full text-left py-2">
@@ -768,7 +769,7 @@ export function Feed() {
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
           {REELS.map(r => (
             <div key={r.id} onClick={() => navigate('/reels')} className="shrink-0 w-36 rounded-xl bg-slate-900 text-white p-3 cursor-pointer">
-              <div className="text-2xl">🎬</div><p className="text-sm font-medium mt-2">{r.title}</p><p className="text-xs opacity-70">{r.views} Views • {r.creator}</p>
+              <div className="text-white"><IconReels className="w-6 h-6" /></div><p className="text-sm font-medium mt-2">{r.title}</p><p className="text-xs opacity-70">{r.views} Views • {r.creator}</p>
             </div>
           ))}
         </div>
@@ -795,8 +796,8 @@ export function Feed() {
           {p.videoUrl && <video src={p.videoUrl} controls playsInline className="rounded-xl mt-3 w-full max-h-96 bg-black" />}
           <div className="flex mt-3 pt-1 border-t text-sm text-gray-500 dark:text-gray-300">
             <button className={`flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium ${liked[p.id] ? 'text-pink-600 font-bold' : ''}`} onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} Likes ({p.likes + (liked[p.id] ? 1 : 0)})</button>
-            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium">💬 Comments ({p.comments})</button>
-            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium" onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}>↗️ Share ({p.shares})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5"><IconChat className="w-4 h-4" /> Comments ({p.comments})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5" onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}><IconShare className="w-4 h-4" /> Share ({p.shares})</button>
           </div>
           <div className="flex gap-2 mt-3">
             <input className="flex-1 border rounded-full px-3 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-600" placeholder="Write a comment…" value={commentDraft[p.id] || ''} onChange={e => setCommentDraft(d => ({ ...d, [p.id]: e.target.value }))} />
@@ -1470,7 +1471,7 @@ export function CallHistory() {
   const { calls } = useStore()
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
-      <h1 className="text-xl font-bold">📞 Call History</h1>
+      <h1 className="text-xl font-bold flex items-center gap-2"><IconCall className="w-6 h-6" /> Call History</h1>
       {calls.length === 0 && <Card><p className="text-sm text-gray-500">No call yet. The first call's first 1 minute is free!</p></Card>}
       {calls.map(c => (
         <Card key={c.id}>
@@ -1601,14 +1602,14 @@ export function WalletPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card className="text-center">
         <p className="text-gray-500 text-sm">Wallet Balance</p>
-        <p className="text-4xl font-extrabold text-purple-600">π {formatPi(totalPi)}</p>
+        <p className="text-4xl font-extrabold pb-gradient-text">π {formatPi(totalPi)}</p>
         <p className="text-sm text-gray-500 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
         <p className="text-xs text-amber-600 mt-1">Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.</p>
         <p className="text-sm text-gray-500 mt-1">Reward Points: {points} • Referral: {referrals} people</p>
         <p className="text-xs text-gray-400 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
       </Card>
       <Card>
-        <h2 className="font-bold">π Pi Wallet</h2>
+        <h2 className="font-bold flex items-center gap-2"><IconWallet className="w-5 h-5" /> Pi Wallet</h2>
         <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin)</p>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi Deposit</p>
@@ -1641,7 +1642,7 @@ export function WalletPage() {
         <p className="text-xs text-gray-400 mt-3">Real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>
       </Card>
             <Card>
-        <h2 className="font-bold">💰 Top Up</h2>
+        <h2 className="font-bold flex items-center gap-2"><IconPlus className="w-5 h-5" /> Top Up</h2>
         {!isUsdtAmount && <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>}
         <label className="text-sm block mt-3">Amount ({isUsdtAmount ? 'USDT' : 'Tk'})</label>
         <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={amount} onChange={e => setAmount(Number(e.target.value))} />
@@ -1727,13 +1728,13 @@ export function FriendsPage() {
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <h1 className="text-xl font-bold">👥 Friends</h1>
+      <h1 className="text-xl font-bold flex items-center gap-2"><IconFriends className="w-6 h-6" /> Friends</h1>
       <Card>
         <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
         <p className="text-xs text-gray-400 mt-1">Give this ID to friends — they can find you by this ID or your name.</p>
       </Card>
       <Card>
-        <h2 className="font-bold">🔍 Find Friends</h2>
+        <h2 className="font-bold flex items-center gap-2"><IconSearch className="w-5 h-5" /> Find Friends</h2>
         <div className="relative">
           <input className="w-full border rounded-full px-3 py-2 text-sm mt-2 dark:bg-slate-800 dark:border-slate-600" value={query} onChange={e => { setQuery(e.target.value); setShowSugg(true) }} onFocus={() => { if (query.trim()) setShowSugg(true) }} placeholder="Enter name or ID…" />
           {searching && showSugg && <SearchSuggestions suggestions={suggestions} onPick={p => { setQuery(p.name); setShowSugg(false) }} />}
@@ -1742,14 +1743,14 @@ export function FriendsPage() {
       </Card>
       {searching ? (
         <Card>
-          <h2 className="font-bold">🔍 {results.length} people found</h2>
+          <h2 className="font-bold flex items-center gap-2"><IconSearch className="w-5 h-5" /> {results.length} people found</h2>
           {results.length === 0 && <p className="text-sm text-gray-500 mt-1">Nobody found — check whether the name or ID is correct.</p>}
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
-                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}>💬 Chat</Btn>
+                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
                 : sent[p.id]
                   ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
                   : <Btn onClick={() => addFromSearch(p)}>Add Friend</Btn>}
@@ -1904,9 +1905,9 @@ export function ChatPage() {
   return (
     <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
       <Card className="md:col-span-1">
-        <h2 className="font-bold mb-2">Chat — completely free</h2>
+        <h2 className="font-bold mb-2 flex items-center gap-2"><IconChat className="w-5 h-5" /> Chat — completely free</h2>
         {/* চ্যাট সাউন্ড চালু/বন্ধ — একই টগল মোবাইল ও কম্পিউটারে, মেনুর সেটিংসের সাথে এক */}
-        <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? '🔔 Sound on — tap to turn off' : '🔕 Sound off — tap to turn on'}</button>
+        <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? 'Sound on — tap to turn off' : 'Sound off — tap to turn on'}</button>
         {contacts.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
         {contacts.map(n => (
           <button key={n} onClick={() => setActive(n)} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
@@ -2117,7 +2118,7 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
 
   return (
     <div className="max-w-md mx-auto"><Card>
-      <h1 className="text-xl font-bold text-center">🛡️ Dating KYC — Do It Once Only</h1>
+      <h1 className="text-xl font-bold text-center flex items-center justify-center gap-2"><IconShield className="w-6 h-6" /> Dating KYC — Do It Once Only</h1>
       <p className="text-sm text-gray-500 mt-2 text-center">To see anything in Dating, you must first complete live KYC. Without KYC, you will see no Dating profiles, lives or calls.</p>
       <div className="flex gap-2 mt-4 justify-center text-sm">
         <span className={`px-3 py-1 rounded-full font-bold ${step === 1 ? 'bg-fb-blue text-white' : 'bg-gray-200 dark:bg-slate-700'}`}>1. Identity</span>
@@ -2966,7 +2967,7 @@ export function LiveTV() {
   const list = channels.filter(c => cat === 'All' || c.group === cat)
   return (
     <div className="space-y-4 max-w-4xl mx-auto">
-      <h1 className="text-xl font-bold">📺 Live TV — Free with Ads</h1>
+      <h1 className="text-xl font-bold flex items-center gap-2"><IconLiveTV className="w-6 h-6" /> Live TV</h1>
       <Card>
         <div ref={playerRef} className="tv-player w-full aspect-video bg-black rounded-lg overflow-hidden">
           {current.streamUrl ? (
@@ -2980,8 +2981,8 @@ export function LiveTV() {
         <div className="flex justify-between items-center mt-3 flex-wrap gap-2">
           <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.group} • In-app HLS player</p></div>
           <div className="flex gap-2 items-center">
-            <button onClick={toggleFullscreen} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm">{isFullscreen ? '⤢ Exit Full Screen' : '⛶ Full Screen'}</button>
-            <button onClick={async () => { const r = await shareLink('PiCall Live TV', `Watch ${current.name} free on PiCall Live TV!`, INVITE_BASE_URL); setShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm">↗ Share TV</button>
+            <button onClick={toggleFullscreen} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm flex items-center gap-1.5"><IconExpand className="w-4 h-4" /> {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}</button>
+            <button onClick={async () => { const r = await shareLink('PiCall Live TV', `Watch ${current.name} free on PiCall Live TV!`, INVITE_BASE_URL); setShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm flex items-center gap-1.5"><IconShare className="w-4 h-4" /> Share TV</button>
             {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
           </div>
         </div>
@@ -2993,7 +2994,7 @@ export function LiveTV() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {list.map(ch => (
           <button key={ch.id} onClick={() => { setCurrent(ch); setPlayError('') }} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500' : 'bg-white dark:bg-fb-card'}`}>
-            <p className="font-bold flex items-center gap-2">{ch.logo ? <img src={ch.logo} alt="" className="w-6 h-6 rounded object-contain bg-white" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} /> : '📺'} {ch.name}</p><p className="text-xs text-gray-400">{ch.group}{ch.streamUrl ? '' : ' • Link only'}</p>
+            <p className="font-bold flex items-center gap-2">{ch.logo ? <img src={ch.logo} alt="" className="w-6 h-6 rounded object-contain bg-white" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <IconLiveTV className="w-6 h-6 text-gray-400" />} {ch.name}</p><p className="text-xs text-gray-400">{ch.group}{ch.streamUrl ? '' : ' • Link only'}</p>
           </button>
         ))}
       </div>
@@ -3040,18 +3041,18 @@ export function ReelsPage() {
   const videoReels = posts.filter(p => p.videoUrl).map(p => ({ id: 'post-' + p.id, title: (p.title || p.text || 'Video').slice(0, 60), creator: p.author, videoUrl: p.videoUrl as string }))
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <h1 className="text-xl font-bold">🎬 Reels & Monetization</h1>
+      <h1 className="text-xl font-bold flex items-center gap-2"><IconReels className="w-6 h-6" /> Reels & Monetization</h1>
       <p className="text-sm text-gray-500">Total share: <b>↗️ {totalShares}</b> • If you like it, share — friends will join PiCall!</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
         {REELS.length === 0 && videoReels.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
         {REELS.map(r => (
           <Card key={r.id}>
-            <div className="text-4xl">🎬</div>
+            <div className="text-white"><IconReels className="w-9 h-9" /></div>
             <p className="font-bold mt-2">{r.title}</p>
             <p className="text-sm text-gray-500">{r.views} Views • {r.creator}</p>
             <div className="flex gap-2 mt-3 items-center">
-              <Btn variant="ghost" onClick={() => shareReel(r)}>↗️ Share</Btn>
+              <Btn variant="ghost" onClick={() => shareReel(r)}><span className="flex items-center gap-1"><IconShare className="w-4 h-4" /> Share</span></Btn>
               <span className="text-sm text-gray-500">↗️ {reelShares[r.id] ?? 0} shares</span>
             </div>
           </Card>
@@ -3062,7 +3063,7 @@ export function ReelsPage() {
             <p className="font-bold mt-2">{r.title}</p>
             <p className="text-sm text-gray-500">{r.creator}</p>
             <div className="flex gap-2 mt-3 items-center">
-              <Btn variant="ghost" onClick={() => shareReel(r)}>↗️ Share</Btn>
+              <Btn variant="ghost" onClick={() => shareReel(r)}><span className="flex items-center gap-1"><IconShare className="w-4 h-4" /> Share</span></Btn>
               <span className="text-sm text-gray-500">↗️ {reelShares[r.id] ?? 0} shares</span>
             </div>
           </Card>
@@ -3534,7 +3535,7 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
   return (
     <Card>
       <div className="flex justify-between items-center">
-        <h2 className="font-bold">⚙️ Profile Settings</h2>
+        <h2 className="font-bold flex items-center gap-2"><IconSettings className="w-5 h-5" /> Profile Settings</h2>
         <button onClick={onClose} className="text-gray-400 px-2">✕</button>
       </div>
       <div className="mt-3">
@@ -3635,7 +3636,7 @@ export function MenuPage() {
           <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
         </div>
         {user && <div className="flex gap-2 mt-3">
-          <Btn variant="ghost" onClick={() => setShowProfileSettings(s => !s)}>⚙️ Profile Settings</Btn>
+          <Btn variant="ghost" onClick={() => setShowProfileSettings(s => !s)}><span className="flex items-center gap-1"><IconSettings className="w-4 h-4" /> Profile Settings</span></Btn>
           <Btn variant="ghost" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
         </div>}
         {!user && <Btn className="mt-3" onClick={() => navigate('/login')}>Log in</Btn>}

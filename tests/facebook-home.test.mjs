@@ -6,12 +6,12 @@
 //   ২) হেডার সার্চে বন্ধু + পোস্ট সাজেশন (সর্বোচ্চ ৮: বন্ধু ৫ + পোস্ট ৩)
 //   ৩) ফিডের ক্রম: ব্যানার → স্টোরি → কম্পোজার → ফল → নতুন সদস্য → পোস্ট
 //   ৪) স্টোরি Facebook-এর মতো কার্ড, পোস্টের অ্যাকশন তিন সমান বোতাম
-//   ৫) হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচের নেভ বার নেই
-//   ৬) ওয়ালেট বোতাম সব স্ক্রিনে দেখায়; মোবাইলে 🔍 বোতামে সার্চ খোলে
+//   ৫) হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচে BottomNav আছে (মোবাইল-only)
+//   ৬) ওয়ালেট বোতাম সব স্ক্রিনে দেখায়; মোবাইলে সার্চ সারি সবসময় খোলা
 //   ৭) সাইডবারের সব লিংক মেনুতেও আছে (মোবাইলে পৌঁছায়)
 //   ৮) Contacts/Sponsored দুই জায়গায় — ডেস্কটপ সাইডবার + মোবাইল ফিড
 //   ৯) স্টোরে ফিডের খোঁজা + পোস্ট (হেডার আর ফিড একই অবস্থা দেখে)
-//  ১০) চ্যাটে যাওয়া সব জায়গায় একই (হেডার 💬, Contacts, ফলের সারি)
+//  ১০) চ্যাটে যাওয়া সব জায়গায় একই (হেডার চ্যাট আইকন, Contacts, ফলের সারি)
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,17 +42,18 @@ check('হেডার সার্চই আসল সার্চ — লো�
   const topBar = compSrc.slice(compSrc.indexOf('export function TopBar()'), compSrc.indexOf('export function Sidebar()'))
   assert.ok(topBar.indexOf('PiCall') < topBar.indexOf('<HeaderSearch />'), 'লোগোর পাশে সার্চ নেই')
   assert.ok(searchUISrc.includes('export function HeaderSearch'), 'searchUI-তে HeaderSearch নেই')
-  // '🔍 Find Friends' এখন শুধু Friends পেজে ১ বার (ফিডের কার্ড সরানো হয়েছে)
-  const count = (pagesSrc.match(/🔍 Find Friends/g) || []).length
-  assert.equal(count, 1, `🔍 Find Friends ${count} বার — Friends পেজে ১ বার হওয়ার কথা`)
-  assert.ok(!feedSpan().includes('🔍 Find Friends'), 'ফিডে এখনো সার্চ কার্ড আছে')
+  // 'Find Friends' এখন শুধু Friends পেজে ১ বার (ফিডের কার্ড সরানো হয়েছে)
+  const count = (pagesSrc.match(/Find Friends/g) || []).length
+  assert.equal(count, 1, `Find Friends ${count} বার — Friends পেজে ১ বার হওয়ার কথা`)
+  assert.ok(!feedSpan().includes('Find Friends'), 'ফিডে এখনো সার্চ কার্ড আছে')
 })
 
 check('হেডার সার্চে বন্ধু + পোস্ট সাজেশন (বন্ধু ৫ + পোস্ট ৩)', () => {
   assert.ok(searchUISrc.includes("searchPosts(posts, feedQuery).slice(0, 3)"), 'পোস্ট সাজেশন ৩টি নয়')
   assert.ok(searchUISrc.includes('suggestions.slice(0, 5)'), 'বন্ধু সাজেশন ৫টি নয়')
-  assert.ok(searchUISrc.includes('👥 Friends'), 'বন্ধু সেকশন নেই')
-  assert.ok(searchUISrc.includes('📝 Post'), 'পোস্ট সেকশন নেই')
+  assert.ok(searchUISrc.includes('IconFriends'), 'বন্ধু সেকশনে আইকন নেই')
+  assert.ok(searchUISrc.includes('> Friends</p>'), 'বন্ধু সেকশন নেই')
+  assert.ok(searchUISrc.includes('>Post</p>'), 'পোস্ট সেকশন নেই')
   assert.ok(searchUISrc.includes('See all results'), 'সব-ফলাফল বোতাম নেই')
   assert.ok(searchUISrc.includes("setShowSugg(false)"), 'ট্যাপে ড্রপডাউন লুকায় না')
   assert.ok(searchUISrc.includes("e.key === 'Enter'"), 'Enter-এ খোঁজা যায় না')
@@ -69,7 +70,7 @@ check('ফিডের ক্রম: ব্যানার → স্টোর�
     idx('🎁 Install the app and get 5 π free!'),
     idx('Your Story'),
     idx("What's on your mind?"),
-    idx('👥 Friends ('),
+    idx('Friends ('),
     idx('<NewMembersSection />'),
     idx('visiblePosts.map('),
   ]
@@ -82,27 +83,28 @@ check('স্টোরি Style 6 গ্রেডিয়েন্ট-রিং
   assert.ok(f.includes('w-[68px] h-[68px] rounded-full'), 'স্টোরি অ্যাভাটার বৃত্তাকার নয়')
   assert.ok(!f.includes('w-28 h-44'), 'পুরোনো স্টোরি কার্ড এখনো আছে')
   assert.ok(f.includes('flex-1 py-1.5 rounded-lg hover:bg-gray-100'), 'পোস্ট অ্যাকশন তিন সমান বোতাম নয়')
-  assert.ok(f.includes('💬 Comments'), 'কমেন্ট বোতাম নেই')
-  assert.ok(f.includes('↗️ Share'), 'শেয়ার বোতাম নেই')
+  assert.ok(f.includes('Comments ('), 'কমেন্ট বোতাম নেই')
+  assert.ok(f.includes('Share ('), 'শেয়ার বোতাম নেই')
 })
 
-check('হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচের নেভ বার নেই', () => {
-  assert.ok(!compSrc.includes('BottomNav'), 'BottomNav এখনো আছে')
-  assert.ok(!compSrc.includes('fixed bottom-0'), 'নিচের নেভ বার এখনো আছে')
+check('হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচে BottomNav আছে (মোবাইল-only)', () => {
+  assert.ok(compSrc.includes('BottomNav'), 'BottomNav নেই')
+  assert.ok(compSrc.includes('fixed bottom-0'), 'নিচের নেভ বার নেই')
+  assert.ok(compSrc.includes('<BottomNav />'), 'Layout-এ BottomNav নেই')
   for (const r of ['/feed', '/friends', '/reels', '/dating', '/live-tv']) {
     assert.ok(compSrc.includes(`to: '${r}'`), `নেভে ${r} নেই`)
   }
-  // কম্পিউটারে হেডারের মাঝে + মোবাইলে হেডারের নিচে ট্যাব সারি — দুটোতেই একই নেভ
+  // কম্পিউটারে হেডারের মাঝে; মোবাইলে হেডারের নিচের ট্যাব সারি সরিয়ে BottomNav
   assert.ok(compSrc.includes('hidden md:flex flex-1 justify-center'), 'কম্পিউটারের মাঝের নেভ নেই')
-  assert.ok(compSrc.includes('md:hidden border-t'), 'মোবাইলের ট্যাব সারি নেই')
+  assert.ok(!compSrc.includes('md:hidden border-t'), 'মোবাইলের পুরোনো ট্যাব সারি এখনো আছে')
 })
 
-check('ওয়ালেট বোতাম সব স্ক্রিনে দেখায়; মোবাইলে 🔍 বোতামে সার্চ খোলে', () => {
+check('ওয়ালেট বোতাম সব স্ক্রিনে দেখায়; মোবাইলে সার্চ সারি সবসময় খোলা', () => {
   const m = compSrc.match(/<button onClick=\{\(\) => navigate\('\/wallet'\)\} className="([^"]*)"/)
   assert.ok(m, 'ওয়ালেট বোতাম নেই')
   assert.ok(!m[1].includes('hidden'), 'ওয়ালেট বোতাম মোবাইলে লুকানো')
-  assert.ok(compSrc.includes('mobileSearchOpen'), 'মোবাইল সার্চ টগল নেই')
-  assert.ok(compSrc.includes('md:hidden px-3 pb-2'), 'মোবাইলে খোলা সার্চ সারি নেই')
+  assert.ok(!compSrc.includes('mobileSearchOpen'), 'মোবাইল সার্চ টগল এখনো আছে')
+  assert.ok(compSrc.includes('md:hidden px-3 pb-2'), 'মোবাইলে সবসময়-খোলা সার্চ সারি নেই')
 })
 
 check('সাইডবারের সব লিংক মেনুতেও আছে (মোবাইলে পৌঁছায়)', () => {
@@ -138,7 +140,7 @@ check('স্টোরে ফিডের খোঁজা + পোস্ট (হ
 })
 
 check('চ্যাটে যাওয়া সব জায়গায় একই', () => {
-  assert.ok(compSrc.includes("navigate('/chat')"), 'হেডারের 💬 বোতাম চ্যাটে যায় না')
+  assert.ok(compSrc.includes("navigate('/chat')"), 'হেডারের চ্যাট বোতাম চ্যাটে যায় না')
   assert.ok(compSrc.includes("navigate('/chat', { state: { with: f.name } })"), 'Contacts থেকে চ্যাটে যায় না')
   assert.ok(pagesSrc.includes("navigate('/chat', { state: { with: p.name } })"), 'খোঁজার ফল থেকে চ্যাটে যায় না')
 })
