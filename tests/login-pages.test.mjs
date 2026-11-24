@@ -82,9 +82,11 @@ check('all login handlers still wired (no logic change)', () => {
   assert.ok(!login.includes('gateway'), 'লগইন পেজে গেটওয়ে কোড থাকার কথা নয়')
 })
 
-// ---------- নতুন পেশাদার চেহারা ----------
+// ---------- নতুন পেশাদার চেহারা (ডেমো টোকেন, ২০২৬-১১-২৪) ----------
+// ডেমো লোগো-মার্ক: ৩৮px গোল-১২ বর্গ, π; ডেমো ডার্ক পটভূমি #16121f;
+// ডেমো আইকন-বোতাম সারফেস #f1ecf9 / #2b2142।
 check('brand header: gradient Pi badge + gradient PiCall wordmark (header style)', () => {
-  assert.ok(login.includes('pb-gradient text-white text-3xl'), 'গ্রেডিয়েন্ট π ব্যাজ নেই')
+  assert.ok(login.includes('pb-gradient text-white text-xl'), 'গ্রেডিয়েন্ট π ব্যাজ নেই')
   assert.ok(login.includes('pb-gradient-text'), 'গ্রেডিয়েন্ট PiCall লেখা নেই')
   assert.ok(login.includes('h-1.5 pb-gradient'), 'উপরের গ্রেডিয়েন্ট বার নেই')
 })
@@ -106,8 +108,8 @@ check('message shows as a soft notice (OTP tinted card is gone with the OTP sect
 check('dark mode: toggle on the login screen + dark: classes in login markup', () => {
   assert.ok(login.includes('toggleDark'), 'ডার্ক টগল নেই')
   assert.ok(login.includes('<IconMoon') && login.includes('<IconSun'), 'Moon/Sun আইকন নেই')
-  assert.ok(login.includes('dark:bg-fb-dark'), 'ডার্ক পটভূমি নেই')
-  assert.ok(login.includes('dark:bg-fb-card'), 'ডার্ক কার্ড নেই')
+  assert.ok(login.includes('dark:bg-[#16121f]'), 'ডার্ক পটভূমি নেই')
+  assert.ok(login.includes('dark:bg-[#2b2142]'), 'ডার্ক সারফেস নেই')
   assert.ok(login.includes('dark:text-gray-100') || login.includes('dark:text-gray-300'), 'ডার্ক লেখার রং নেই')
 })
 check('icons.tsx exports the new mail + lock icons', () => {

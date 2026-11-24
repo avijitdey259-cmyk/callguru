@@ -82,8 +82,8 @@ check('pages.tsx: no fake admin totals or moderation counts', () => {
   }
 })
 
-check('buddies.ts: the 5 kept chat personas are untouched', () => {
-  for (const id of ['bd-rima', 'bd-shakil', 'bd-fahim', 'bd-mim', 'bd-asha']) {
+check('buddies.ts: the 11 kept chat personas are untouched', () => {
+  for (const id of ['bd-rima', 'bd-shakil', 'bd-fahim', 'bd-mim', 'bd-asha', 'bd-tanvir', 'bd-faysal', 'bd-imran', 'bd-sadia', 'bd-tanha', 'bd-nabila']) {
     assert.ok(buddies.includes(id), `পারসোনা নেই: ${id}`)
   }
 })

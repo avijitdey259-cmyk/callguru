@@ -5,17 +5,20 @@
 // ট্যাপ করলে অ্যাপ খুলে কলে ঢোকে (notificationclick → /call/<code>)।
 //
 // ক্যাশের ভাগাভাগি (দুটো আলাদা ক্যাশ, আলাদা নিয়ম):
-//   picall-shell-v4 — অ্যাপের নিজের জিনিস (/, /index.html, JS/CSS বান্ডল,
+//   picall-shell-v5 — অ্যাপের নিজের জিনিস (/, /index.html, JS/CSS বান্ডল,
 //     ম্যানিফেস্ট, আইকন)। network-first: খুললেই নতুন ভার্সন/ডেটা আসে;
-//     নেট না থাকলে ক্যাশ থেকে চলে। ভার্সন বদলালে নাম বদলায় (v4) আর
+//     নেট না থাকলে ক্যাশ থেকে চলে। ভার্সন বদলালে নাম বদলায় (v5) আর
 //     activate-এ পুরোনো শেল-ক্যাশ মুছে যায়।
 //   picall-media-v1 — ব্যবহারকারীর মিডিয়া (Firebase Storage-এর ছবি/
 //     ভিডিও — পোস্টের ভিডিও getDownloadURL থেকে আসে)। cache-first:
 //     একবার লোড হলে পরে ক্যাশ থেকেই দেখায়। শেল-ক্যাশ বদলালেও এই
 //     ক্যাশ কখনো মোছা হয় না। activate শুধু picall-shell-* মোছে।
 // version.json কখনো ক্যাশ হয় না (network-only, no-store) — নইলে
-// version-চেকটাই পুরোনো উত্তর দিত।
-const CACHE = 'picall-shell-v4'
+// version-চেকটাই পুরোনো উত্তর দিত.
+// পুরোনো শেল একদম নয়: শেলের fetch cache:'reload' দিয়ে যায় (ব্রাউজারের
+// HTTP ক্যাশ বাইপাস) আর Firebase হোস্টিং index.html/version.json/sw.js-এ
+// no-cache, no-store হেডার দেয় — অ্যাপ খুললেই নতুন ভার্সন আসে।
+const CACHE = 'picall-shell-v5'
 const MEDIA_CACHE = 'picall-media-v1'
 const MEDIA_HOST = 'firebasestorage.googleapis.com'
 const SHELL = [
@@ -161,9 +164,11 @@ self.addEventListener('fetch', (event) => {
 
   // অ্যাপ শেল + নিজের অ্যাসেট: network-first, নেট না থাকলে ক্যাশ।
   // খুললেই নতুন ভার্সন/ডেটা আসে; অফলাইনে ক্যাশ করা শেলই চলে।
+  // cache:'reload' — ব্রাউজারের HTTP ক্যাশ বাইপাস করে সার্ভার থেকেই আনে,
+  // নইলে Firebase-এর পুরোনো max-age=3600 হেডারের index.html-ই ফিরত।
   if (request.mode === 'navigate' || url.origin === self.location.origin) {
     event.respondWith(
-      fetch(request)
+      fetch(new Request(request, { cache: 'reload' }))
         .then((res) => {
           if (res.ok) {
             const copy = res.clone()

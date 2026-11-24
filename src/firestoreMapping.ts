@@ -101,6 +101,9 @@ export type UserDoc = {
   // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের সংখ্যা (৫ হলে KYC বাধ্যতামূলক);
   // শুধু এই ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
   datingChatPartnerIds: string[]
+  // ব্লক করা ব্যবহারকারী — যাঁদের মেসেজ/কল আর পৌঁছাবে না; শুধু এই ব্যক্তিগত
+  // ডকে থাকে (নাম নয়, শুধু UID — নাম localStorage-এর দেখানোর সাহায্য মাত্র)।
+  blockedUids: string[]
 }
 
 // স্টোর থেকে যে স্ন্যাপশট নিয়ে ডক বানানো হয় (দরগুলো এখানে নেই — সেগুলো config/public-এ যায়)।
@@ -156,6 +159,8 @@ export type LocalUserState = {
   // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের সংখ্যা (৫ হলে KYC বাধ্যতামূলক);
   // শুধু এই ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
   datingChatPartnerIds: string[]
+  // ব্লক করা ব্যবহারকারী (UID তালিকা) — users/{uid} ব্যক্তিগত ডকেও সিঙ্ক হয়।
+  blockedUids: string[]
 }
 
 // config/public — অ্যাডমিনের দর + পেমেন্টের আসল বিবরণ (গোপন কিছু এখানে নেই)।
@@ -270,6 +275,7 @@ export function toUserDoc(s: LocalUserState): UserDoc {
     recoveryPhoneVerified: s.recoveryPhoneVerified === true,
     twoFactorEnabled: s.twoFactorEnabled === true,
     datingChatPartnerIds: Array.isArray(s.datingChatPartnerIds) ? s.datingChatPartnerIds.filter((x): x is string => typeof x === 'string').slice(0, 50) : [],
+    blockedUids: Array.isArray(s.blockedUids) ? s.blockedUids.filter((x): x is string => typeof x === 'string').slice(0, 200) : [],
   }
 }
 
@@ -325,6 +331,8 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   if (typeof d.twoFactorEnabled === 'boolean') out.twoFactorEnabled = d.twoFactorEnabled
   // প্রগ্রেসিভ KYC — ডেটিং চ্যাটের সংখ্যা শুধু users/{uid} ব্যক্তিগত ডক থেকে পড়া হয়।
   if (Array.isArray(d.datingChatPartnerIds)) out.datingChatPartnerIds = (d.datingChatPartnerIds as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 50)
+  // ব্লক তালিকা — শুধু users/{uid} ব্যক্তিগত ডক থেকে পড়া হয়।
+  if (Array.isArray(d.blockedUids)) out.blockedUids = (d.blockedUids as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 200)
   // KYC: শুধু নিরাপদ ঘরগুলো ফেরে; idNumber/selfie/selfieVideo ডকে থাকার কথা নয়,
   // থাকলেও এখানে পড়া হয় না (সেগুলো শুধু এই ডিভাইসের localStorage-এ থাকে)।
   // ডকে KYC-র স্ট্যাটাস না থাকলে (পুরোনো ডক) স্ট্যাটাস বদলানো হয় না।

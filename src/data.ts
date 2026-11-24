@@ -94,8 +94,30 @@ export type DatingProfile = { id: string; name: string; age: number; city: strin
 export const DATING_PROFILES: DatingProfile[] = []
 
 export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; authorPhoto?: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string }
-// সিড পোস্ট সরানো হয়েছে (ডেমো ডেটা) — ফিডে শুধু ব্যবহারকারীর নিজের পোস্ট থাকে।
-export const SEED_POSTS: Post[] = []
+// ফিডের পারসোনা পোস্ট — শুধু ৫ রাখা চ্যাট পারসোনা (রিমা/শাকিল/ফাহিম/মিম/আশা)
+// থেকে, যাতে ফিড খালি/নতুন না লাগে (মালিকের নির্দেশ ২০২৬-১১-২৪)। সরানো
+// ডেমো ডেটা (রাফি/সাবরিনা, সিড ডেটিং হোস্ট, সিড ফিড পোস্ট) ফিরে আসেনি —
+// এগুলো পারসোনাদেরই লেখা, নতুন ভুয়া ব্যবহারকারী নয়।
+export const SEED_POSTS: Post[] = [
+  { id: 'persona-rima-1', author: 'Rima', time: '2h', text: 'Morning tea and a clear sky — today feels like a good day for something new. ☕', likes: 24, comments: 6, shares: 2, color: '#E91E63' },
+  { id: 'persona-shakil-1', author: 'Shakil', time: '4h', text: 'Sometimes a quiet evening and a good song are all you need. What are you listening to tonight?', likes: 18, comments: 9, shares: 1, color: '#1877F2' },
+  { id: 'persona-fahim-1', author: 'Fahim', time: '6h', text: 'Small thing I learned today: a 10-minute walk after lunch really wakes you up. Try it and tell me if it works for you too.', likes: 31, comments: 5, shares: 4, color: '#27AE60' },
+  { id: 'persona-mim-1', author: 'Mim', time: '9h', text: 'Found an old song I used to hum as a kid — some tunes never leave you. 🎵 What song takes you back?', likes: 27, comments: 11, shares: 3, color: '#9C27B0' },
+  { id: 'persona-asha-1', author: 'Asha', time: 'Yesterday', text: 'Dreaming a little bigger today. Small steps every day — that is the whole plan. ✨', likes: 35, comments: 8, shares: 5, color: '#FF9800' },
+  { id: 'persona-rima-2', author: 'Rima', time: 'Yesterday', text: 'Tell me one good thing that happened to you this week — I need happy stories today!', likes: 42, comments: 14, shares: 2, color: '#E91E63' },
+  // নতুন ৬ বন্ধুর পোস্ট (মালিকের নির্দেশ ২০২৬-১১-২৪, "সদস্য বাড়াই দাও") —
+  // ৪টিতে ছবি আসবে (জেনেরিক দৃশ্য: মুরগি, পড়ার টেবিল, চা, হেডফোন — কোনো
+  // মানুষের ছবি নয়): ছবির ফাইল (public/persona-*.jpg) GitHub-এ ব্রাউজার
+  // দিয়ে আপলোড হলে imageUrl ফিরিয়ে দেওয়া হবে — বাইনারি ফাইল snapshot
+  // push-এ যায় না বলে আপাতত লেখা-পোস্ট হিসেবে লাইভ হচ্ছে। সরানো ডেমো
+  // পোস্টের কেউ এতে নেই।
+  { id: 'persona-tanvir-1', author: 'Tanvir', time: '3h', text: 'Why did the chicken cross the road? To prove it wasn\'t chicken! 😂 Okay okay, I\'ll stop now... or will I?', likes: 19, comments: 12, shares: 3, color: '#0EA5E9' },
+  { id: 'persona-faysal-1', author: 'Faysal', time: '5h', text: 'Study tip that actually works: read for 25 minutes, rest 5, repeat. Your brain will thank you. 📚', likes: 22, comments: 4, shares: 6, color: '#14B8A6' },
+  { id: 'persona-imran-1', author: 'Imran', time: '7h', text: 'Long day? Make yourself a cup of tea, sit by the window, and breathe. You did enough today. ☕❤️', likes: 28, comments: 7, shares: 2, color: '#65A30D' },
+  { id: 'persona-sadia-1', author: 'Sadia', time: '10h', text: 'Headphones on, world off. 🎧 Which song is on repeat for you this week?', likes: 33, comments: 15, shares: 4, color: '#8B5CF6' },
+  { id: 'persona-tanha-1', author: 'Tanha', time: 'Yesterday', text: 'The sky was on fire tonight. Some sunsets feel like the day is saying goodbye properly. 🌇', likes: 41, comments: 9, shares: 7, color: '#F59E0B' },
+  { id: 'persona-nabila-1', author: 'Nabila', time: 'Yesterday', text: 'Rain on the window, a warm blanket, and nothing to do. Perfect evening. ☔ What\'s your rainy-day favourite?', likes: 26, comments: 10, shares: 3, color: '#EC4899' },
+]
 
 // পুরোনো STORIES সিড সরানো হয়েছে (ডেমো ডেটা) — স্টোরি স্ট্রিপ এখন বন্ধু + ৫ পারসোনা থেকে আসে।
 

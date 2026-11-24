@@ -151,8 +151,8 @@ check('SW: version.json কখনো ক্যাশ নয় (network-only, no
   assert.ok(vIdx < sw.indexOf("startsWith('/api/')"), 'version.json শাখা /api/ শাখার পরে')
 })
 check('SW: শেল ক্যাশ v4, network-first + অফলাইনে ক্যাশ ফলব্যাক', () => {
-  assert.ok(sw.includes("picall-shell-v4"), 'শেল ক্যাশ v4 নয়')
-  assert.ok(!sw.includes('picall-shell-v3'), 'পুরোনো v3 ক্যাশ নাম এখনো আছে')
+  assert.ok(sw.includes("picall-shell-v5"), 'শেল ক্যাশ v5 নয়')
+  assert.ok(!sw.includes('picall-shell-v4'), 'পুরোনো v4 ক্যাশ নাম এখনো আছে')
   const shellIdx = sw.indexOf('অ্যাপ শেল + নিজের অ্যাসেট')
   assert.ok(shellIdx !== -1, 'শেল শাখা নেই')
   const shell = sw.slice(shellIdx)

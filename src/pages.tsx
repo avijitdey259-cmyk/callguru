@@ -10,7 +10,7 @@ import { sendCallInvite, onInviteResponse } from './presence'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
-import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
+import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSend, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
@@ -29,7 +29,9 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
+import { filterBlockedMessages, filterBlockedRooms } from './blocking'
+import { probeChannels, sortChannelsByPlayability, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
 import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
@@ -380,15 +382,15 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-fb-dark flex flex-col items-center px-4 py-6 sm:py-10">
+    <div className="min-h-screen bg-[#faf8fc] dark:bg-[#16121f] flex flex-col items-center px-4 py-6 sm:py-10">
       <div className="w-full h-1.5 pb-gradient rounded-full max-w-md" />
       <div className="w-full max-w-md">
         <div className="flex justify-end mt-3">
-          <button onClick={toggleDark} title="Dark mode" className="w-9 h-9 rounded-full bg-white dark:bg-fb-card border border-gray-200 dark:border-white/10 shadow-sm flex items-center justify-center text-gray-600 dark:text-gray-200">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
+          <button onClick={toggleDark} title="Dark mode" className="w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center text-gray-600 dark:text-gray-200">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
         </div>
-        <div className="text-center mt-2">
-          <span className="mx-auto w-16 h-16 rounded-full pb-gradient text-white text-3xl font-extrabold flex items-center justify-center shadow-lg shadow-violet-500/30">π</span>
-          <p className="text-3xl font-extrabold mt-3 pb-gradient-text leading-none">PiCall</p>
+        <div className="flex items-center justify-center gap-2 mt-2">
+          <span className="w-[38px] h-[38px] rounded-[12px] pb-gradient text-white text-xl font-extrabold flex items-center justify-center">π</span>
+          <p className="text-3xl font-extrabold font-display pb-gradient-text leading-none">PiCall</p>
         </div>
         <Card className="mt-5 !p-5 sm:!p-6 !shadow-md">
           <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
@@ -882,6 +884,16 @@ export function Feed() {
             <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">What's on your mind?</span>
           </button>
         )}
+      </Card>
+      <Card className="pb-gradient text-white">
+        <div className="flex items-center gap-3">
+          <span className="w-11 h-11 rounded-full bg-white/20 grid place-items-center shrink-0"><IconCall className="w-5 h-5" /></span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold">📞 Video call a friend</p>
+            <p className="text-sm text-white/80">Prepaid {formatPi(FRIEND_RATE)}/min • First call's first 1 minute free</p>
+          </div>
+          <button onClick={() => navigate('/friends')} className="shrink-0 px-4 py-2 rounded-full bg-white text-pi-purple font-bold text-sm">Call</button>
+        </div>
       </Card>
       {searching && (
         <Card>
@@ -1416,8 +1428,24 @@ export function CallPage() {
   }, [])
 
   // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
-  function startCall() {
+  async function startCall() {
     if (!canStart) return
+    // ব্লক চেক (কলকারী দিক) — ওই ব্যবহারকারী আমাকে ব্লক করলে কল শুরু হয়
+    // না; শেয়ার করা রুম ডকের blockedBy থেকে দেখা হয়, ১.৫ সেকেন্ডে উত্তর
+    // না এলে কল আগের মতোই চলবে (অফলাইনে/ধীর নেটে কল আটকে যাবে না)।
+    if ((type === 'friend' || type === 'dating') && uid) {
+      const peerUid = type === 'friend' ? friends.find((f) => f.name === name)?.id : id
+      if (peerUid) {
+        const room = await Promise.race([
+          fetchChatRoomDoc(chatRoomId(uid, peerUid)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+        ])
+        if (room?.blockedBy?.includes(peerUid)) {
+          setCallError('This user is not accepting calls from you right now.')
+          return
+        }
+      }
+    }
     const code = makeCallCode()
     setCallCode(code)
     callCodeRef.current = code
@@ -1861,14 +1889,18 @@ export function WalletPage() {
   const doneList = pendingTopUps.filter(t => t.status !== 'pending')
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <Card className="text-center">
-        <p className="text-gray-500 text-sm">Wallet Balance</p>
-        <p className="text-4xl font-extrabold pb-gradient-text">{formatPi(totalPi)}</p>
-        <p className="text-lg font-bold text-gray-700 dark:text-gray-200">≈ {formatBDT(totalPi * piRateBDT)}</p>
-        <p className="text-sm text-gray-500 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> ({formatBDT(piBalance * piRateBDT)}) • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
-        <p className="text-xs text-amber-600 mt-1">Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.</p>
-        <p className="text-sm text-gray-500 mt-1">Reward Points: {points} • Referral: {referrals} people</p>
-        <p className="text-xs text-gray-400 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
+      <Card className="text-center pb-gradient text-white">
+        <p className="text-sm text-white/80">π Pi Balance · Pi Mainnet</p>
+        <p className="text-4xl font-extrabold font-display">{formatPi(totalPi)}</p>
+        <p className="text-lg font-bold text-white/90">≈ {formatBDT(totalPi * piRateBDT)}</p>
+        <p className="text-sm text-white/80 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> ({formatBDT(piBalance * piRateBDT)}) • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
+        <p className="text-xs text-white/70 mt-1">Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.</p>
+        <div className="flex gap-2 justify-center mt-3">
+          <button onClick={() => document.getElementById('wallet-topup')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white text-pi-purple font-bold text-sm">Deposit</button>
+          <button onClick={() => document.getElementById('wallet-withdraw')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Withdraw</button>
+        </div>
+        <p className="text-sm text-white/80 mt-3">Reward Points: {points} • Referral: {referrals} people</p>
+        <p className="text-xs text-white/60 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
       </Card>
       <Card>
         <h2 className="font-bold flex items-center gap-2"><IconWallet className="w-5 h-5" /> Pi Wallet</h2>
@@ -1890,7 +1922,7 @@ export function WalletPage() {
           {piDeposits.length > 0 && <div className="mt-2">{piDeposits.map(d => <p key={d.id} className="text-sm text-gray-500">{formatPi(d.amount)} • {d.ref}{d.chain ? ` • ${d.chain}` : ''} • {d.date} • {d.status}</p>)}</div>}
           </>) : <p className="text-sm mt-2 text-gray-500">{PI_DEPOSIT_DISABLED_MESSAGE}</p>}
         </div>
-        <div className="mt-4 border-t pt-3">
+        <div id="wallet-withdraw" className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">Pi Withdraw</p>
           <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
           <p className="text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Minimum withdraw: Pi equal to 10 USDT ({formatPi(piMinWithdraw)}) • Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)}</p>
@@ -1905,6 +1937,7 @@ export function WalletPage() {
         </div>
         <p className="text-xs text-gray-400 mt-3">Real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>
       </Card>
+      <div id="wallet-topup">
             <Card>
         <h2 className="font-bold flex items-center gap-2"><IconPlus className="w-5 h-5" /> Top Up</h2>
         {activeMethod === null ? (
@@ -1960,6 +1993,7 @@ export function WalletPage() {
           {doneList.map(t => <p key={t.id} className="text-sm mt-1 text-gray-500">{t.method} — {t.currency === 'USDT' ? `${t.amount} USDT` : formatBDT(t.amount)} • {t.status === 'approved' ? '✅ Approved' : '❌ Rejected'} • {t.date}</p>)}
         </div>}
       </Card>
+      </div>
             <PiReportCard />
       <DailyBonusCard />
       <InviteCard />
@@ -1977,7 +2011,7 @@ export function WalletPage() {
 
 // ---------- Friends ----------
 export function FriendsPage() {
-  const { friends, requests, acceptRequest, removeFriend, addFriend, referralCode } = useStore()
+  const { friends, requests, acceptRequest, removeFriend, addFriend, referralCode, blockedUids, blockUser, unblockUser } = useStore()
   const navigate = useNavigate()
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [query, setQuery] = useState('')
@@ -2048,6 +2082,9 @@ export function FriendsPage() {
             <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● Online' : '○ Offline'}</span></span>
             <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: f.name } })}>💬 Chat</Btn>
             <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 Call</Btn>
+            {!isBuddyId(f.id) && (blockedUids.includes(f.id)
+              ? <Btn variant="ghost" onClick={() => unblockUser(f.id)}>Unblock</Btn>
+              : <Btn variant="ghost" onClick={() => blockUser(f.id, f.name)}>🚫 Block</Btn>)}
             <Btn variant="ghost" onClick={() => removeFriend(f.id)}>Unfriend</Btn>
           </div>
         ))}
@@ -2072,8 +2109,9 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat } = useStore()
+  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser } = useStore()
   const location = useLocation()
+  const navigate = useNavigate()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'Rima')
   // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
@@ -2097,20 +2135,36 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [ban, setBan] = useState('')
   const [warn, setWarn] = useState(0)
-  // একটা চ্যাট খুললে শুধু সেই চ্যাটটাই পূর্ণ পর্দায় দেখায় — পাশে/উপরে আর কোনো
-  // তালিকা বা প্যানেল থাকে না; "All chats"-এ ফিরলেই তালিকা দেখায়।
-  const [showList, setShowList] = useState(false)
+  // চ্যাট প্রথমে তালিকা দেখায় — নতুন করে /chat খুললে কথোপকথন নয়, ব্যবহারকারীর
+  // তালিকা। {with} টার্গেট থাকলে (বন্ধু/ডেটিং থেকে) সেই কথোপকথন সরাসরি খোলে।
+  const [showList, setShowList] = useState(() => {
+    const st = location.state as { with?: string } | null
+    return !st?.with
+  })
   // আসল বন্ধুর মেসেজ সার্ভারে না পৌঁছালে চুপচাপ লোকালেই থেকে যায় — সেটা যেন
   // ব্যবহারকারী দেখতে পান (আগে কোনো চিহ্ন ছাড়াই শুধু এই ডিভাইসে থাকত)।
   const [sendFailed, setSendFailed] = useState(false)
   // অন্য ডিভাইস থেকে আসা চ্যাট — প্রাপক এখনো বন্ধু হিসেবে যোগ না করলেও রুমটা
   // এখানে দেখায়, যাতে মেসেজটা খুলে পড়া/উত্তর দেওয়া যায়।
-  const [incoming, setIncoming] = useState<ChatRoomSummary[]>([])
+  const [roomSummaries, setRoomSummaries] = useState<ChatRoomSummary[]>([])
   // কে লিখছে (প্রতি বন্ধুর জন্য আলাদা) — উত্তর আসার ১–৩ সেকেন্ড আগে "লিখছে…" দেখায়
   const [typing, setTyping] = useState<Record<string, boolean>>({})
   const typingTimersRef = useRef<number[]>([])
   const lastReplyRef = useRef<Record<string, string>>({})
   const lastFunRef = useRef<Record<string, boolean>>({})
+  // খোলা চ্যাটে সবচেয়ে নতুন মেসেজ দেখা যায় — খুললেই নিচে, নতুন মেসেজ এলেও নিচে।
+  const msgListRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = msgListRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [active, msgs, showList])
+  // তালিকা থেকে চ্যাট খুললে হিস্ট্রিতে এন্ট্রি পুশ হয় — সিস্টেম ব্যাক
+  // (হার্ডওয়্যার/ব্রাউজার) তখন তালিকায় ফেরে; সরাসরি {with} দিয়ে এলে
+  // নিচে তালিকার এন্ট্রি নেই।
+  const openedFromListRef = useRef(false)
+  // ব্লক তালিকা — সাবস্ক্রিপশনের কলব্যাকে সবসময় তাজা মান লাগে
+  const blockedUidsRef = useRef<string[]>(blockedUids)
+  useEffect(() => { blockedUidsRef.current = blockedUids }, [blockedUids])
   // ডেটিং থেকে আসা চ্যাট — ম্যাচ কার্ডের "Send message" থেকে partnerId আসে;
   // প্রথম মেসেজ পাঠালেই ওই মানুষটা ডেটিং চ্যাটের হিসাবে ধরা হয় (৫ জন হলে KYC)।
   const datingPartnerIdRef = useRef<string | null>(null)
@@ -2118,6 +2172,7 @@ export function ChatPage() {
   // ডেটিং ম্যাচ থেকে এলে (datingPartnerId) ওই মানুষটা বন্ধু তালিকায় না থাকলে
   // এখনই যোগ হয় — নইলে activeFriend মেলে না, roomId null থাকে আর প্রথম
   // মেসেজটা Firestore-এ না গিয়ে শুধু এই ডিভাইসেই থেকে যেত।
+  // হিস্ট্রি ব্যাক করে তালিকার এন্ট্রিতে ফিরলে (state-এ with নেই) তালিকা দেখায়।
   useEffect(() => {
     const st = location.state as { with?: string; draft?: string; datingPartnerId?: string } | null
     if (st?.with && friends.some(f => f.name === st.with)) { setActive(st.with); setShowList(false) }
@@ -2126,6 +2181,7 @@ export function ChatPage() {
       setActive(st.with)
       setShowList(false)
     }
+    else if (!st?.with) { setShowList(true) }
     if (st?.draft) setDraft(st.draft)
     datingPartnerIdRef.current = st?.datingPartnerId ?? null
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2148,7 +2204,8 @@ export function ChatPage() {
     const first = !subscribedRoomsRef.current.has(roomId)
     if (first) subscribedRoomsRef.current.add(roomId)
     const unsub = subscribeChatMessages(roomId, (list) => {
-      const fresh = list.filter(m => !knownFsIdsRef.current.has(m.id))
+      // ব্লক করা পাঠকের নতুন মেসেজ আর ঢোকে না (পুরোনো ইতিহাস থাকে)
+      const fresh = filterBlockedMessages(list.filter(m => !knownFsIdsRef.current.has(m.id)), blockedUidsRef.current)
       fresh.forEach(m => knownFsIdsRef.current.add(m.id))
       if (fresh.length === 0) return
       setMsgs(prev => {
@@ -2167,15 +2224,27 @@ export function ChatPage() {
   // আমার রুমগুলো — কেউ আমাকে মেসেজ পাঠালে রুমটা এখানে দেখায়, এমনকি আমি
   // তাকে এখনো বন্ধু হিসেবে যোগ না করলেও। নইলে প্রাপকের কাছে রুম খোলার কোনো
   // পথই থাকত না (চ্যাট তালিকায় শুধু বন্ধুরাই থাকে)।
+  // ব্লক করা পাঠকের রুম তালিকায় আসে না (incoming-ই ফিল্টার করা)।
   useEffect(() => {
-    if (!uid) { setIncoming([]); return }
-    const unsub = subscribeMyChatRooms(uid, (rooms) => {
-      const knownIds = new Set(friends.map(f => f.id))
-      setIncoming(rooms.filter(r => r.otherUid !== uid && !knownIds.has(r.otherUid) && !isBuddyId(r.otherUid)))
-    })
+    if (!uid) { setRoomSummaries([]); return }
+    const unsub = subscribeMyChatRooms(uid, (rooms) => { setRoomSummaries(rooms) })
     return () => { if (unsub) unsub() }
-  }, [uid, friends])
+  }, [uid])
+  const incoming = useMemo(() => {
+    if (!uid) return []
+    const knownIds = new Set(friends.map(f => f.id))
+    return filterBlockedRooms(
+      roomSummaries.filter(r => r.otherUid !== uid && !knownIds.has(r.otherUid) && !isBuddyId(r.otherUid)),
+      blockedUids,
+    )
+  }, [roomSummaries, friends, uid, blockedUids])
+  // ওই ব্যবহারকারী আমাকে ব্লক করেছেন কি না — শেয়ার করা রুম ডকের blockedBy থেকে
+  const blockedByThem = !!activeFriend && !!roomId && (roomSummaries.find(r => r.roomId === roomId)?.blockedBy?.includes(activeFriend.id) ?? false)
+  const iBlockedThem = !!activeFriend && blockedUids.includes(activeFriend.id)
   function send() {
+    // ব্লক করা ব্যবহারকারীকে মেসেজ যায় না; যিনি আমাকে ব্লক করেছেন, তাঁকেও নয় —
+    // মেসেজটা সার্ভারে গিয়ে অদৃশ্য হয়ে যাওয়ার চেয়ে এখানেই আটকানো ভালো।
+    if (iBlockedThem || blockedByThem) return
     const err = contactBanCheck(draft)
     if (err) { setBan(err + ' Repeated attempts will raise more warnings.'); setWarn(w => w + 1); return }
     if (!draft.trim()) return
@@ -2221,15 +2290,24 @@ export function ChatPage() {
   const isBuddyChat = !activeFriend || isBuddyId(activeFriend.id)
   const chatSyncBlocked = !isBuddyChat && (!uid || !isFirebaseConfigured)
   function openChat(name: string) {
+    openedFromListRef.current = true
     setActive(name)
     setShowList(false)
     datingPartnerIdRef.current = null
+    // তালিকা থেকে খোলা — হিস্ট্রিতে এন্ট্রি পুশ হয়, যাতে সিস্টেম ব্যাক তালিকায় ফেরে
+    navigate('/chat', { state: { with: name } })
+  }
+  function backToList() {
+    // তালিকা থেকে খোলা চ্যাট হলে হিস্ট্রি ব্যাক — নিচের তালিকার এন্ট্রিতেই ফেরে।
+    // সরাসরি {with} দিয়ে এলে নিচে তালিকা নেই — এই এন্ট্রিটাই তালিকা দিয়ে বদলে যায়।
+    if (openedFromListRef.current) navigate(-1)
+    else navigate('/chat', { replace: true })
+    openedFromListRef.current = false
+    setShowList(true)
   }
   function openIncoming(room: ChatRoomSummary) {
     addFriend({ id: room.otherUid, name: room.otherName, color: colourForUid(room.otherUid), online: true })
-    setActive(room.otherName)
-    setShowList(false)
-    datingPartnerIdRef.current = null
+    openChat(room.otherName)
   }
   // তালিকা — শুধু "All chats"-এ ফিরলেই দেখায়; চ্যাট খোলা থাকলে শুধু চ্যাটটাই
   // পূর্ণ পর্দায় থাকে (আগে মোবাইলে তালিকাটা চ্যাটের উপরে, কম্পিউটারে পাশে থাকত)।
@@ -2249,9 +2327,17 @@ export function ChatPage() {
             </>
           )}
           {contacts.length === 0 && incoming.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
-          {contacts.map(f => (
-            <button key={f.id} onClick={() => openChat(f.name)} className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm ${active === f.name ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}><Avatar photo={f.photo} name={f.name} color={f.color} className="w-8 h-8 text-sm" online={f.online} />{f.name}</button>
-          ))}
+          {contacts.map(f => {
+            const thread = msgs[f.name] || []
+            const last = thread[thread.length - 1]
+            const canCall = !!uid && !isBuddyId(f.id) && f.id !== uid
+            return (
+              <div key={f.id} className={`flex items-center gap-1 rounded-lg text-sm ${active === f.name ? 'bg-violet-50 dark:bg-slate-700' : ''}`}>
+                <button onClick={() => openChat(f.name)} className="flex items-center gap-2 flex-1 min-w-0 text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800"><Avatar photo={f.photo} name={f.name} color={f.color} className="w-8 h-8 text-sm shrink-0" online={f.online} /><span className="flex-1 min-w-0"><span className={`block truncate ${active === f.name ? 'font-bold' : ''}`}>{f.name}</span><span className="block text-xs text-gray-400 truncate">{last ? `${last.from}: ${last.text}` : 'No messages yet'}</span></span></button>
+                {canCall && <button onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)} className="shrink-0 px-2 py-1.5 mr-1 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 text-xs font-bold" title={`Call ${f.name}`}>📞</button>}
+              </div>
+            )
+          })}
           <p className="text-xs text-gray-400 mt-3">Phone numbers, WhatsApp/Facebook/Telegram links or emails cannot be shared — they will be blocked automatically.</p>
           {warn > 0 && <p className="text-xs text-red-500 mt-1">Warning: {warn} times the rules were tried to be broken.</p>}
         </Card>
@@ -2262,8 +2348,17 @@ export function ChatPage() {
     <div className="max-w-2xl mx-auto">
       <Card>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowList(true)} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium">← All chats</button>
-          <h2 className="font-bold flex-1 flex items-center gap-2">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9" online={activeFriend.online} />}{active}</h2>
+          <button onClick={backToList} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium shrink-0">← All chats</button>
+          <h2 className="font-bold flex-1 flex items-center gap-2 min-w-0">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9 shrink-0" online={activeFriend.online} />}<span className="truncate">{active}</span></h2>
+          {isRealUser && !iBlockedThem && !blockedByThem && (
+            <button onClick={() => navigate(`/call/friend/${encodeURIComponent(active)}`)} className="shrink-0 px-3 py-1.5 rounded-full bg-green-600 text-white text-xs font-bold" title={`Call ${active}`}>📞 Call</button>
+          )}
+          {isRealUser && !iBlockedThem && activeFriend && (
+            <button onClick={() => blockUser(activeFriend.id, activeFriend.name)} className="shrink-0 px-2 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs font-medium" title={`Block ${active}`}>🚫 Block</button>
+          )}
+          {isRealUser && iBlockedThem && activeFriend && (
+            <button onClick={() => unblockUser(activeFriend.id)} className="shrink-0 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs font-bold">Unblock</button>
+          )}
         </div>
         {chatSyncBlocked && (
           <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 rounded-lg px-3 py-2 mt-2">Messages in this chat stay on this device only — log in with Google or an email link so they reach {active}.</p>
@@ -2271,9 +2366,15 @@ export function ChatPage() {
         {sendFailed && (
           <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 rounded-lg px-3 py-2 mt-2">The last message could not be sent — it stays on this device only.</p>
         )}
-        <div className="h-64 overflow-y-auto space-y-2 mt-3">
+        {iBlockedThem && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 rounded-lg px-3 py-2 mt-2">You blocked {active} — they cannot message or call you. Unblock above to talk again.</p>
+        )}
+        {blockedByThem && !iBlockedThem && (
+          <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 rounded-lg px-3 py-2 mt-2">{active} is not accepting messages or calls from you right now.</p>
+        )}
+        <div ref={msgListRef} className="h-64 overflow-y-auto space-y-2 mt-3">
           {(msgs[active] || []).map((m, i) => (
-            <div key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-violet-100 dark:bg-violet-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}>
+            <div key={i} className={`text-sm px-3 py-2 rounded-[17px] max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-pi-purple text-white ml-auto rounded-br-[5px]' : 'bg-white dark:bg-[#211a30] border border-[#e7e0f2] dark:border-[#372b52] rounded-bl-[5px]'}`}>
               <p><b>{m.from}:</b> {m.text}</p>
               {m.localOnly && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">Only on this device — not sent</p>}
             </div>
@@ -2282,10 +2383,14 @@ export function ChatPage() {
           {typing[active] && <p className="text-sm text-gray-400 italic px-3 py-2">{active} typing…</p>}
         </div>
         {ban && <p className="text-sm text-red-500 mt-2">{ban}</p>}
-        <div className="flex gap-2 mt-3">
-          <input className="flex-1 border rounded-full px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Write a message… (chat is free)" />
-          <Btn onClick={send}>Send</Btn>
-        </div>
+        {iBlockedThem || blockedByThem ? (
+          <p className="text-sm text-gray-400 mt-3 text-center">Messaging is off for this chat.</p>
+        ) : (
+          <div className="flex gap-2 mt-3">
+            <input className="flex-1 border rounded-full px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-600" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Write a message… (chat is free)" />
+            <button onClick={send} className="w-11 h-11 rounded-full bg-pi-purple text-white grid place-items-center shrink-0" title="Send"><IconSend className="w-5 h-5" /><span className="sr-only">Send</span></button>
+          </div>
+        )}
       </Card>
     </div>
   )
@@ -2396,12 +2501,12 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
         setRecording(true)
         setTimeout(() => { if (rec.state !== 'inactive') rec.stop() }, 3000)
       } catch {
-        setVideoNote('Live video could not be recorded — verification will use only the selfie photo.')
+        setVideoNote('Live video could not be captured — verification will use only the selfie photo.')
         stream.getTracks().forEach(t => t.stop())
         streamRef.current = null
       }
     } else {
-      setVideoNote('Live video could not be recorded — verification will use only the selfie photo.')
+      setVideoNote('Live video could not be captured — verification will use only the selfie photo.')
       stream?.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
@@ -2516,10 +2621,10 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
       {step === 2 && (
         <div className="mt-4 text-center">
           <p className="text-sm font-medium">📸 Take Live Selfie</p>
-          <p className="text-xs text-gray-400 mt-1">Take your live photo with the front camera — a ~3-second live video clip will also be recorded with the photo. Photo and video are kept for verification only. They are not shared with other users and are not uploaded anywhere (they stay only on this device).</p>
+          <p className="text-xs text-gray-400 mt-1">Take your live photo with the front camera. Photo and video are kept for verification only. They are not shared with other users and are not uploaded anywhere (they stay only on this device).</p>
           {!captured && <video ref={videoRef} className="w-full aspect-[3/4] bg-black rounded-xl mt-3 object-cover" autoPlay playsInline muted />}
           {captured && <img src={captured} alt="Live Selfie" className="w-full aspect-[3/4] object-cover rounded-xl mt-3" />}
-          {recording && <p className="text-sm text-red-500 mt-2 font-medium">🎥 Recording live video… wait ~3 seconds</p>}
+          {recording && <p className="text-sm text-red-500 mt-2 font-medium">⏳ Please wait ~3 seconds</p>}
           {videoClip && <div className="mt-3"><p className="text-xs text-gray-400 mb-1">🎥 Your Live Video Clip</p><video src={videoClip} controls loop muted playsInline className="w-full aspect-[3/4] object-cover rounded-xl bg-black" /></div>}
           {videoNote && <p className="text-xs text-amber-600 mt-2">{videoNote}</p>}
           {camError && <p className="text-sm text-red-500 mt-2">{camError}</p>}
@@ -2684,7 +2789,14 @@ export function DatingPage() {
         <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
-        {sortedCandidates.filter(p => !dismissed[p.id]).length === 0 && <p className="text-sm text-gray-500 col-span-2">No profiles yet — check back later.</p>}
+        {sortedCandidates.filter(p => !dismissed[p.id]).length === 0 && (
+          <div className="col-span-2 rounded-[20px] border border-[#e7e0f2] dark:border-[#372b52] p-5 text-center">
+            <p className="font-bold text-lg">💛 No profiles yet</p>
+            <p className="text-sm text-gray-500 mt-1">Real people only — no fake profiles here. Complete your Dating profile and invite friends to join; new profiles appear here as soon as they sign up.</p>
+            <p className="text-xs text-gray-400 mt-2">18+ only • KYC verified before calls and withdrawals</p>
+            <Btn className="mt-3" onClick={() => navigate('/menu')}>Complete my profile</Btn>
+          </div>
+        )}
         {sortedCandidates.filter(p => !dismissed[p.id]).map(p => {
           const sameDistrict = !!myDistrict && p.district === myDistrict
           const shared = (p.interests ?? []).filter(i => myInterestSet.has(i))
@@ -3287,6 +3399,20 @@ export function LiveTV() {
   const [current, setCurrent] = useState<TvChannel>(TV_CHANNELS[0])
   const [playError, setPlayError] = useState('')
   const [shareMsg, setShareMsg] = useState('')
+  // চলে কি না যাচাই — চলে এমন উপরে, না-চলা নিচে; যাচাই চলাকালীন তালিকা
+  // আগের ক্রমেই থাকে, ফল এলে ধাপে ধাপে সাজে। প্রতি সেশনে একবার যাচাই হয়
+  // (রিলোড = নতুন যাচাই) — ক্যাশে থাকা ফল নেটওয়ার্ক ছোঁয় না।
+  const [playStatus, setPlayStatus] = useState<Record<string, ProbeStatus>>({})
+  const [probing, setProbing] = useState(false)
+  useEffect(() => {
+    const urls = channels.map(c => c.streamUrl).filter(Boolean) as string[]
+    if (urls.length === 0) return
+    let alive = true
+    setProbing(true)
+    probeChannels(urls, { onProgress: (url, plays) => { if (alive) setPlayStatus(prev => ({ ...prev, [url]: plays })) } })
+      .finally(() => { if (alive) setProbing(false) })
+    return () => { alive = false }
+  }, [channels])
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -3345,11 +3471,13 @@ export function LiveTV() {
   }, [current])
   const groups = ['All', ...Array.from(new Set(channels.map(c => c.group)))]
   const list = channels.filter(c => cat === 'All' || c.group === cat)
+  const sortedList = sortChannelsByPlayability(list, playStatus)
   return (
     <div className="space-y-4 max-w-4xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconLiveTV className="w-6 h-6" /> Live TV</h1>
       <Card>
-        <div ref={playerRef} className="tv-player w-full aspect-video bg-black rounded-lg overflow-hidden">
+        <div ref={playerRef} className="tv-player relative w-full aspect-video bg-black rounded-lg overflow-hidden">
+          {current.streamUrl && <span className="absolute top-2 left-2 z-10 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full">● LIVE</span>}
           {current.streamUrl ? (
             <video ref={videoRef} controls autoPlay muted playsInline onError={() => setPlayError('This stream is not playing right now — try another channel.')} className="w-full h-full object-contain bg-black" />
           ) : (
@@ -3371,12 +3499,19 @@ export function LiveTV() {
         <p className="text-xs text-gray-400 mt-2">{fromPlaylist ? `${channels.length} channels from the admin playlist.` : 'Playlist could not be loaded — showing saved channels.'} If a channel does not play, try another one.</p>
       </Card>
       <div className="flex gap-2 flex-wrap">{groups.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 rounded-full text-sm ${cat === c ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{c}</button>)}</div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {list.map(ch => (
-          <button key={ch.id} onClick={() => { setCurrent(ch); setPlayError('') }} className={`text-left rounded-xl p-4 shadow-sm ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500' : 'bg-white dark:bg-fb-card'}`}>
-            <p className="font-bold flex items-center gap-2">{ch.logo ? <img src={ch.logo} alt="" className="w-6 h-6 rounded object-contain bg-white" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <IconLiveTV className="w-6 h-6 text-gray-400" />} {ch.name}</p><p className="text-xs text-gray-400">{ch.group}{ch.streamUrl ? '' : ' • Link only'}</p>
-          </button>
-        ))}
+      {probing && <p className="text-xs text-gray-400">Checking channels… working ones move to the top.</p>}
+      <div className="space-y-2">
+        {sortedList.map(ch => {
+          const st = ch.streamUrl ? playStatus[ch.streamUrl] : false
+          return (
+            <button key={ch.id} onClick={() => { setCurrent(ch); setPlayError('') }} className={`w-full flex items-center gap-3 text-left rounded-[16px] px-3 py-2 border ${current.id === ch.id ? 'bg-violet-100 dark:bg-violet-900 ring-2 ring-violet-500 border-transparent' : 'bg-white dark:bg-[#211a30] border-[#e7e0f2] dark:border-[#372b52]'}`}>
+              <span className="w-[46px] h-[46px] rounded-xl bg-[#f1ecf9] dark:bg-[#2b2142] grid place-items-center shrink-0">{ch.logo ? <img src={ch.logo} alt="" className="w-6 h-6 rounded object-contain bg-white" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <IconLiveTV className="w-6 h-6 text-gray-400" />}</span>
+              <span className="flex-1 min-w-0"><span className="block font-bold truncate">{ch.name}</span><span className="block text-xs text-gray-400">{ch.group}{ch.streamUrl ? '' : ' • Link only'}</span></span>
+              {st === true && <span className="shrink-0 text-xs font-bold text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300 px-2 py-1 rounded-full">Playing</span>}
+              {st === false && ch.streamUrl && <span className="shrink-0 text-xs text-gray-400 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-full">Not playing</span>}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -3733,10 +3868,15 @@ export function ReelsPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconReels className="w-6 h-6" /> Reels & Monetization</h1>
       <p className="text-sm text-gray-500">Total share: <b>↗️ {totalShares}</b> • If you like it, share — friends will join PiCall!</p>
-      <p className="text-sm text-gray-500">🎬 Reels is coming soon — video uploads will open here later.</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
+      {REELS.length === 0 && videoReels.length === 0 ? (
+        <div className="bg-[#241536] rounded-[20px] px-4 py-10 text-center">
+          <p className="text-white font-bold text-lg">🎬 Reels is coming soon</p>
+          <p className="text-white/60 text-sm mt-2">Video uploads will open here later.</p>
+          <p className="text-white/40 text-sm mt-1">No reels yet.</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-3">
-        {REELS.length === 0 && videoReels.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
         {REELS.map(r => (
           <Card key={r.id}>
             <div className="text-white"><IconReels className="w-9 h-9" /></div>
@@ -3760,6 +3900,7 @@ export function ReelsPage() {
           </Card>
         ))}
       </div>
+      )}
       <Card><h2 className="font-bold">Creator Monetization</h2><p className="text-sm mt-1">Earn from Reels, live classes and premium content. Creators get a share from views, gifts and subscriptions — details in the admin revenue panel.</p></Card>
     </div>
   )
@@ -4594,7 +4735,7 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
 }
 
 export function MenuPage() {
-  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode, friends, posts, profilePhoto } = useStore()
+  const { user, totalPi, logout, isAdmin, soundSettings, setSoundSettings, callPrivacy, setCallPrivacy, uid, referralCode, friends, posts, profilePhoto, blockedUids, blockedNames, unblockUser } = useStore()
   const [showProfileSettings, setShowProfileSettings] = useState(false)
   const myPosts = posts.filter(p => p.author === 'You').slice(0, 3)
   const navigate = useNavigate()
@@ -4632,22 +4773,23 @@ export function MenuPage() {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center text-center">
           {profilePhoto
-            ? <img src={profilePhoto} alt="Profile photo" className="w-16 h-16 rounded-full object-cover" />
-            : <span className="w-16 h-16 rounded-full pb-gradient text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>}
-          <div><p className="font-bold text-lg">{user ? user.name : 'Guest user'}</p><p className="text-sm text-gray-500">{user?.email || 'Log in'}</p></div>
-          <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">{formatPi(totalPi)}</button>
+            ? <img src={profilePhoto} alt="Profile photo" className="w-20 h-20 rounded-full object-cover ring-4 ring-[#e7e0f2] dark:ring-[#372b52]" />
+            : <span className="w-20 h-20 rounded-full pb-gradient text-white text-3xl flex items-center justify-center font-bold ring-4 ring-[#e7e0f2] dark:ring-[#372b52]">{user ? user.name.slice(0, 1) : '👤'}</span>}
+          <p className="font-bold text-lg mt-2">{user ? user.name : 'Guest user'}</p>
+          <p className="text-sm text-gray-500">{user?.email || 'Log in'}</p>
+          <button onClick={() => navigate('/wallet')} className="mt-2 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">{formatPi(totalPi)}</button>
         </div>
-        {user && <div className="flex gap-2 mt-3">
+        {user && <div className="flex gap-2 mt-3 justify-center">
           <Btn variant="ghost" onClick={() => setShowProfileSettings(s => !s)}><span className="flex items-center gap-1"><IconSettings className="w-4 h-4" /> Profile Settings</span></Btn>
           <Btn variant="ghost" onClick={() => { logout(); navigate('/') }}>Log out</Btn>
         </div>}
         {!user && <Btn className="mt-3" onClick={() => navigate('/login')}>Log in</Btn>}
         <div className="grid grid-cols-3 gap-2 mt-3">
-          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{friends.length}</p><p className="text-xs text-gray-400">Friends</p></div>
-          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{posts.length}</p><p className="text-xs text-gray-400">Posts</p></div>
-          <div className="text-center bg-gray-50 dark:bg-slate-800 rounded-xl py-2"><p className="font-extrabold text-lg">{formatPi(totalPi)}</p><p className="text-xs text-gray-400">Pi balance</p></div>
+          <div className="text-center border border-[#e7e0f2] dark:border-[#372b52] rounded-[16px] py-2"><p className="font-extrabold text-lg">{friends.length}</p><p className="text-xs text-gray-400">Friends</p></div>
+          <div className="text-center border border-[#e7e0f2] dark:border-[#372b52] rounded-[16px] py-2"><p className="font-extrabold text-lg">{posts.length}</p><p className="text-xs text-gray-400">Posts</p></div>
+          <div className="text-center border border-[#e7e0f2] dark:border-[#372b52] rounded-[16px] py-2"><p className="font-extrabold text-lg">{formatPi(totalPi)}</p><p className="text-xs text-gray-400">Pi balance</p></div>
         </div>
       </Card>
       {showProfileSettings && <ProfileSettingsForm onClose={() => setShowProfileSettings(false)} />}
@@ -4712,6 +4854,18 @@ export function MenuPage() {
             <Btn variant="ghost" onClick={() => playRingtoneOnce(soundSettings)}>📞 Hear ringtone</Btn>
           </div>
         </div>
+      </Card>
+      <Card>
+        <h2 className="font-bold">🚫 Blocked users</h2>
+        <p className="text-xs text-gray-500 mt-1">Blocked people cannot message or call you. They cannot see that they are blocked — their messages and calls simply do not reach you.</p>
+        {blockedUids.length === 0
+          ? <p className="text-sm text-gray-500 mt-2">No blocked users.</p>
+          : blockedUids.map(id => (
+            <div key={id} className="flex items-center gap-3 py-2">
+              <span className="flex-1 font-medium">{friends.find(f => f.id === id)?.name ?? blockedNames[id] ?? `${id.slice(0, 8)}…`}</span>
+              <Btn variant="ghost" onClick={() => unblockUser(id)}>Unblock</Btn>
+            </div>
+          ))}
       </Card>
       <Card>
         <h2 className="font-bold">More</h2>

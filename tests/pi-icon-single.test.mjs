@@ -51,7 +51,9 @@ check('হেডার ব্যালেন্স বোতামে একট�
 })
 
 check('ওয়ালেটের বড় ব্যালেন্সে একটাই π', () => {
-  const line = lineWith(pages, 'text-4xl font-extrabold pb-gradient-text')
+  // ডেমো ওয়ালেট-কার্ড (২০২৬-১১-২৪): বড় ব্যালেন্স এখন সাদা লেখায়
+  // pb-gradient কার্ডে (font-display) — আগের pb-gradient-text লেখা নয়।
+  const line = lineWith(pages, 'text-4xl font-extrabold font-display')
   assert.ok(line.includes('{formatPi(totalPi)}'), 'বড় ব্যালেন্স formatPi নয়')
   // লাইনে আক্ষরিক π ০টা — formatPi রানটাইমে একটাই π দেয়
   assert.equal(countPi(line), 0, `বড় ব্যালেন্স লাইনে আক্ষরিক π ${countPi(line)}টা: ${line.trim()}`)

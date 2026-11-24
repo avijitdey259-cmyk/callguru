@@ -78,15 +78,15 @@ export function IncomingCallCard({ invite, photo, onAccept, onDecline }: {
 
 /** গ্লোবাল হোস্ট — App.tsx-এ Layout রুটের ভেতরে একবারই বসে। */
 export function IncomingCallHost() {
-  const { user, uid, referralCode, friends, soundSettings, callPrivacy } = useStore()
+  const { user, uid, referralCode, friends, soundSettings, callPrivacy, blockedUids } = useStore()
   const navigate = useNavigate()
   const loc = useLocation()
   const [overlay, setOverlay] = useState<InviteOverlayState>(idleOverlayState())
   const ringStopRef = useRef<(() => void) | null>(null)
   const expireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // কলব্যাকের ভেতরে সবসময় তাজা মান — বন্ধু তালিকা/সেটিংস/পাথ বদলালেও ঠিক থাকে
-  const liveRef = useRef({ friends, soundSettings, callPrivacy, pathname: loc.pathname })
-  liveRef.current = { friends, soundSettings, callPrivacy, pathname: loc.pathname }
+  const liveRef = useRef({ friends, soundSettings, callPrivacy, blockedUids, pathname: loc.pathname })
+  liveRef.current = { friends, soundSettings, callPrivacy, blockedUids, pathname: loc.pathname }
 
   const stopRingtone = () => {
     if (ringStopRef.current) { try { ringStopRef.current() } catch { /* ignore */ } ringStopRef.current = null }
@@ -106,16 +106,17 @@ export function IncomingCallHost() {
     if (!user || !presenceId) return
     const conn = connectPresence(presenceId, user.name, {
       onInvite: (invite) => {
-        const { friends: fr, soundSettings: ss, callPrivacy: cp, pathname } = liveRef.current
+        const { friends: fr, soundSettings: ss, callPrivacy: cp, blockedUids: bl, pathname } = liveRef.current
         const gate = shouldShowInvite(invite, {
           privacy: cp,
           isFriend: fr.some((f) => f.id === invite.fromId),
           inCall: isInCallPath(pathname),
           selfId: presenceId,
+          isBlocked: bl.includes(invite.fromId),
         })
         if (!gate.show) {
           // ব্যস্ত/ব্লক থাকলে কলকারীকে সঙ্গে সঙ্গে জানিয়ে দেওয়া — উনি অপেক্ষায় থাকেন না
-          if (gate.reason === 'in-call' || gate.reason === 'privacy-nobody' || gate.reason === 'privacy-friends') {
+          if (gate.reason === 'in-call' || gate.reason === 'privacy-nobody' || gate.reason === 'privacy-friends' || gate.reason === 'blocked') {
             sendInviteResponse(invite.fromId, invite.code, false)
           }
           return

@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT, type Post } from './data'
-import { BUDDIES } from './buddies'
+import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked } from './firestore'
+import { blockRoomId, cleanUidList } from './blocking'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, datingGateReached, type LocalUserState } from './firestoreMapping'
@@ -212,6 +213,13 @@ type Store = {
   datingChatPartnerIds: string[]
   recordDatingChat: (partnerId: string) => void
   datingKycRequired: boolean
+  // ব্লক — যেকোনো ব্যবহারকারী যেকোনো ব্যবহারকারীকে মেসেজ + কল থেকে ব্লক করতে
+  // পারেন; ব্লক করা জনের মেসেজ/কল আর পৌঁছায় না; আনব্লকও করা যায়। UID-ই
+  // সত্য (users/{uid} ডকে সিঙ্ক হয়); নাম শুধু এই ডিভাইসে দেখানোর সাহায্য।
+  blockedUids: string[]
+  blockedNames: Record<string, string>
+  blockUser: (targetUid: string, targetName?: string) => void
+  unblockUser: (targetUid: string) => void
   claimReferralBonus: () => boolean
   // π Pi রিপোর্ট — সব Pi লেনদেনের খতিয়ান (নতুনতম আগে), ওয়ালেটে দেখায়
   piLedger: PiLedgerRow[]
@@ -257,7 +265,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ফিডের খোঁজা + পোস্ট — হেডার সার্চ আর ফিড একই অবস্থা দেখে (পোস্ট আগে ফিডের
   // লোকাল state-এ ছিল, নেভিগেট করলেই হারাত; এখন সেশনে থাকে, Firestore-এ যায় না)
   const [feedQuery, setFeedQuery] = useState('')
-  const [posts, setPosts] = useState<Post[]>(() => load<Post[]>('posts', SEED_POSTS))
+  const [posts, setPosts] = useState<Post[]>(() => {
+    const base = load<Post[]>('posts', SEED_POSTS)
+    // পারসোনা পোস্ট (রিমা/শাকিল/ফাহিম/মিম/আশা + নতুন ৬ বন্ধু) — ফিড যাতে খালি
+    // না লাগে: পুরোনো ডিভাইসেও একবার মিশে যায়; ডুপ্লিকেট হয় না, আর ফিরে আসে না।
+    if (!load('personaPostsSeeded', false)) {
+      const have = new Set(base.map(p => p.id))
+      const missing = SEED_POSTS.filter(p => !have.has(p.id))
+      if (missing.length > 0) return [...missing, ...base]
+    }
+    return base
+  })
+  useEffect(() => save('personaPostsSeeded', true), [])
   const [freshPostIds, setFreshPostIds] = useState<string[]>([])
   // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
   // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
@@ -374,6 +393,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // প্রগ্রেসিভ KYC — ডেটিংয়ে চ্যাট করা আলাদা মানুষের তালিকা (ID দিয়ে, নামে নয়);
   // ৫ জন হলেই KYC বাধ্যতামূলক হয়। users/{uid} ব্যক্তিগত ডকেও সিঙ্ক হয়।
   const [datingChatPartnerIds, setDatingChatPartnerIds] = useState<string[]>(() => load('datingChatPartnerIds', []))
+  // ব্লক করা ব্যবহারকারী (UID) — localStorage ক্যাশ + users/{uid} ডকে সিঙ্ক;
+  // নাম শুধু এই ডিভাইসে ব্লক তালিকায় দেখানোর সাহায্য (ব্লকের সত্য UID-ই)।
+  const [blockedUids, setBlockedUids] = useState<string[]>(() => cleanUidList(load<string[]>('blockedUids', [])))
+  const [blockedNames, setBlockedNames] = useState<Record<string, string>>(() => load('blockedNames', {}))
+  useEffect(() => save('blockedUids', blockedUids), [blockedUids])
+  useEffect(() => save('blockedNames', blockedNames), [blockedNames])
   // পুরোনো সংরক্ষিত "Demo" লেখা থাকলে নিরবে নতুন লেখায় বদলে যায় (ইতিহাস থাকে, লেখা থাকে না)
   const sanitizePiTx = (list: PiTx[]): PiTx[] => list.map(t => ({
     ...t,
@@ -528,6 +553,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests,
     recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled,
     datingChatPartnerIds,
+    blockedUids,
   })
 
   // ক্লাউডের ডক → স্টোরে বসানো (যা ঘর ডকে নেই, সেটা বদলায় না)।
@@ -584,6 +610,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (h.recoveryPhoneVerified !== undefined) setRecoveryPhoneVerified(h.recoveryPhoneVerified)
     if (h.twoFactorEnabled !== undefined) setTwoFactorEnabled(h.twoFactorEnabled)
     if (h.datingChatPartnerIds !== undefined) setDatingChatPartnerIds(h.datingChatPartnerIds)
+    if (h.blockedUids !== undefined) setBlockedUids(cleanUidList(h.blockedUids))
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
@@ -657,6 +684,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setRecoveryPhoneVerified(false)
     setTwoFactorEnabled(false)
     setDatingChatPartnerIds([])
+    setBlockedUids([])
+    setBlockedNames({})
     setPiLedger([{ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: 20 }])
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
@@ -765,7 +794,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -1128,6 +1157,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setDatingChatPartnerIds(prev => prev.includes(id) ? prev : [...prev, id].slice(0, 50))
     },
     datingKycRequired: datingGateReached(kycStatus, datingChatPartnerIds.length),
+    blockedUids,
+    blockedNames,
+    blockUser: (targetUid, targetName) => {
+      const t = (targetUid || '').trim()
+      if (!t || t === uid) return
+      if (isBuddyId(t)) return // চ্যাট পারসোনা আসল মানুষ নয় — ব্লকের দরকার নেই
+      setBlockedUids(prev => prev.includes(t) ? prev : [...prev, t])
+      if (targetName && targetName.trim()) setBlockedNames(prev => ({ ...prev, [t]: targetName.trim() }))
+      // শেয়ার করা রুম ডকেও ব্লক লেখা হয় — ব্লক হওয়া পক্ষ পাঠানোর/কল করার আগেই জানতে পারেন
+      if (uid) setRoomBlocked(blockRoomId(uid, t), uid, true).catch(() => { /* localStorage ক্যাশেই ব্লক থাকে */ })
+    },
+    unblockUser: (targetUid) => {
+      const t = (targetUid || '').trim()
+      if (!t) return
+      setBlockedUids(prev => prev.filter(x => x !== t))
+      setBlockedNames(prev => { const next = { ...prev }; delete next[t]; return next })
+      if (uid) setRoomBlocked(blockRoomId(uid, t), uid, false).catch(() => { /* ignore */ })
+    },
     piRateBDT,
     setPiRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setPiRateBDTState(n) },
     usdtRateBDT,

@@ -1,5 +1,5 @@
 // PiCall চ্যাট বন্ধুরা — অ্যাপে নতুন ব্যবহারকারীর কথা বলার মতো কেউ থাকে,
-// তাই এই ৫ জন বন্ধু চ্যাটে উত্তর দেয়। উত্তর আসে এই ফাইলের স্থানীয়
+// তাই এই ১১ জন বন্ধু চ্যাটে উত্তর দেয়। উত্তর আসে এই ফাইলের স্থানীয়
 // (লোকাল) উত্তর-ইঞ্জিন থেকে — কোনো বাইরের সার্ভিস বা API key লাগে না।
 // এরা শুধু Friends আর Chat-এ থাকে — Dating-এ কখনো আসে না।
 // প্রত্যেকের নিজস্ব স্বর আছে: মজার জন মজা করে, যত্নশীল জন মনের খবর নেয়,
@@ -26,6 +26,15 @@ export const BUDDIES: BuddyPersona[] = [
   { id: 'bd-fahim', name: 'Fahim', color: '#27AE60', online: true, about: 'Loves answering every question', voice: 'helpful' },
   { id: 'bd-mim', name: 'Mim', color: '#9C27B0', online: true, about: 'Loves songs and chats', voice: 'music' },
   { id: 'bd-asha', name: 'Asha', color: '#FF9800', online: true, about: 'Loves dreaming, always talks of hope', voice: 'dreamy' },
+  // মালিকের নির্দেশে যোগ (২০২৬-১১-২৪, "সদস্য বাড়াই দাও") — বন্ধু তালিকা আর
+  // ফিড যাতে ভরা লাগে: ছেলে ৩ + মেয়ে ৩। একই নিয়ম: শুধু Friends/Chat,
+  // Dating-এ নয়; নিজে থেকে প্রথমে লেখে না; কোনো AI লেবেল নেই।
+  { id: 'bd-tanvir', name: 'Tanvir', color: '#0EA5E9', online: true, about: 'Always laughing, never bored', voice: 'funny' },
+  { id: 'bd-faysal', name: 'Faysal', color: '#14B8A6', online: true, about: 'Knows a little about everything', voice: 'helpful' },
+  { id: 'bd-imran', name: 'Imran', color: '#65A30D', online: true, about: 'A good listener, always kind', voice: 'caring' },
+  { id: 'bd-sadia', name: 'Sadia', color: '#8B5CF6', online: true, about: 'Sings while she chats', voice: 'music' },
+  { id: 'bd-tanha', name: 'Tanha', color: '#F59E0B', online: true, about: 'Dreamer with big plans', voice: 'dreamy' },
+  { id: 'bd-nabila', name: 'Nabila', color: '#EC4899', online: true, about: 'Cares deeply, always asks how you are', voice: 'caring' },
 ]
 
 export function isBuddyId(id: string): boolean {
@@ -151,7 +160,7 @@ const INTENTS: Intent[] = [
     funOk: false,
     funny: ['Pi নিয়ে প্রশ্ন? ওয়ালেটে গিয়ে দেখো, সব লেখা আছে 😄', 'Pi কিনতে চাইলে ওয়ালেটে যাও — বিকাশ, নগদ, USDT সব আছে!'],
     caring: ['Pi নিয়ে চিন্তা কোরো না, ওয়ালেটে সব পরিষ্কার লেখা আছে ❤️ কিছু বুঝতে না পারলে বলো।', 'Pi কিনতে ওয়ালেটে যাও, আমি এখানেই আছি 😊'],
-    helpful: ['Pi-র দর অ্যাডমিন ঠিক করেন — এখন ১ Pi = ৳১০০ (ডেমো দর)। ওয়ালেট থেকে বিকাশ/নগদ/রকেট/USDT দিয়ে কিনতে পারো। রেফারেলে ১ π বোনাসও পাওয়া যায় — শুধু কল আর গিফটে চলে।', 'টপ-আপ করতে ওয়ালেটে যাও — টাকা দিলে অটো Pi হয়ে যায়। সর্বনিম্ন তোলা ১০ USDT সমান Pi।'],
+    helpful: ['Pi-র দর অ্যাডমিন ঠিক করেন — এখন ১ Pi = ৳১০০। ওয়ালেট থেকে বিকাশ/নগদ/রকেট/USDT দিয়ে কিনতে পারো। রেফারেলে ১ π বোনাসও পাওয়া যায় — শুধু কল আর গিফটে চলে।', 'টপ-আপ করতে ওয়ালেটে যাও — টাকা দিলে অটো Pi হয়ে যায়। সর্বনিম্ন তোলা ১০ USDT সমান Pi।'],
     music: ['Pi দিয়ে গিফট পাঠাতে পারো লাইভে! 🎵 ওয়ালেটে গিয়ে দেখো।', 'Pi কিনে লাইভে গিফট দাও — হোস্ট খুশি হবে! 😄'],
     dreamy: ['Pi নিয়ে কিছু জানতে চাইলে ওয়ালেটে দেখো 😊 আমি তো এখানেই আছি।', 'Pi কিনতে ওয়ালেটে যাও — স্বপ্ন পূরণের প্রথম ধাপ! ✨'],
   },
@@ -337,7 +346,7 @@ const EN_INTENTS: Intent[] = [
     funOk: false,
     funny: ['A Pi question? Check the Wallet, everything is written there 😄', 'Want to buy Pi? Go to the Wallet — bKash, Nagad, USDT, all there!'],
     caring: ['Don\'t worry about Pi, everything is written clearly in the Wallet ❤️ Tell me if anything confuses you.', 'To buy Pi, go to the Wallet — I\'m right here 😊'],
-    helpful: ['The admin sets the Pi rate — right now 1 Pi = 100 BDT (demo rate). You can buy from the Wallet with bKash, Nagad, Rocket or USDT. Referrals also earn a 1 π bonus — for calls and gifts only.', 'To top up, go to the Wallet — pay money and it becomes Pi automatically. Minimum withdrawal is Pi equal to 10 USDT.'],
+    helpful: ['The admin sets the Pi rate — right now 1 Pi = 100 BDT. You can buy from the Wallet with bKash, Nagad, Rocket or USDT. Referrals also earn a 1 π bonus — for calls and gifts only.', 'To top up, go to the Wallet — pay money and it becomes Pi automatically. Minimum withdrawal is Pi equal to 10 USDT.'],
     music: ['You can send gifts on live with Pi! 🎵 Go check the Wallet.', 'Buy Pi and gift on live — the host will be so happy! 😄'],
     dreamy: ['Want to know about Pi? Check the Wallet 😊 I\'m right here.', 'To buy Pi, go to the Wallet — the first step to making dreams come true! ✨'],
   },

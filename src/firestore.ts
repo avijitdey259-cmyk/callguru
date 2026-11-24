@@ -145,7 +145,38 @@ export async function sendChatMessage(roomId: string, fromUid: string, fromName:
 // members-এ array-contains কোয়েরি (একটাই ক্ষেত্র, কম্পোজিট ইনডেক্স লাগে না);
 // নতুন থেকে পুরনো — ক্লায়েন্টেই সাজানো হয়। না পেলে [] — চ্যাট তখন আগের মতো
 // বন্ধু তালিকাতেই চলে।
-export type ChatRoomSummary = { roomId: string; otherUid: string; otherName: string; updatedAtMs: number }
+export type ChatRoomSummary = { roomId: string; otherUid: string; otherName: string; updatedAtMs: number; blockedBy?: string[] }
+
+/** রুম ডক পড়া — blockedBy দেখার জন্য (কল/মেসেজ পাঠানোর আগের যাচাই)। না পেলে null। */
+export async function fetchChatRoomDoc(roomId: string): Promise<{ blockedBy?: string[] } | null> {
+  const d = getDb()
+  if (!d || !roomId) return null
+  try {
+    const snap = await getDoc(doc(d, 'chats', roomId))
+    if (!snap.exists()) return null
+    const data = snap.data() as Record<string, unknown>
+    return { blockedBy: Array.isArray(data.blockedBy) ? (data.blockedBy as unknown[]).filter((x): x is string => typeof x === 'string') : undefined }
+  } catch { return null }
+}
+
+/** রুম ডকে ব্লক লেখা/তোলা — দুই সদস্যই পড়তে পারেন, তাই ব্লক হওয়া পক্ষও
+ *  পাঠানোর আগেই জানতে পারেন। রুম না থাকলে members-সহ তৈরি হয় (নিয়ম: নিজের
+ *  UID members-এ থাকলে লেখা যায়)। না পারলে false — অ্যাপ তবু localStorage
+ *  ক্যাশের ব্লক মেনে চলে। */
+export async function setRoomBlocked(roomId: string, uid: string, blocked: boolean): Promise<boolean> {
+  const d = getDb()
+  if (!d || !roomId || !uid) return false
+  try {
+    const members = chatRoomMembers(roomId)
+    if (!members) return false
+    await setDoc(doc(d, 'chats', roomId), {
+      members,
+      blockedBy: blocked ? arrayUnion(uid) : arrayRemove(uid),
+      updatedAtMs: Date.now(), updatedAt: serverTimestamp(),
+    }, { merge: true })
+    return true
+  } catch { return false }
+}
 
 export function subscribeMyChatRooms(uid: string, cb: (rooms: ChatRoomSummary[]) => void): Unsubscribe | null {
   const d = getDb()
@@ -163,6 +194,7 @@ export function subscribeMyChatRooms(uid: string, cb: (rooms: ChatRoomSummary[])
           otherUid: other ?? '',
           otherName,
           updatedAtMs: typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0,
+          blockedBy: Array.isArray(data.blockedBy) ? (data.blockedBy as unknown[]).filter((x): x is string => typeof x === 'string') : undefined,
         }
       }).filter(r => r.otherUid !== '')
       rooms.sort((a, b) => b.updatedAtMs - a.updatedAtMs)

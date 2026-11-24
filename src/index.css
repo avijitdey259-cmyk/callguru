@@ -4,8 +4,8 @@
 
 :root { color-scheme: light; }
 html, body, #root { min-height: 100%; }
-body { font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Bengali', sans-serif; background: #FFFFFF; color: #111827; }
-.dark body { background: #0F0F0F; color: #F5F5F5; }
+body { font-family: 'Hind Siliguri', system-ui, -apple-system, 'Segoe UI', 'Noto Sans Bengali', sans-serif; background: #faf8fc; color: #221a33; }
+.dark body { background: #16121f; color: #f3effc; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
 .snap-x-scroll { scroll-snap-type: x mandatory; }

@@ -158,7 +158,7 @@ check('সেকশনের উৎস শুধু Firestore — পারস�
   const end = pagesSrc.indexOf('// ---------- Feed ----------', start)
   const body = pagesSrc.slice(start, end)
   assert.ok(body.includes('fetchNewMembers'))
-  for (const bad of ['BUDDIES', 'রিমা', 'শাকিল', 'ফাহিম', 'মিম', 'আশা', 'ডেমো']) {
+  for (const bad of ['BUDDIES', 'রিমা', 'শাকিল', 'ফাহিম', 'মিম', 'আশা', 'তানভীর', 'ফয়সাল', 'ইমরান', 'সাদিয়া', 'তানহা', 'নাবিলা', 'Rima', 'Shakil', 'Fahim', 'Mim', 'Asha', 'Tanvir', 'Faysal', 'Imran', 'Sadia', 'Tanha', 'Nabila', 'ডেমো']) {
     assert.ok(!body.includes(bad), `সেকশনে ${bad} আছে`)
   }
   assert.ok(!nmSrc.includes('রিমা') && !fsSrc.includes('রিমা'), 'ডেটা স্তরে পারসোনা নাম আছে')

@@ -86,21 +86,23 @@ export function parseInviteMessage(raw: unknown): CallInvite | null {
 export type InviteGate = {
   show: boolean
   /** কেন দেখানো হলো না — 'ok' মানে দেখানো যাবে */
-  reason: 'ok' | 'self' | 'in-call' | 'privacy-nobody' | 'privacy-friends' | 'expired'
+  reason: 'ok' | 'self' | 'in-call' | 'privacy-nobody' | 'privacy-friends' | 'expired' | 'blocked'
 }
 
 /**
  * ইনভাইট দেখানো যাবে কি না — এক জায়গায় সব শর্ত:
  *  - নিজের নিজেকে কল নয়; চলমান কলে থাকলে নয়; মেয়াদোত্তীর্ণ নয়;
+ *  - ব্লক করা কলকারী হলে কখনো নয় (ওভারলে ওঠে না, রিংটোন বাজে না);
  *  - 'nobody' হলে কেউ না; 'friends' হলে শুধু বন্ধু; 'everyone' হলে সবাই।
  */
 export function shouldShowInvite(
   invite: CallInvite,
-  opts: { privacy: CallPrivacy; isFriend: boolean; inCall: boolean; selfId: string | null; now?: number },
+  opts: { privacy: CallPrivacy; isFriend: boolean; inCall: boolean; selfId: string | null; isBlocked?: boolean; now?: number },
 ): InviteGate {
   if (opts.selfId && invite.fromId === opts.selfId) return { show: false, reason: 'self' }
   if (opts.inCall) return { show: false, reason: 'in-call' }
   if (isInviteExpired(invite, opts.now ?? Date.now())) return { show: false, reason: 'expired' }
+  if (opts.isBlocked) return { show: false, reason: 'blocked' }
   if (opts.privacy === 'nobody') return { show: false, reason: 'privacy-nobody' }
   if (opts.privacy === 'friends' && !opts.isFriend) return { show: false, reason: 'privacy-friends' }
   return { show: true, reason: 'ok' }

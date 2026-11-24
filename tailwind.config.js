@@ -11,6 +11,10 @@ export default {
         fb: { blue: '#7C3AED', bg: '#FFFFFF', dark: '#0F0F0F', card: '#1C1C1E', green: '#42B72A' },
         pb: { violet: '#7C3AED', pink: '#EC4899', rose: '#F43F5E', red: '#EF4444', ink: '#111827' },
         pi: { purple: '#7C3AED', gold: '#F59E0B', deep: '#D97706' }
+      },
+      fontFamily: {
+        sans: ['"Hind Siliguri"', 'system-ui', '-apple-system', "'Segoe UI'", "'Noto Sans Bengali'", 'sans-serif'],
+        display: ['Sora', '"Hind Siliguri"', 'sans-serif'],
       }
     }
   },

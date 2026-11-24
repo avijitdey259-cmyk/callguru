@@ -9,12 +9,13 @@ import { IconBell, IconBriefcase, IconCall, IconChat, IconDating, IconDownload, 
 // হেডারের মাঝের নেভ — মোবাইলেও একই, কম্পিউটারেও একই (শুধু জায়গা বদলায়:
 // কম্পিউটারে হেডারের মাঝে, মোবাইলে নিচের BottomNav-এ)। Facebook-এর
 // মতো আইকন + নাম, সক্রিয় ট্যাবে Pi purple→gold গ্রেডিয়েন্ট।
+// ক্রম ডেমোর মতো — লাইভ টিভি মাঝখানে (৩ নম্বরে): হোম, শর্টস, লাইভ টিভি, বন্ধু, ডেটিং।
 const CENTER_NAV = [
   { to: '/feed', label: 'Home', icon: IconHome },
-  { to: '/friends', label: 'Friends', icon: IconFriends },
-  { to: '/reels', label: 'Video', icon: IconReels },
-  { to: '/dating', label: 'Dating', icon: IconDating },
+  { to: '/reels', label: 'Shorts', icon: IconReels },
   { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
+  { to: '/friends', label: 'Friends', icon: IconFriends },
+  { to: '/dating', label: 'Dating', icon: IconDating },
 ]
 
 export function TopBar() {
@@ -22,9 +23,13 @@ export function TopBar() {
   const navigate = useNavigate()
   const pendingCount = requests.length
   return (
-    <header className="sticky top-0 z-40 bg-white dark:bg-fb-card shadow-sm">
+    <header className="sticky top-0 z-40 bg-white dark:bg-[#211a30] shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center gap-2 px-3 h-[52px]">
-        <Link to="/feed" className="text-[26px] font-extrabold pb-gradient-text leading-none shrink-0">PiCall</Link>
+        {/* ডেমোর লোগো-মার্ক — Pi purple বর্গে π, পাশে PiCall */}
+        <Link to="/feed" className="flex items-center gap-2 shrink-0" title="PiCall — Home">
+          <span className="w-[38px] h-[38px] rounded-[12px] pb-gradient text-white grid place-items-center font-display font-extrabold text-[21px] shadow-sm">π</span>
+          <span className="text-[26px] font-extrabold pb-gradient-text leading-none font-display">PiCall</span>
+        </Link>
         {/* লোগোর পাশেই খোঁজা — এটাই আসল সার্চ (বন্ধু + পোস্ট, সাজেশনসহ); ফিডের নিচে আর আলাদা বাক্স নেই */}
         <div className="hidden md:block w-60 shrink-0"><HeaderSearch /></div>
         <div className="hidden md:flex flex-1 justify-center gap-1">
@@ -33,14 +38,15 @@ export function TopBar() {
           ))}
         </div>
         <div className="flex-1 md:hidden" />
-        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">{formatPi(totalPi)}</button>
+        {/* Pi ব্যালেন্স পিল — ডেমোর সোনালি পিল (হালকা সোনালি পটভূমি, গাঢ় সোনালি লেখা) */}
+        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-[#fef3c7] dark:bg-[#3a2c07] text-[#b45309] dark:text-[#fbbf24] text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">{formatPi(totalPi)}</button>
         {/* নোটিফিকেশন ঘণ্টা — ঝুলে থাকা বন্ধু-অনুরোধের সংখ্যা সোনালি ব্যাজে, ট্যাপে Friends পাতা */}
-        <button onClick={() => navigate('/friends')} className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Notifications">
+        <button onClick={() => navigate('/friends')} className="relative w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Notifications">
           <IconBell className="w-5 h-5" />
           {pendingCount > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}
         </button>
-        <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
-        <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" /></button>
+        <button onClick={toggleDark} className="w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Dark mode">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
+        <button onClick={() => navigate('/chat')} className="w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" /></button>
         <InstallButton compact />
         <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0 overflow-hidden" title="Profile">{profilePhoto ? <img src={profilePhoto} alt="Profile photo" className="w-full h-full object-cover" /> : (user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />)}</button>
       </div>
@@ -50,15 +56,21 @@ export function TopBar() {
   )
 }
 
-// মোবাইলে নিচের নেভ — হেডারের মাঝের নেভের একই ৫টি গন্তব্য, সক্রিয়টায়
-// Pi purple→gold গ্রেডিয়েন্ট পিল। কম্পিউটারে দেখায় না।
+// মোবাইলে নিচের নেভ — ডেমোর নতুন আইকন বার: সক্রিয় আইকনের পেছনে হালকা
+// বেগুনি পিল, আইকনের নিচে নাম, টাচ টার্গেট ৫৪px। কম্পিউটারে দেখায় না।
+// (কম্পিউটারের মাঝের নেভে গ্রেডিয়েন্ট পিলই থাকে — সেটা Style 6-এর চিহ্ন।)
 export function BottomNav() {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-fb-card border-t border-gray-100 dark:border-slate-700 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
-      <div className="flex justify-around px-2 py-1.5">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#211a30] border-t border-[#e7e0f2] dark:border-[#372b52] shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+      <div className="flex px-2 py-2">
         {CENTER_NAV.map(n => (
-          <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-col items-center gap-0.5 py-1.5 px-3 text-[11px] font-medium rounded-full ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}>
-            <n.icon className="w-5 h-5" />{n.label}
+          <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-1 flex-col items-center gap-[3px] py-[5px] text-[11.5px] font-semibold rounded-[14px] min-h-[54px] ${isActive ? 'text-pi-purple dark:text-[#a78bfa]' : 'text-gray-500 dark:text-gray-400'}`}>
+            {({ isActive }) => (
+              <>
+                <span className={`w-[46px] h-[30px] rounded-full grid place-items-center ${isActive ? 'bg-[#f1ecf9] dark:bg-[#2b2142]' : ''}`}><n.icon className="w-[23px] h-[23px]" /></span>
+                {n.label}
+              </>
+            )}
           </NavLink>
         ))}
       </div>
@@ -131,7 +143,7 @@ export function Layout() {
   const hideChrome = loc.pathname.startsWith('/call/')
   if (hideChrome) return <Outlet />
   return (
-    <div className="min-h-screen bg-fb-bg dark:bg-fb-dark text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen bg-[#faf8fc] dark:bg-[#16121f] text-gray-900 dark:text-gray-100">
       <TopBar />
       <div className="max-w-6xl mx-auto flex gap-4 px-0 sm:px-3 pb-20 md:pb-8">
         <Sidebar />
@@ -149,7 +161,7 @@ export function Layout() {
 }
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`bg-white dark:bg-fb-card rounded-xl border border-gray-100 dark:border-white/10 shadow-sm p-4 ${className}`}>{children}</div>
+  return <div className={`bg-white dark:bg-[#211a30] rounded-[20px] border border-[#e7e0f2] dark:border-[#372b52] shadow-sm p-4 ${className}`}>{children}</div>
 }
 
 // ---------- PWA ইন্সটল ----------
