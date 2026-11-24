@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, sendSmsOtp, verifySmsOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
@@ -26,7 +26,7 @@ import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPla
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
-import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews } from './firestore'
@@ -262,11 +262,12 @@ export function LoginPage() {
   // ইমেইল OTP: কোড পাঠানো হয়েছে কি না + কোড ইনপুট
   const [otpSent, setOtpSent] = useState(false)
   const [otp, setOtp] = useState('')
-  // SMS OTP: মোবাইল নম্বরে ৬ সংখ্যার কোড — গেটওয়ে থাকলে ব্যাকএন্ড পাঠায়,
-  // না থাকলে 'not_configured' আসে আর ইমেইল লগইন ব্যবহার করতে বলা হয়
-  const [phone, setPhone] = useState('')
-  const [smsOtpSent, setSmsOtpSent] = useState(false)
-  const [smsOtp, setSmsOtp] = useState('')
+  // ইমেইল + পাসওয়ার্ড লগইন / অ্যাকাউন্ট তৈরি — Google 1-ক্লিক লগইনের
+  // পাশাপাশি থাকে, ব্যবহারকারী নিজে বেছে নেন। SMS OTP বন্ধ (মালিকের
+  // সিদ্ধান্ত ২০২৬-১১-২৪) — লগইন পেজে মোবাইল/SMS ট্যাব নেই।
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   // লিংক দিয়ে ফিরে এসে সংরক্ষিত ইমেইল না পেলে ইমেইল চাওয়া হয়
   const [linkEmailNeeded, setLinkEmailNeeded] = useState(false)
   const [completingLink, setCompletingLink] = useState(false)
@@ -399,54 +400,85 @@ export function LoginPage() {
     else setMsg('The code is wrong — check and enter it again.')
   }
 
-  const sendSms = async () => {
-    const ph = normalizeBdPhone(phone)
-    if (!ph) { setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
-    setBusy(true); setMsg('')
-    const r = await sendSmsOtp(ph)
-    setBusy(false)
-    if (!r || !r.ok) {
-      if (r && r.error === 'not_configured') {
-        setMsg('SMS login is not set up yet — please use email login for now.')
-      } else if (r && r.error === 'sms_key_invalid') {
-        setMsg('SMS key is wrong — ask the admin to check the Nishchit key.')
-      } else if (r && r.error === 'sms_no_credit') {
-        setMsg('SMS credit is over — ask the admin to top up.')
-      } else if (r && r.error === 'rate_limited') {
-        setMsg('Too many attempts — please try again in a little while.')
-      } else if (r && (r.error === 'invalid_phone' || r.error === 'invalid_email')) {
-        setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).')
-      } else if (!r) {
-        setMsg('Could not reach the server — check your connection and try again.')
-      } else {
-        setMsg('Could not send the code — please try again.')
-      }
-      return
+  // পাসওয়ার্ড লগইনের ভুল কোড -> পরিষ্কার বার্তা (Firebase-র কোড কখনো সরাসরি দেখানো হয় না)।
+  const passwordAuthMessage = (code: string): string => {
+    switch (code) {
+      case 'invalid_email': return 'Enter a valid email.'
+      case 'password_too_short': return 'Password must be at least 6 characters.'
+      case 'password_mismatch': return 'Passwords do not match.'
+      case 'email_already_registered': return 'This email is already registered — log in instead.'
+      case 'wrong_password': return 'Email or password is wrong — check and try again.'
+      case 'account_not_found': return 'No account found for this email — create an account instead.'
+      case 'too_many_attempts': return 'Too many attempts — please try again in a little while.'
+      case 'firebase_not_configured': return 'Login is not set up — contact the admin.'
+      case 'network_error': return 'Could not reach the server — check your connection and try again.'
+      default: return 'Could not log in — please try again.'
     }
-    setSmsOtpSent(true)
-    setMsg('A 6-digit code has been sent to your mobile — valid for 10 minutes.')
   }
 
-  const verifySms = async () => {
-    const code = smsOtp.trim()
-    if (!/^\d{6}$/.test(code)) { setMsg('Enter the 6-digit code.'); return }
-    const ph = normalizeBdPhone(phone)
-    if (!ph) { setMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
-    setBusy(true); setMsg('')
-    const r = await verifySmsOtp(ph, code)
-    setBusy(false)
-    if (r && r.ok) {
-      // SMS লগইন — Firebase সেশন নেই (ইমেইল OTP-র মতোই লোকাল-অনলি); ফোন নম্বরই
-      // লগইন শনাক্তকারী হিসেবে থাকে (ইমেইলের ঘরে — user {name, email} আকারে থাকে)
-      noteOtpSignup(`phone:${ph}`, 'sms_otp')
-      login(name.trim() || 'PiCall User', ph)
-      navigate('/feed')
+
+  // পাসওয়ার্ড ভুলে গেলে — Firebase-র রিসেট মেইল (ইমেইলে লিংক আসে, SMS নয়)।
+  const sendPasswordReset = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
+    if (!isFirebaseConfigured) {
+      setMsg('Login is not set up — contact the admin.')
       return
     }
-    if (r && r.error === 'expired') setMsg('The code has expired — send OTP again.')
-    else if (r && r.error === 'too_many_attempts') setMsg('Wrong code entered many times — send OTP again.')
-    else if (r && r.error === 'not_configured') setMsg('SMS login is not set up yet — please use email login for now.')
-    else setMsg('The code is wrong — check and enter it again.')
+    setBusy(true); setMsg('')
+    try {
+      await requestPasswordReset(mail)
+      setMsg('Password reset link sent to your email — check your inbox.')
+    } catch (err) {
+      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ইমেইল + পাসওয়ার্ডে লগইন — ফিরে আসা ব্যবহারকারীর জন্য, OTP লাগে না।
+  const passwordLogin = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
+    if (password.length < PASSWORD_MIN_LENGTH) { setMsg('Enter your password (at least 6 characters).'); return }
+    if (!isFirebaseConfigured) {
+      setMsg('Login is not set up — contact the admin.')
+      return
+    }
+    setBusy(true); setMsg('')
+    try {
+      const u = await signInWithPassword(mail, password)
+      login(u.name, u.email)
+      navigate('/feed')
+    } catch (err) {
+      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ইমেইল + পাসওয়ার্ডে অ্যাকাউন্ট তৈরি — OTP লাগে না; তৈরি হলেই ব্যবহারকারী
+  // তখনই লগইন হয়ে যান (সাধারণ প্রথম-লগইন Firestore সিঙ্ক চলে)।
+  const createPasswordAccount = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
+    if (password.length < PASSWORD_MIN_LENGTH) { setMsg('Password must be at least 6 characters.'); return }
+    if (password !== confirmPassword) { setMsg('Passwords do not match.'); return }
+    if (!isFirebaseConfigured) {
+      setMsg('Login is not set up — contact the admin.')
+      return
+    }
+    setBusy(true); setMsg('')
+    try {
+      const u = await signUpWithPassword(mail, password, name.trim() || undefined)
+      if (u.isNewUser) noteSignup('password', 'password:' + u.email.toLowerCase())
+      login(u.name, u.email)
+      navigate('/feed')
+    } catch (err) {
+      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -462,10 +494,12 @@ export function LoginPage() {
         </div>
         <Card className="mt-5 !p-5 sm:!p-6 !shadow-md">
           <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Gmail 1-Click Login • Email Link • Email OTP • Mobile OTP</p>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Gmail 1-Click Login • Email + Password • Email Link • Email OTP</p>
+          <p className="text-xs text-center text-gray-400 mt-1">Email sign up only, mobile sign up is off for now.</p>
+          <p className="text-sm font-semibold text-center mt-4">1-Click Login with Gmail</p>
           <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-xl border border-gray-200 dark:border-slate-600 font-semibold flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-100 disabled:opacity-60 shadow-sm transition">
             <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
-            {busy ? 'Logging in…' : '1-Click Login with Gmail'}
+            {busy ? 'Logging in…' : 'Continue with Google'}
           </button>
           <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
           <div className="my-5 border-t border-gray-100 dark:border-white/10" />
@@ -507,23 +541,54 @@ export function LoginPage() {
           </div>
         )}
         <div className="my-5 border-t border-gray-100 dark:border-white/10" />
-        <p className="text-sm font-semibold text-center flex items-center justify-center gap-2"><IconCall className="w-4 h-4 text-violet-500" />Or log in with mobile number</p>
-        <label className="text-sm font-medium mt-3 block">Mobile Number</label>
-        <div className="relative mt-1">
-          <IconCall className={inputIconCls} />
-          <input className={inputCls + ' pl-10'} value={phone} onChange={e => setPhone(e.target.value)} placeholder="01XXXXXXXXX" inputMode="tel" />
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 dark:bg-slate-800 p-1" role="tablist" aria-label="Log in or create account">
+          <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'login' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Log in</button>
+          <button type="button" role="tab" aria-selected={authMode === 'signup'} onClick={() => { setAuthMode('signup'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'signup' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Create account</button>
         </div>
-        <Btn variant="ghost" className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={sendSms}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
-        {smsOtpSent && (
-          <div className="mt-3 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
-            <label className="text-sm font-medium">6-digit code</label>
+        {authMode === 'login' ? (
+          <>
+            <p className="text-sm font-semibold text-center flex items-center justify-center gap-2 mt-4"><IconLock className="w-4 h-4 text-violet-500" />Log in with email + password</p>
+            <label className="text-sm font-medium mt-3 block">Email</label>
+            <div className="relative mt-1">
+              <IconMail className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+            </div>
+            <label className="text-sm font-medium mt-3 block">Password</label>
             <div className="relative mt-1">
               <IconLock className={inputIconCls} />
-              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+              <input className={inputCls + ' pl-10'} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" />
             </div>
-            <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
-            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={verifySms}>Verify the code to log in</Btn>
-          </div>
+            <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={passwordLogin}>Log in</Btn>
+            <p className="text-xs text-center text-gray-400 mt-2">No code needed — just the password you chose when you created your account.</p>
+            <button type="button" className="w-full text-center text-sm text-fb-blue font-medium mt-3" disabled={busy} onClick={sendPasswordReset}>Forgot password?</button>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-bold text-center mt-4">Create your account</h2>
+            <p className="text-sm font-semibold text-center flex items-center justify-center gap-2 mt-4"><IconUser className="w-4 h-4 text-violet-500" />Create account with email + password</p>
+            <label className="text-sm font-medium mt-3 block">Name</label>
+            <div className="relative mt-1">
+              <IconUser className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} value={name} onChange={e => setName(e.target.value)} placeholder="Your Name" />
+            </div>
+            <label className="text-sm font-medium mt-3 block">Email</label>
+            <div className="relative mt-1">
+              <IconMail className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+            </div>
+            <label className="text-sm font-medium mt-3 block">Password</label>
+            <div className="relative mt-1">
+              <IconLock className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters" autoComplete="new-password" />
+            </div>
+            <label className="text-sm font-medium mt-3 block">Confirm password</label>
+            <div className="relative mt-1">
+              <IconLock className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Type the password again" autoComplete="new-password" />
+            </div>
+            <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={createPasswordAccount}>Create account</Btn>
+            <p className="text-xs text-center text-gray-400 mt-2">Your account is created right away — no code needed.</p>
+          </>
         )}
         {msg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy. Only the admin can view call recordings (for appeals/disputes, stored 30 days).</p>
@@ -3966,15 +4031,14 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
   const [gallery, setGallery] = useState<string[]>(galleryPhotos)
   const [ints, setInts] = useState<string[]>(interests)
   const [saved, setSaved] = useState('')
-  // পুনরুদ্ধার + দুই ধাপ — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক); যাচাইয়ের কোড
-  // আগের মতোই আসল OTP পথে যায় (ইমেইল OTP এখনো চালু নয়, SMS গেটওয়ে এখনো
-  // বসানো হয়নি — সেগুলো চালু না হওয়া পর্যন্ত 'not_configured' বার্তাই আসে)।
+  // পুনরুদ্ধার + দুই ধাপ — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক); ইমেইলের যাচাই
+  // কোড আসল OTP পথে যায়। মোবাইল নম্বর শুধু সংরক্ষণ করা হয় — SMS যাচাই
+  // বন্ধ (মালিকের সিদ্ধান্ত ২০২৬-১১-২৪), তাই recoveryPhoneVerified আর
+  // SMS-এ true হয় না।
   const [recEmail, setRecEmail] = useState(recoveryEmail)
   const [recPhone, setRecPhone] = useState(recoveryPhone)
   const [emailOtpSent, setEmailOtpSent] = useState(false)
   const [emailOtp, setEmailOtp] = useState('')
-  const [smsOtpSent, setSmsOtpSent] = useState(false)
-  const [smsOtp, setSmsOtp] = useState('')
   const [secMsg, setSecMsg] = useState('')
   const photoRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
@@ -4045,35 +4109,6 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
     else if (r && r.error === 'not_configured') setSecMsg('Email OTP is not on yet — the admin is setting it up.')
     else setSecMsg('The code is wrong — check and enter it again.')
   }
-  const sendRecoverySmsOtp = async () => {
-    const ph = normalizeBdPhone(recPhone)
-    if (!ph) { setSecMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
-    setSecMsg('')
-    const r = await sendSmsOtp(ph)
-    if (!r || !r.ok) {
-      if (r && r.error === 'not_configured') setSecMsg('SMS login is not set up yet — please use email login for now.')
-      else if (!r) setSecMsg('Could not reach the server — check your connection and try again.')
-      else setSecMsg('Could not send the code — please try again.')
-      return
-    }
-    setSmsOtpSent(true)
-    setSecMsg('A 6-digit code has been sent to your mobile — valid for 10 minutes.')
-  }
-  const verifyRecoverySmsOtp = async () => {
-    const code = smsOtp.trim()
-    if (!/^\d{6}$/.test(code)) { setSecMsg('Enter the 6-digit code.'); return }
-    const ph = normalizeBdPhone(recPhone)
-    if (!ph) { setSecMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
-    const r = await verifySmsOtp(ph, code)
-    if (r && r.ok) {
-      updateSecurity({ recoveryPhone: ph, recoveryPhoneVerified: true })
-      setSecMsg('Recovery mobile verified.')
-      return
-    }
-    if (r && r.error === 'expired') setSecMsg('The code has expired — send OTP again.')
-    else if (r && r.error === 'not_configured') setSecMsg('SMS login is not set up yet — please use email login for now.')
-    else setSecMsg('The code is wrong — check and enter it again.')
-  }
   const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
   return (
     <Card>
@@ -4136,7 +4171,8 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
       ))}</div>
       {/* পুনরুদ্ধার + দুই ধাপের যাচাই — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক, সম্পাদনাযোগ্য)।
           শুধু users/{uid} ব্যক্তিগত ডকে থাকে — publicProfiles-এ কখনো নয়, অন্য
-          ব্যবহারকারীর কাছে মোবাইল নম্বর দেখানো হয় না। */}
+          ব্যবহারকারীর কাছে মোবাইল নম্বর দেখানো হয় না। মোবাইলে SMS যাচাই নেই
+          (SMS বন্ধ) — নম্বরটি শুধু সংরক্ষণ করা হয়। */}
       <div className="mt-5 border-t border-gray-100 dark:border-white/10 pt-4">
         <h3 className="font-bold flex items-center gap-2"><IconShield className="w-5 h-5 text-violet-500" /> Recovery & Two-Step Verification</h3>
         <p className="text-xs text-gray-400 mt-1">Add a second contact so you can get back into your account. Only you can see these — they are never shown to other users.</p>
@@ -4158,29 +4194,17 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
             <Btn className="w-full mt-2 !py-3 !rounded-xl" onClick={verifyRecoveryEmailOtp}>Verify recovery email</Btn>
           </div>
         )}
-        <label className="text-sm font-medium mt-4 block">Recovery Mobile Number {recoveryPhoneVerified
-          ? <span className="text-[11px] bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-2 py-0.5 rounded-full font-bold">✓ Verified</span>
-          : <span className="text-[11px] bg-gray-100 dark:bg-slate-700 text-gray-500 px-2 py-0.5 rounded-full font-bold">Not verified</span>}</label>
+        <label className="text-sm font-medium mt-4 block">Recovery Mobile Number</label>
         <div className="relative mt-1">
           <IconCall className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
           <input className={inputCls + ' pl-10'} value={recPhone} onChange={e => { setRecPhone(e.target.value); if ((normalizeBdPhone(e.target.value) || e.target.value.trim()) !== recoveryPhone) updateSecurity({ recoveryPhoneVerified: false }) }} placeholder="01XXXXXXXXX" inputMode="tel" />
         </div>
-        <Btn variant="ghost" className="mt-2 !py-2.5 !rounded-xl" onClick={sendRecoverySmsOtp}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
-        {smsOtpSent && (
-          <div className="mt-2 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
-            <label className="text-sm font-medium">6-digit code</label>
-            <div className="relative mt-1">
-              <IconLock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
-              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
-            </div>
-            <Btn className="w-full mt-2 !py-3 !rounded-xl" onClick={verifyRecoverySmsOtp}>Verify recovery mobile</Btn>
-          </div>
-        )}
+        <p className="text-xs text-gray-400 mt-1">Saved with your profile — no SMS code is sent to this number.</p>
         <div className="flex items-center justify-between gap-2 mt-4 text-sm">
           <span className="font-medium flex items-center gap-2"><IconLock className="w-4 h-4 text-violet-500" /> Two-step verification</span>
           <button onClick={() => updateSecurity({ twoFactorEnabled: !twoFactorEnabled })} className={`px-3 py-1.5 rounded-full font-bold ${twoFactorEnabled ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{twoFactorEnabled ? 'On' : 'Off'}</button>
         </div>
-        <p className="text-xs text-gray-400 mt-1">When on, login will ask for a second code — email OTP once the admin sets it up; SMS OTP once the SMS gateway is wired.</p>
+        <p className="text-xs text-gray-400 mt-1">When on, login will ask for a second code by email once the admin sets it up.</p>
         {secMsg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{secMsg}</p>}
       </div>
       <Btn className="w-full mt-5" onClick={save}>Save Profile</Btn>

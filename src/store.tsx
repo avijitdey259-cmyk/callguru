@@ -901,7 +901,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
     login: (name, email) => {
       setUser({ name, email })
-      // Firebase লগইন হলে (Google/ইমেইল লিংক) UID ধরা হয় — OTP লগইনে Firebase সেশন নেই, uid null থাকে
+      // Firebase লগইন হলে (Google/ইমেইল লিংক/পাসওয়ার্ড) UID ধরা হয় — OTP লগইনে Firebase সেশন নেই, uid null থাকে
       const u = getCurrentUid()
       setUid(u)
       if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }

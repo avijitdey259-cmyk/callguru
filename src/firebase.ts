@@ -6,6 +6,7 @@ import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, getAdditionalUserInfo,
   sendSignInLinkToEmail, signInWithEmailLink, isSignInWithEmailLink,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile,
   onAuthStateChanged, type Auth, type User,
 } from 'firebase/auth'
 
@@ -133,5 +134,102 @@ export async function completeEmailLink(emailArg?: string): Promise<{ name: stri
     }
   } catch {
     return null
+  }
+}
+
+// ---------- Email + password login ----------
+// Registration and login with a REAL email + password (Firebase
+// Email/Password auth, provider already enabled in the console). No mobile
+// number, no SMS OTP, no synthetic email, no lookup table — the email the
+// user types IS the Firebase credential. Google 1-click login stays
+// alongside; the user chooses freely. Passwords are held only by Firebase
+// Auth; this code never stores one. SMS OTP is OFF entirely by the owner's
+// decision (2026-11-24) — the server SMS code stays dormant for a future
+// provider switch, but nothing user-visible sends or asks for an SMS code.
+export const PASSWORD_MIN_LENGTH = 6
+
+export type PasswordAuthResult = { name: string; email: string; isNewUser: boolean }
+
+/** Firebase error -> a stable code the login page maps to a message. */
+export function mapPasswordAuthError(err: unknown): string {
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  if (typeof code !== 'string') return 'password_auth_failed'
+  switch (code) {
+    case 'auth/email-already-in-use': return 'email_already_registered'
+    case 'auth/weak-password': return 'password_too_short'
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential': return 'wrong_password'
+    case 'auth/user-not-found': return 'account_not_found'
+    case 'auth/too-many-requests': return 'too_many_attempts'
+    case 'auth/invalid-email': return 'invalid_email'
+    case 'auth/network-request-failed': return 'network_error'
+    default: return 'password_auth_failed'
+  }
+}
+
+function normalizeAuthEmail(rawEmail: string): string | null {
+  const mail = rawEmail.trim().toLowerCase()
+  if (!mail.includes('@')) return null
+  return mail
+}
+
+/** Create an email+password account. Throws Error with a stable code (see
+ *  mapPasswordAuthError): invalid_email, password_too_short,
+ *  firebase_not_configured, email_already_registered, network_error,
+ *  password_auth_failed. Returns the Firebase session identity; the
+ *  caller logs the user in with it (normal first-login Firestore sync). */
+export async function signUpWithPassword(rawEmail: string, password: string, displayName?: string): Promise<PasswordAuthResult> {
+  const mail = normalizeAuthEmail(rawEmail)
+  if (!mail) throw new Error('invalid_email')
+  if (password.length < PASSWORD_MIN_LENGTH) throw new Error('password_too_short')
+  const a = getFirebaseAuth()
+  if (!a) throw new Error('firebase_not_configured')
+  try {
+    const result = await createUserWithEmailAndPassword(a, mail, password)
+    const name = (displayName || '').trim() || mail.split('@')[0] || 'PiCall User'
+    if ((displayName || '').trim()) {
+      try { await updateProfile(result.user, { displayName: name }) } catch { /* name is still returned below */ }
+    }
+    return { name, email: mail, isNewUser: true }
+  } catch (err) {
+    throw new Error(mapPasswordAuthError(err))
+  }
+}
+
+/** Send a password-reset email — the "Forgot password?" path (email only,
+ *  no SMS). Throws Error with a stable code (see mapPasswordAuthError):
+ *  invalid_email, firebase_not_configured, account_not_found,
+ *  too_many_attempts, network_error, password_auth_failed. */
+export async function requestPasswordReset(rawEmail: string): Promise<void> {
+  const mail = normalizeAuthEmail(rawEmail)
+  if (!mail) throw new Error('invalid_email')
+  const a = getFirebaseAuth()
+  if (!a) throw new Error('firebase_not_configured')
+  try {
+    await sendPasswordResetEmail(a, mail)
+  } catch (err) {
+    throw new Error(mapPasswordAuthError(err))
+  }
+}
+
+/** Log in with email + password — NO OTP. Throws Error with a stable code:
+ *  invalid_email, firebase_not_configured, wrong_password,
+ *  account_not_found, too_many_attempts, network_error,
+ *  password_auth_failed. */
+export async function signInWithPassword(rawEmail: string, password: string): Promise<PasswordAuthResult> {
+  const mail = normalizeAuthEmail(rawEmail)
+  if (!mail) throw new Error('invalid_email')
+  const a = getFirebaseAuth()
+  if (!a) throw new Error('firebase_not_configured')
+  try {
+    const result = await signInWithEmailAndPassword(a, mail, password)
+    const user = result.user
+    return {
+      name: user.displayName || user.email?.split('@')[0] || 'PiCall User',
+      email: user.email || mail,
+      isNewUser: false,
+    }
+  } catch (err) {
+    throw new Error(mapPasswordAuthError(err))
   }
 }
