@@ -171,6 +171,9 @@ export type PublicConfigDoc = {
   // Analytics ID — Meta Pixel / GA4 / Clarity (সবার দেখা যায় এমন পরিচয়,
   // গোপন কিছু নয়); সাইন-ইন করা সব ব্যবহারকারী পড়ে।
   analytics: AnalyticsIds
+  // User product ads billing rates — CPM (per 1000 views) + CPC (per click),
+  // Tk. 0 = unset: ads show free until the admin sets real numbers.
+  adRates: { cpmRateBDT: number; cpcRateBDT: number }
 }
 
 export type TopUpDoc = {
@@ -344,7 +347,7 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
 }
 
 // অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID; sms/smtp গোপন অংশ বাদ যায়)।
-export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS): PublicConfigDoc {
+export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS, adRates: { cpmRateBDT: number; cpcRateBDT: number } = { cpmRateBDT: 50, cpcRateBDT: 3 }): PublicConfigDoc {
   return {
     schemaVersion: SCHEMA_VERSION,
     piRateBDT: rates.piRateBDT,
@@ -355,11 +358,12 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
     tvPlaylistUrl,
     payments: { ...payments, enabled: normalizePaymentEnabled(payments.enabled) },
     analytics: { ...analytics },
+    adRates: { cpmRateBDT: Number(adRates.cpmRateBDT) || 0, cpcRateBDT: Number(adRates.cpcRateBDT) || 0 },
   }
 }
 
 // config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID (যা ঘর ডকে নেই, সেটা বদলায় না)।
-export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds }> {
+export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number } }> {
   if (!doc || typeof doc !== 'object') return {}
   const d = doc as Record<string, unknown>
   const out: Record<string, unknown> = {}
@@ -393,7 +397,14 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
     }
     if (an.pixelId || an.ga4Id || an.clarityId) out.analytics = an
   }
-  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds }>
+  // User product ads billing rates — CPM + CPC, Tk; 0 = unset (free until set).
+  if (d.adRates && typeof d.adRates === 'object') {
+    const r = d.adRates as Record<string, unknown>
+    const cpm = typeof r.cpmRateBDT === 'number' && Number.isFinite(r.cpmRateBDT) && r.cpmRateBDT >= 0 ? r.cpmRateBDT : 0
+    const cpc = typeof r.cpcRateBDT === 'number' && Number.isFinite(r.cpcRateBDT) && r.cpcRateBDT >= 0 ? r.cpcRateBDT : 0
+    out.adRates = { cpmRateBDT: cpm, cpcRateBDT: cpc }
+  }
+  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number } }>
 }
 
 // ম্যানুয়াল টপ-আপ আবেদন → topups/{id} ডক।

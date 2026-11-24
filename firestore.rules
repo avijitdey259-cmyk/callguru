@@ -23,6 +23,10 @@
 //                    (providerUid নিজের UID); মোছা বন্ধ।
 //   services/{serviceId}/reviews/{reviewId} — রিভিউ: লগইন করা সবাই
 //                    পড়তে পারেন (নামসহ); লিখতে পারেন শুধু রিভিউয়ার নিজে।
+//   ads/{adId}     — ব্যবহারকারীর পণ্যের বিজ্ঞাপন: লগইন করা সবাই পড়তে
+//                    পারেন; জমা দিতে পারেন শুধু মালিক নিজে (ownerUid নিজের
+//                    UID, স্ট্যাটাস সবসময় pending); অনুমোদন/বাতিল শুধু
+//                    অ্যাডমিন। Adsterra-র সাথে এর কোনো সম্পর্ক নেই।
 //   বাকি সব — ডিফল্টভাবে বন্ধ।
 // NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
 // সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
@@ -105,6 +109,23 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.reviewerUid == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // ব্যবহারকারীর পণ্যের বিজ্ঞাপন — জমা দেন মালিক নিজে (স্ট্যাটাস pending),
+    // অনুমোদন/বাতিল শুধু অ্যাডমিন। ফিডে শুধু approved দেখায়। View/click
+    // গণনা: লগইন করা যে কেউ একবারে শুধু একটা কাউন্টার ঠিক ১ বাড়াতে পারেন
+    // (views+1 বা clicks+1) — নিজের ইচ্ছেমতো সংখ্যা বসানো যায় না।
+    match /ads/{adId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isAdmin()
+        || (isSignedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views', 'clicks'])
+          && ((request.resource.data.views == resource.data.views + 1 && request.resource.data.clicks == resource.data.clicks)
+            || (request.resource.data.clicks == resource.data.clicks + 1 && request.resource.data.views == resource.data.views)));
+      allow delete: if false;
     }
 
     // বাকি সব ডিফল্টভাবে বন্ধ।

@@ -29,8 +29,9 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick } from './firestore'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
+import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
@@ -818,6 +819,37 @@ export function Feed() {
   const [uploadingVideo, setUploadingVideo] = useState(false)
   const [composerErr, setComposerErr] = useState('')
   const [profilePhotoMsg, setProfilePhotoMsg] = useState('')
+  // Approved user product ads — show in the Feed as Sponsored cards. Views
+  // count once per ad per device session (CPM billing); clicks count per tap.
+  const [approvedAds, setApprovedAds] = useState<UserAd[]>(() => loadLocalAds().filter(a => a.status === 'approved'))
+  useEffect(() => {
+    let cancelled = false
+    fetchApprovedAds(20).then(list => {
+      if (cancelled) return
+      if (list.length > 0) {
+        setApprovedAds(list)
+        saveLocalAds(mergeAdLists(loadLocalAds(), list))
+      }
+    })
+    const unsub = subscribeApprovedAds(list => {
+      if (cancelled) return
+      setApprovedAds(list)
+      if (list.length > 0) saveLocalAds(mergeAdLists(loadLocalAds(), list))
+    })
+    return () => { cancelled = true; unsub?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    for (const ad of approvedAds) {
+      try {
+        const key = 'callguru:adview:' + ad.id
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, '1')
+          recordAdView(ad.id)
+        }
+      } catch { /* session storage blocked — view just isn't counted */ }
+    }
+  }, [approvedAds])
   function onComposerPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -1025,6 +1057,17 @@ export function Feed() {
           <button key={f} onClick={() => setFeedFilter(f)} className={`px-3 py-1.5 rounded-full text-sm font-medium ${feedFilter === f ? 'pb-gradient text-white shadow-sm' : 'bg-white dark:bg-fb-card border border-gray-100 dark:border-white/10'}`}>{f === 'All' ? 'All posts' : f === 'Liked' ? '❤️ Liked' : 'My posts'}</button>
         ))}
       </div>
+      {approvedAds.map(ad => (
+        <Card key={ad.id}>
+          <p className="text-xs font-bold text-gray-400">Sponsored</p>
+          {ad.photo && <img src={ad.photo} alt={ad.title} className="rounded-xl mt-2 w-full max-h-96 object-cover" />}
+          <p className="font-bold mt-2">{ad.title}</p>
+          {ad.description && <p className="text-sm text-gray-500 mt-1">{ad.description}</p>}
+          <p className="text-sm font-bold mt-1">{adPriceLabel(ad.priceBDT)}</p>
+          <p className="text-xs text-gray-400">by {ad.ownerName}</p>
+          <a href={ad.link} target="_blank" rel="noopener noreferrer" onClick={() => recordAdClick(ad.id)} className="inline-block mt-2 px-4 py-2 rounded-full text-sm font-bold text-white pb-gradient">Visit website →</a>
+        </Card>
+      ))}
       {visiblePosts.length === 0 && <Card><p className="text-sm text-gray-500 text-center">{feedFilter === 'All' ? 'No posts yet — write the first post.' : 'No posts in this filter.'}</p></Card>}
       {visiblePosts.map(p => (
         <div key={p.id} id={'post-' + p.id}>
@@ -3549,21 +3592,120 @@ export function ReelsPage() {
   )
 }
 
+// ---------- User product ads (self-serve) ----------
+// A user advertises their own product — photo, title, description, price and
+// a link to their own website/business. Submitting saves PENDING for admin
+// review; only APPROVED ads show in the Feed (labelled "Sponsored").
+// Billing is CPM + CPC (views/1000 × CPM rate + clicks × CPC rate), rates
+// set by the admin in Settings (defaults: CPM ৳50, CPC ৳3). No payment is
+// taken here yet. This is NOT Adsterra (owner's own earning, wired later
+// when his VAST + banner codes arrive).
 export function AdsPage() {
-  const [budget, setBudget] = useState(1000)
+  const { user, uid, adminSettings } = useStore()
+  const navigate = useNavigate()
+  const rates = adminSettings.ads ?? { cpmRateBDT: 50, cpcRateBDT: 3 }
+  const [title, setTitle] = useState('')
+  const [desc, setDesc] = useState('')
+  const [price, setPrice] = useState('')
+  const [link, setLink] = useState('')
+  const [photo, setPhoto] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  const [deviceOnly, setDeviceOnly] = useState(false)
+  const [myAds, setMyAds] = useState<UserAd[]>(() => loadLocalAds())
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!uid) return
+    fetchAds(50).then(list => {
+      const mine = list.filter(a => a.ownerUid === uid)
+      if (mine.length > 0) {
+        const merged = mergeAdLists(loadLocalAds(), mine)
+        setMyAds(merged)
+        saveLocalAds(merged)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
+  function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const img = new Image()
+      img.onload = () => { const d = downscaleImage(img, img.width, img.height, 800); if (d) { setPhoto(d); setErr('') } }
+      img.src = String(r.result)
+    }
+    r.readAsDataURL(f)
+  }
+  async function submit() {
+    const input = { title, description: desc, priceBDT: Number(price), link, ...(photo ? { photo } : {}) }
+    const vErr = validateAdInput(input)
+    if (vErr) { setErr(vErr); return }
+    if (!uid || !user) { setErr('Log in first to place an ad.'); return }
+    setBusy(true); setErr('')
+    const doc = {
+      ownerUid: uid,
+      ownerName: user.name,
+      title: title.trim(),
+      description: desc.trim(),
+      priceBDT: Math.round(Number(price) * 100) / 100,
+      link: link.trim(),
+      ...(photo ? { photo } : {}),
+    }
+    const id = await createAdDoc(doc)
+    const saved: UserAd = { id: id ?? ('local-' + Date.now()), ...doc, status: 'pending', views: 0, clicks: 0, createdAtMs: Date.now() }
+    saveLocalAds(mergeAdLists(loadLocalAds(), [saved]))
+    setMyAds(mergeAdLists(loadLocalAds(), [saved]))
+    if (!id) setDeviceOnly(true)
+    setDone(true)
+    setBusy(false)
+  }
   return (
-    <div className="max-w-lg mx-auto"><Card>
-      <h1 className="text-xl font-bold">📢 Self-Serve Ads</h1>
-      <p className="text-sm text-gray-500 mt-1">Create your own ad — it will show on the Feed, Reels and Live TV.</p>
-      <label className="text-sm block mt-3">Ad Title</label>
-      <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" placeholder="e.g. my shop offer" />
-      <label className="text-sm block mt-3">Daily Budget (Tk)</label>
-      <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={budget} onChange={e => setBudget(Number(e.target.value))} />
-      <p className="text-sm mt-2">Estimated reach: ~{(budget * 10).toLocaleString('en-IN')} people/day</p>
-      <Btn className="w-full mt-4" onClick={() => setDone(true)}>Submit Ad</Btn>
-      {done && <p className="text-sm text-green-600 mt-2">✅ Ad submitted for review.</p>}
-    </Card></div>
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <Card>
+        <h1 className="text-xl font-bold">📢 Place an Ad</h1>
+        <p className="text-sm text-gray-500 mt-1">Advertise your own product — it shows in the Feed as Sponsored after the admin approves it.</p>
+        <p className="text-sm text-gray-500 mt-1">Billing: {formatBDT(rates.cpmRateBDT)} per 1000 views (CPM) + {formatBDT(rates.cpcRateBDT)} per click (CPC). {adRatesSet(rates) ? 'Your amount due grows with views and clicks — see it below.' : 'Ad rates are not set yet — your ad shows free until the admin sets the rates.'}</p>
+        <label className="text-sm font-medium block mt-3">Product photo</label>
+        <div className="flex gap-2 items-center mt-1">
+          {photo && <img src={photo} alt="Product" className="w-16 h-16 rounded-lg object-cover" />}
+          <Btn variant="ghost" onClick={() => photoInputRef.current?.click()}>Add product photo</Btn>
+          {photo && <Btn variant="ghost" onClick={() => setPhoto(null)}>Remove</Btn>}
+        </div>
+        <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onPhoto} />
+        <label className="text-sm font-medium block mt-3">Product title</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Handmade jamdani saree" />
+        <label className="text-sm font-medium block mt-3">Description</label>
+        <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={desc} onChange={e => setDesc(e.target.value)} placeholder="What makes it special?" rows={3} />
+        <label className="text-sm font-medium block mt-3">Price (Tk)</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" type="number" min="0" step="0.01" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 1290" inputMode="decimal" />
+        <label className="text-sm font-medium block mt-3">Website / business link</label>
+        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={link} onChange={e => setLink(e.target.value)} placeholder="https://your-website.com" inputMode="url" />
+        {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+        {done && <p className="text-sm text-green-600 mt-2">✅ Ad submitted — pending admin review. It shows in the Feed only after approval.{deviceOnly ? ' (Saved on this device only — Firestore was unreachable, it will sync when the connection returns.)' : ''}</p>}
+        <Btn className="w-full mt-4" disabled={busy} onClick={submit}>{busy ? 'Submitting…' : 'Submit Ad for Review'}</Btn>
+      </Card>
+      <Card>
+        <h2 className="font-bold">My Ads</h2>
+        {myAds.length === 0 && <p className="text-sm text-gray-500 mt-2">No ads yet — submit your first one above.</p>}
+        {myAds.map(a => (
+          <div key={a.id} className="py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+            <div className="flex items-center gap-2">
+              {a.photo && <img src={a.photo} alt={a.title} className="w-12 h-12 rounded-lg object-cover" />}
+              <div className="flex-1">
+                <p className="font-bold text-sm">{a.title}</p>
+                <p className="text-xs text-gray-500">{adPriceLabel(a.priceBDT)} • <a className="text-fb-blue" href={a.link} target="_blank" rel="noopener noreferrer">{a.link}</a></p>
+              </div>
+            </div>
+            <p className="text-sm mt-2">{adStatusLabel(a.status)}</p>
+            <p className="text-sm text-gray-500 mt-1">👁️ {a.views.toLocaleString('en-IN')} views • 🖱️ {a.clicks.toLocaleString('en-IN')} clicks • Amount due: <b>{adRatesSet(rates) ? formatBDT(adAmountDue(a, rates)) : 'Free — rates not set yet'}</b></p>
+          </div>
+        ))}
+        <Btn variant="ghost" className="mt-3" onClick={() => navigate('/feed')}>View Feed</Btn>
+      </Card>
+    </div>
   )
 }
 
@@ -3577,6 +3719,9 @@ function AdminSettingsTab() {
   const [smtp, setSmtp] = useState(adminSettings.smtp)
   const [pay, setPay] = useState(adminSettings.payments)
   const [an, setAn] = useState<AnalyticsIds>(adminSettings.analytics || { ...EMPTY_ANALYTICS_IDS })
+  const [adRates, setAdRates] = useState({ cpmRateBDT: String(adminSettings.ads?.cpmRateBDT ?? 50), cpcRateBDT: String(adminSettings.ads?.cpcRateBDT ?? 3) })
+  const [adRatesMsg, setAdRatesMsg] = useState('')
+  const [adRatesErr, setAdRatesErr] = useState('')
   const [smsMsg, setSmsMsg] = useState('')
   const [smtpMsg, setSmtpMsg] = useState('')
   const [payMsg, setPayMsg] = useState('')
@@ -3679,6 +3824,18 @@ function AdminSettingsTab() {
     setAdminSettings({ ...adminSettings, analytics: cleared })
     setAnMsg('Analytics IDs deleted — all trackers are off until you set them again.')
   }
+  // User product ads billing — CPM (per 1000 views) + CPC (per click), Tk.
+  // Owner-approved defaults: CPM ৳50, CPC ৳3. Both 0 = ads show free.
+  function saveAdRates() {
+    const cpm = Number(adRates.cpmRateBDT)
+    const cpc = Number(adRates.cpcRateBDT)
+    if (!Number.isFinite(cpm) || cpm < 0 || !Number.isFinite(cpc) || cpc < 0) { setAdRatesErr('Rates must be 0 or more.'); setAdRatesMsg(''); return }
+    const cleaned = { cpmRateBDT: Math.round(cpm * 100) / 100, cpcRateBDT: Math.round(cpc * 100) / 100 }
+    setAdRates({ cpmRateBDT: String(cleaned.cpmRateBDT), cpcRateBDT: String(cleaned.cpcRateBDT) })
+    setAdminSettings({ ...adminSettings, ads: cleaned })
+    setAdRatesErr('')
+    setAdRatesMsg(`✅ Ad rates saved — CPM ${formatBDT(cleaned.cpmRateBDT)} per 1000 views, CPC ${formatBDT(cleaned.cpcRateBDT)} per click.`)
+  }
   const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
   return (
     <Card>
@@ -3760,6 +3917,18 @@ function AdminSettingsTab() {
       </div>
       {anMsg && <p className="text-sm text-green-600 mt-2">{anMsg}</p>}
       <p className="text-xs text-amber-600 mt-2">Pixel counts PageView on load and CompleteRegistration on first signup; GA4 counts sign_up on first signup; Clarity records sessions + heatmaps. No IDs yet = no tracking, no errors.</p>
+
+      <h3 className="font-bold mt-6 pt-4 border-t">📢 User Product Ads — CPM / CPC Rates</h3>
+      <p className="text-xs text-gray-500 mt-1">Users advertise their own products (photo, title, price, website link). Approved ads show in the Feed as Sponsored. Billing: views ÷ 1000 × CPM rate + clicks × CPC rate. Defaults: CPM ৳50 per 1000 views, CPC ৳3 per click. Both 0 = ads show free.</p>
+      <label className="text-sm block mt-2">CPM rate — Tk per 1000 views</label>
+      <input className={inputCls} type="number" min="0" step="0.01" value={adRates.cpmRateBDT} onChange={e => { setAdRates({ ...adRates, cpmRateBDT: e.target.value }); setAdRatesMsg(''); setAdRatesErr('') }} placeholder="50" inputMode="decimal" />
+      <label className="text-sm block mt-2">CPC rate — Tk per click</label>
+      <input className={inputCls} type="number" min="0" step="0.01" value={adRates.cpcRateBDT} onChange={e => { setAdRates({ ...adRates, cpcRateBDT: e.target.value }); setAdRatesMsg(''); setAdRatesErr('') }} placeholder="3" inputMode="decimal" />
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={saveAdRates}>Save</Btn>
+      </div>
+      {adRatesMsg && <p className="text-sm text-green-600 mt-2">{adRatesMsg}</p>}
+      {adRatesErr && <p className="text-sm text-red-600 mt-2">{adRatesErr}</p>}
     </Card>
   )
 }
@@ -3785,6 +3954,19 @@ export function AdminPage() {
     fetchLiveRooms().then(r => { if (r) { setAdminRooms(r); setAdminLiveOk(true) } else { setAdminLiveOk(false) } })
   }
   useEffect(() => { if (tab === 'kyc') refreshAdminRooms() }, [tab])
+  // User product ads — pending review list; approve/reject here. Rates live
+  // in Settings (CPM/CPC). Only approved ads show in the Feed as Sponsored.
+  const [adminAds, setAdminAds] = useState<UserAd[] | null>(null)
+  const [adminAdsMsg, setAdminAdsMsg] = useState('')
+  function refreshAdminAds() {
+    fetchAds(50).then(list => setAdminAds(list))
+  }
+  useEffect(() => { if (tab === 'ads') refreshAdminAds() }, [tab])
+  async function reviewAd(id: string, status: 'approved' | 'rejected') {
+    const ok = await updateAdStatus(id, status)
+    setAdminAdsMsg(ok ? (status === 'approved' ? '✅ Ad approved — now showing in the Feed as Sponsored.' : '❌ Ad rejected.') : 'Could not update the ad — check the connection and try again.')
+    if (ok) refreshAdminAds()
+  }
   const [rate, setRate] = useState(20)
   const [mins, setMins] = useState(10)
   const [price, setPrice] = useState(10)
@@ -3856,7 +4038,7 @@ export function AdminPage() {
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold">🛡️ Admin Panel</h1>
-      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'recordings', 'livetv', 'moderation', 'settings'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC Verification' : t === 'settings' ? '⚙️ Settings' : t}</button>)}</div>
+      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'ads', 'recordings', 'livetv', 'moderation', 'settings'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC Verification' : t === 'settings' ? '⚙️ Settings' : t}</button>)}</div>
       {tab === 'revenue' && <Card>
         <h2 className="font-bold">Revenue & Fee Calculator</h2>
         <label className="text-sm block mt-3">Commission %</label><input type="number" className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={rate} onChange={e => setRate(Number(e.target.value))} />
@@ -4006,6 +4188,31 @@ export function AdminPage() {
         <p className="text-xs text-gray-400 mt-1">Use only playlists you have the right to show. Streams from a third-party playlist can break or change — if a channel stops playing, replace the playlist link.</p>
       </Card>}
       {tab === 'moderation' && <Card><h2 className="font-bold">Moderation Log</h2><p className="text-sm text-gray-500 mt-2">No attempts logged yet.</p><p className="text-sm text-gray-500 mt-1">No reported profiles.</p></Card>}
+      {tab === 'ads' && <Card>
+        <h2 className="font-bold">📢 User Product Ads</h2>
+        <p className="text-sm text-gray-500 mt-1">Only approved ads show in the Feed as Sponsored. Rates (Admin → Settings): CPM {formatBDT(adminSettings.ads?.cpmRateBDT ?? 50)} per 1000 views, CPC {formatBDT(adminSettings.ads?.cpcRateBDT ?? 3)} per click.</p>
+        {adminAdsMsg && <p className="text-sm text-green-600 mt-2">{adminAdsMsg}</p>}
+        {adminAds === null && <p className="text-sm text-gray-500 mt-2">Loading…</p>}
+        {adminAds !== null && adminAds.length === 0 && <p className="text-sm text-gray-500 mt-2">No ads submitted yet.</p>}
+        {adminAds !== null && adminAds.map(a => (
+          <div key={a.id} className="py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+            <div className="flex items-center gap-2">
+              {a.photo && <img src={a.photo} alt={a.title} className="w-12 h-12 rounded-lg object-cover" />}
+              <div className="flex-1">
+                <p className="font-bold text-sm">{a.title}</p>
+                <p className="text-xs text-gray-500">{a.ownerName} • {adPriceLabel(a.priceBDT)} • <a className="text-fb-blue" href={a.link} target="_blank" rel="noopener noreferrer">{a.link}</a></p>
+                {a.description && <p className="text-xs text-gray-500 mt-1">{a.description}</p>}
+              </div>
+            </div>
+            <p className="text-sm mt-2">{adStatusLabel(a.status)} • 👁️ {a.views.toLocaleString('en-IN')} views • 🖱️ {a.clicks.toLocaleString('en-IN')} clicks • Amount due: <b>{adRatesSet(adminSettings.ads ?? { cpmRateBDT: 50, cpcRateBDT: 3 }) ? formatBDT(adAmountDue(a, adminSettings.ads ?? { cpmRateBDT: 50, cpcRateBDT: 3 })) : 'Free — rates not set'}</b></p>
+            {a.status === 'pending' && <div className="flex gap-2 mt-2">
+              <Btn onClick={() => reviewAd(a.id, 'approved')}>Approve</Btn>
+              <Btn variant="ghost" onClick={() => reviewAd(a.id, 'rejected')}>Reject</Btn>
+            </div>}
+          </div>
+        ))}
+        <Btn variant="ghost" className="mt-3" onClick={refreshAdminAds}>Refresh</Btn>
+      </Card>}
       {tab === 'settings' && <AdminSettingsTab />}
     </div>
   )

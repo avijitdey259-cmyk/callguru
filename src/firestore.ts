@@ -3,10 +3,11 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
+import { mapAdDoc, type UserAd } from './ads'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
 
 let db: Firestore | null = null
@@ -383,3 +384,99 @@ export async function submitServiceReview(serviceId: string, review: { reviewerU
     return true
   } catch { return false }
 }
+
+// ---------- ads/{adId} — user product ads (self-serve) ----------
+// A user advertises their own product (photo, title, price, website link).
+// Submitting saves PENDING for admin review; only APPROVED ads show in the
+// Feed. No payment is taken (model undecided). Firestore off / rules not
+// published yet → [] / null / false, and the UI falls back to its
+// localStorage cache (graceful degradation, like services). Never throws.
+export type NewAdDoc = {
+  ownerUid: string
+  ownerName: string
+  title: string
+  description: string
+  priceBDT: number
+  link: string
+  photo?: string
+}
+
+export async function fetchAds(limitN = 50): Promise<UserAd[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'ads'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapAdDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((a): a is UserAd => a !== null)
+  } catch { return [] }
+}
+
+export async function fetchApprovedAds(limitN = 20): Promise<UserAd[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'ads'), where('status', '==', 'approved'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapAdDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((a): a is UserAd => a !== null)
+  } catch { return [] }
+}
+
+export function subscribeApprovedAds(cb: (ads: UserAd[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const q = query(collection(d, 'ads'), where('status', '==', 'approved'), orderBy('createdAtMs', 'desc'), limit(20))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapAdDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((a): a is UserAd => a !== null))
+    }, () => { /* subscription failed — the Feed keeps its local cache */ })
+  } catch { return null }
+}
+
+// A user ad is created PENDING (rules: ownerUid must be own uid; the server
+// never trusts a client-set status). Returns the new doc id, or null when
+// Firestore is unreachable / denied.
+export async function createAdDoc(data: NewAdDoc): Promise<string | null> {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const ref = await addDoc(collection(d, 'ads'), {
+      ...data,
+      description: data.description || '',
+      status: 'pending',
+      views: 0,
+      clicks: 0,
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// Admin only (rules: isAdmin) — approve or reject a pending ad.
+export async function updateAdStatus(id: string, status: 'approved' | 'rejected'): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id) return false
+  try {
+    await updateDoc(doc(d, 'ads', id), { status, updatedAt: serverTimestamp() })
+    return true
+  } catch { return false }
+}
+
+// CPM/CPC billing — one view per ad per device session is counted by the
+// caller (sessionStorage guard in the Feed); one click per link tap.
+export async function recordAdView(id: string): Promise<void> {
+  const d = getDb()
+  if (!d || !id) return
+  try { await updateDoc(doc(d, 'ads', id), { views: increment(1) }) } catch { /* best-effort */ }
+}
+
+export async function recordAdClick(id: string): Promise<void> {
+  const d = getDb()
+  if (!d || !id) return
+  try { await updateDoc(doc(d, 'ads', id), { clicks: increment(1) }) } catch { /* best-effort */ }
+}
+

@@ -11,6 +11,7 @@ import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
 import { profileCompletion, type Gender, type ProfileFields } from './profile'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, type AnalyticsIds } from './analytics'
 import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
+import { DEFAULT_AD_RATES, type AdRateSettings } from './ads'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string }
@@ -58,12 +59,13 @@ export type SmtpSettings = { host: string; port: number; user: string; pass: str
 export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string; enabled: PaymentEnabledMap }
 // Analytics ID — Meta Pixel / GA4 / Clarity (সবার দেখা যায় এমন পরিচয়, গোপন নয়);
 // খালি থাকলে ট্র্যাকার বন্ধ। অ্যাডমিন সেটিংস থেকে config/public-এ যায়।
-export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings; analytics: AnalyticsIds }
+export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings; analytics: AnalyticsIds; ads: AdRateSettings }
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   sms: { provider: 'Nishchit', apiKey: '', senderId: '' },
   smtp: { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' },
   payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '', enabled: { ...DEFAULT_PAYMENT_ENABLED } },
   analytics: { ...EMPTY_ANALYTICS_IDS },
+  ads: { ...DEFAULT_AD_RATES },
 }
 
 export function topUpPi(amount: number, currency: 'BDT' | 'USDT', piRateBDT: number, usdtRateBDT: number): number {
@@ -480,6 +482,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       smtp: { ...DEFAULT_ADMIN_SETTINGS.smtp, ...(v.smtp || {}) },
       payments: { ...DEFAULT_ADMIN_SETTINGS.payments, ...(v.payments || {}), enabled: normalizePaymentEnabled({ ...DEFAULT_ADMIN_SETTINGS.payments.enabled, ...((v.payments || {}).enabled || {}) }) },
       analytics: { ...DEFAULT_ADMIN_SETTINGS.analytics, ...(v.analytics || {}) },
+      ads: { ...DEFAULT_ADMIN_SETTINGS.ads, ...(v.ads || {}) },
     }
   })
   useEffect(() => save('adminSettings', adminSettings), [adminSettings])
@@ -584,7 +587,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
-  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds }>) => {
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds; adRates: AdRateSettings }>) => {
     if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
     if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
     if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
@@ -593,6 +596,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (c.tvPlaylistUrl !== undefined) setTvPlaylistUrlState(c.tvPlaylistUrl)
     if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments, enabled: normalizePaymentEnabled({ ...prev.payments.enabled, ...(c.payments?.enabled ?? {}) }) } }))
     if (c.analytics !== undefined) setAdminSettingsState((prev) => ({ ...prev, analytics: { ...prev.analytics, ...c.analytics } }))
+    if (c.adRates !== undefined) setAdminSettingsState((prev) => ({ ...prev, ads: { ...prev.ads, ...c.adRates } }))
   }
 
   // অন্য ব্যবহারকারীর ক্যাশে লগইন করলে — আগের ব্যবহারকারীর ডেটা নতুন ব্যবহারকারীর
@@ -708,7 +712,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           applyPublicConfig(fromPublicConfig(cfg))
         } else if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
           // অ্যাডমিন প্রথমবার — নিজের দর + পেমেন্টের বিবরণ ক্লাউডে ওঠে (গোপন অংশ ছাড়া)
-          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics))
+          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads))
           if (cancelled) return
         }
         if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
@@ -759,7 +763,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fsWriteTimer.current = setTimeout(() => {
       writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
-        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics)).catch(() => { /* ignore */ })
+        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads)).catch(() => { /* ignore */ })
       }
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }

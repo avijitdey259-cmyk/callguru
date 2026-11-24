@@ -229,8 +229,8 @@ check('toPublicConfig without analytics arg: defaults to empty (old callers safe
 })
 
 // ---------- ওয়্যারিং (সোর্স-টেক্সট) ----------
-check('LoginPage: all five signup paths report first signup (google/link/OTP/SMS)', () => {
-  for (const call of ["noteSignup('google', 'google:' + u.email.toLowerCase())", "noteSignup('email_link', 'email_link:' + u.email.toLowerCase())", "noteOtpSignup(`email:${mail}`, 'email_otp')", "noteOtpSignup(`phone:${ph}`, 'sms_otp')"]) {
+check('LoginPage: all signup paths report first signup (google/link/OTP/password)', () => {
+  for (const call of ["noteSignup('google', 'google:' + u.email.toLowerCase())", "noteSignup('email_link', 'email_link:' + u.email.toLowerCase())", "noteOtpSignup(`email:${mail}`, 'email_otp')", "noteSignup('password', 'password:' + u.email.toLowerCase())"]) {
     assert.ok(pages.includes(call), `missing ${call}`)
   }
   assert.equal((pages.match(/noteSignup\('email_link', 'email_link:' \+ u\.email\.toLowerCase\(\)\)/g) || []).length, 2)
@@ -263,7 +263,7 @@ check('store: adminSettings.analytics stored, synced to config/public, init effe
   assert.ok(store.includes('analytics: { ...DEFAULT_ADMIN_SETTINGS.analytics, ...(v.analytics || {}) }'))
   assert.ok(store.includes('if (c.analytics !== undefined) setAdminSettingsState'))
   assert.ok(store.includes('initAnalytics(resolveAnalyticsIds(envAnalyticsIds(), adminSettings.analytics))'))
-  assert.equal((store.match(/toPublicConfig\(\{ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate \}, adminSettings\.payments, tvPlaylistUrl, adminSettings\.analytics\)/g) || []).length, 2)
+  assert.equal((store.match(/toPublicConfig\(\{ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate \}, adminSettings\.payments, tvPlaylistUrl, adminSettings\.analytics, adminSettings\.ads\)/g) || []).length, 2)
 })
 
 check('main.tsx: boot init from build env (logged-out PageView)', () => {
