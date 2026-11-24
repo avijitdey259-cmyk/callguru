@@ -8,7 +8,7 @@ import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
-import { mapGroupDoc, mapPageDoc, type GroupItem, type PageItem } from './groups'
+import { mapGroupDoc, mapGroupPostDoc, mapPageDoc, mapPagePostDoc, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
 
 let db: Firestore | null = null
@@ -572,6 +572,74 @@ export async function leaveGroup(id: string, uid: string): Promise<boolean> {
   } catch { return false }
 }
 
+// The owner adds a member (any uid, not just their own). Rules allow the
+// owner to update the group, so this works for public and private groups;
+// a non-owner add is refused by the rules.
+export async function addGroupMember(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'groups', id), { memberUids: arrayUnion(uid) })
+    return true
+  } catch { return false }
+}
+
+// The owner removes a member (never themselves — the owner is always a
+// member; leaving is the owner's own choice via leaveGroup).
+export async function removeGroupMember(id: string, uid: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id || !uid) return false
+  try {
+    await updateDoc(doc(d, 'groups', id), { memberUids: arrayRemove(uid) })
+    return true
+  } catch { return false }
+}
+
+// ---------- groups/{groupId}/posts/{postId} — group posts (text only) ----------
+// Only members can write; rules check membership on the parent group doc.
+// Photo posts stay out — Storage is not enabled and feed photos are
+// device-local data URLs that must never go to Firestore.
+export async function fetchGroupPosts(groupId: string, limitN = 50): Promise<GroupPost[]> {
+  const d = getDb()
+  if (!d || !groupId) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'groups', groupId, 'posts'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapGroupPostDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((p): p is GroupPost => p !== null)
+  } catch { return [] }
+}
+
+export function subscribeGroupPosts(groupId: string, cb: (posts: GroupPost[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !groupId) return null
+  try {
+    const q = query(collection(d, 'groups', groupId, 'posts'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapGroupPostDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((p): p is GroupPost => p !== null))
+    }, () => { /* subscription failed — the page keeps its local cache */ })
+  } catch { return null }
+}
+
+export async function createGroupPostDoc(groupId: string, data: { authorUid: string; authorName: string; text: string }): Promise<string | null> {
+  const d = getDb()
+  if (!d || !groupId) return null
+  const text = data.text.trim()
+  if (!text || !data.authorUid || !data.authorName.trim()) return null
+  try {
+    const ref = await addDoc(collection(d, 'groups', groupId, 'posts'), {
+      authorUid: data.authorUid,
+      authorName: data.authorName.trim(),
+      text: text.slice(0, 1000),
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
 export async function fetchPages(limitN = 50): Promise<PageItem[]> {
   const d = getDb()
   if (!d) return []
@@ -638,4 +706,48 @@ export async function unfollowPage(id: string, uid: string): Promise<boolean> {
     await updateDoc(doc(d, 'pages', id), { followerUids: arrayRemove(uid) })
     return true
   } catch { return false }
+}
+
+// ---------- pages/{pageId}/posts/{postId} — page posts (text only) ----------
+// Only the page owner writes; rules check ownership on the parent page doc.
+// Followers and visitors read. Same text-only rule as group posts.
+export async function fetchPagePosts(pageId: string, limitN = 50): Promise<PagePost[]> {
+  const d = getDb()
+  if (!d || !pageId) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'pages', pageId, 'posts'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapPagePostDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((p): p is PagePost => p !== null)
+  } catch { return [] }
+}
+
+export function subscribePagePosts(pageId: string, cb: (posts: PagePost[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !pageId) return null
+  try {
+    const q = query(collection(d, 'pages', pageId, 'posts'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapPagePostDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((p): p is PagePost => p !== null))
+    }, () => { /* subscription failed — the page keeps its local cache */ })
+  } catch { return null }
+}
+
+export async function createPagePostDoc(pageId: string, data: { authorUid: string; authorName: string; text: string }): Promise<string | null> {
+  const d = getDb()
+  if (!d || !pageId) return null
+  const text = data.text.trim()
+  if (!text || !data.authorUid || !data.authorName.trim()) return null
+  try {
+    const ref = await addDoc(collection(d, 'pages', pageId, 'posts'), {
+      authorUid: data.authorUid,
+      authorName: data.authorName.trim(),
+      text: text.slice(0, 1000),
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
 }

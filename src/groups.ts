@@ -69,6 +69,81 @@ export function followerCount(p: PageItem): number { return p.followerUids.lengt
 export function isMember(g: GroupItem, uid: string | null | undefined): boolean { return !!uid && g.memberUids.includes(uid) }
 export function isFollower(p: PageItem, uid: string | null | undefined): boolean { return !!uid && p.followerUids.includes(uid) }
 
+// ---------- Group & page posts ----------
+// Text-only posts (no photo upload — Firebase Storage is not enabled, and
+// feed photos are device-local data URLs that must never go to Firestore).
+// Only real members post in a group; only the page owner posts on a page.
+// Nothing is ever invented — an empty list honestly says "no posts yet".
+export type GroupPost = {
+  id: string
+  authorUid: string
+  authorName: string
+  text: string
+  createdAtMs: number
+}
+/** A post on a page — same shape as a group post, different parent. */
+export type PagePost = GroupPost
+
+export const GROUP_POST_MAX = 1000
+export const PAGE_POST_MAX = 1000
+
+/** Shown when a post tries to move the chat off PiCall to another app. */
+export const OFF_PLATFORM_LINK_MESSAGE_GROUPS = 'Links to other chat apps are not allowed in groups.'
+export const OFF_PLATFORM_LINK_MESSAGE_PAGES = 'Links to other chat apps are not allowed on pages.'
+
+const OFF_PLATFORM_LINK_RE = /(wa\.me|whatsapp|t\.me|telegram|imo\.im|messenger\.com|m\.me|fb\.me|fb\.com|facebook\.com|viber)/
+
+/** True when the text links (or invites) to another chat app — wa.me,
+ *  WhatsApp, Telegram, imo, Messenger, Facebook chat — or shares a phone
+ *  number to move the chat off PiCall. Mirrors the app's contactBanCheck
+ *  policy; server-side rules cannot reliably enforce text content, so the
+ *  check runs on submit, client-side. */
+export function hasOffPlatformContactLink(text: string): boolean {
+  const t = text.toLowerCase()
+  if (OFF_PLATFORM_LINK_RE.test(t)) return true
+  const digits = text.replace(/[\s-]/g, '')
+  if (/(01[3-9]\d{8})|(\+?8801[3-9]\d{8})/.test(digits)) return true
+  if (/\b\d{10,}\b/.test(digits)) return true
+  return false
+}
+
+function validateCommunityPost(text: string, linkMessage: string, max: number): string | null {
+  const t = text.trim()
+  if (!t) return 'Write something to post.'
+  if (t.length > max) return `Post is too long — maximum ${max} characters.`
+  if (hasOffPlatformContactLink(t)) return linkMessage
+  return null
+}
+
+/** Validate a group post. Returns the error to show, or null. */
+export function validateGroupPost(text: string): string | null {
+  return validateCommunityPost(text, OFF_PLATFORM_LINK_MESSAGE_GROUPS, GROUP_POST_MAX)
+}
+
+/** Validate a page post. Returns the error to show, or null. */
+export function validatePagePost(text: string): string | null {
+  return validateCommunityPost(text, OFF_PLATFORM_LINK_MESSAGE_PAGES, PAGE_POST_MAX)
+}
+
+export function mapGroupPostDoc(id: string, data: Record<string, unknown>): GroupPost | null {
+  if (!id || typeof data !== 'object' || !data) return null
+  const authorUid = typeof data.authorUid === 'string' ? data.authorUid : ''
+  const authorName = typeof data.authorName === 'string' ? data.authorName.trim() : ''
+  const text = typeof data.text === 'string' ? data.text.trim() : ''
+  if (!authorUid || !authorName || !text) return null
+  return {
+    id,
+    authorUid,
+    authorName,
+    text: text.slice(0, GROUP_POST_MAX),
+    createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
+  }
+}
+
+export function mapPagePostDoc(id: string, data: Record<string, unknown>): PagePost | null {
+  return mapGroupPostDoc(id, data)
+}
+
 // ---------- Firestore doc mapping (never throws; bad docs become null) ----------
 
 function uidArray(v: unknown): string[] {
@@ -160,3 +235,26 @@ function mergeLists<T extends { id: string; createdAtMs: number }>(local: T[], r
 
 export function mergeGroupLists(local: GroupItem[], remote: GroupItem[]): GroupItem[] { return mergeLists(local, remote) }
 export function mergePageLists(local: PageItem[], remote: PageItem[]): PageItem[] { return mergeLists(local, remote) }
+
+// ---------- Local cache for group/page posts (per parent, offline fallback) ----------
+export const LOCAL_GROUP_POSTS_PREFIX = 'callguru:group-posts:'
+export const LOCAL_PAGE_POSTS_PREFIX = 'callguru:page-posts:'
+
+export function loadLocalGroupPosts(groupId: string): GroupPost[] {
+  if (!groupId) return []
+  return loadLocal(LOCAL_GROUP_POSTS_PREFIX + groupId, mapGroupPostDoc)
+}
+export function saveLocalGroupPosts(groupId: string, list: GroupPost[]): void {
+  if (!groupId) return
+  saveLocal(LOCAL_GROUP_POSTS_PREFIX + groupId, list)
+}
+export function loadLocalPagePosts(pageId: string): PagePost[] {
+  if (!pageId) return []
+  return loadLocal(LOCAL_PAGE_POSTS_PREFIX + pageId, mapPagePostDoc)
+}
+export function saveLocalPagePosts(pageId: string, list: PagePost[]): void {
+  if (!pageId) return
+  saveLocal(LOCAL_PAGE_POSTS_PREFIX + pageId, list)
+}
+export function mergeGroupPostLists(local: GroupPost[], remote: GroupPost[]): GroupPost[] { return mergeLists(local, remote) }
+export function mergePagePostLists(local: PagePost[], remote: PagePost[]): PagePost[] { return mergeLists(local, remote) }

@@ -30,11 +30,15 @@
 //   groups/{groupId} — গ্রুপ: লগইন করা সবাই পড়তে পারেন; তৈরি করতে পারেন
 //                    শুধু মালিক নিজে (ownerUid নিজের UID, নিজেই প্রথম
 //                    সদস্য); পাবলিক গ্রুপে যে কেউ যোগ দিতে/ছাড়তে পারেন
-//                    (memberUids-এ শুধু নিজের UID যোগ/বাদ); বাকি বদল শুধু
-//                    মালিক/অ্যাডমিন। মোছা বন্ধ।
+//                    (memberUids-এ শুধু নিজের UID যোগ/বাদ); সদস্য যোগ/বাদ
+//                    শুধু মালিক; বাকি বদল শুধু মালিক/অ্যাডমিন। মোছা বন্ধ।
+//   groups/{groupId}/posts/{postId} — গ্রুপের পোস্ট: পড়া সবার; লেখা শুধু
+//                    সদস্যের (authorUid নিজের UID)।
 //   pages/{pageId}  — পেজ: লগইন করা সবাই পড়তে পারেন; তৈরি করতে পারেন শুধু
 //                    মালিক নিজে; যে কেউ ফলো/আনফলো করতে পারেন (followerUids-এ
 //                    শুধু নিজের UID যোগ/বাদ); বাকি বদল শুধু মালিক/অ্যাডমিন।
+//   pages/{pageId}/posts/{postId} — পেজের পোস্ট: পড়া সবার; লেখা শুধু
+//                    পেজের মালিকের।
 //   বাকি সব — ডিফল্টভাবে বন্ধ।
 // NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
 // সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
@@ -156,6 +160,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // গ্রুপের পোস্ট — পড়তে পারেন লগইন করা সবাই; লিখতে পারেন শুধু ওই গ্রুপের
+    // সদস্য নিজে (authorUid নিজের UID, parent গ্রুপের memberUids-এ থাকতে হবে)।
+    // লিংকের নিয়ম টেক্সটে ধরা যায় না — নিয়মে শুধু সদস্য + লেখার আকার ধরা
+    // হয়; অন্য চ্যাট অ্যাপের লিংক অ্যাপেই (submit-এ) আটকানো হয়।
+    match /groups/{groupId}/posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberUids
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000;
+      allow update, delete: if false;
+    }
+
     // পেজ — তৈরি করেন মালিক নিজে; যে কেউ ফলো/আনফলো করতে পারেন
     // (followerUids-এ শুধু নিজের UID যোগ/বাদ)।
     match /pages/{pageId} {
@@ -173,6 +192,19 @@ service cloud.firestore {
             && request.resource.data.followerUids.size() == resource.data.followerUids.size() - 1
             && !(request.auth.uid in request.resource.data.followerUids))));
       allow delete: if false;
+    }
+
+    // পেজের পোস্ট — পড়তে পারেন লগইন করা সবাই; লিখতে পারেন শুধু পেজের
+    // মালিক নিজে (parent পেজের ownerUid নিজের UID হতে হবে)।
+    match /pages/{pageId}/posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && get(/databases/$(database)/documents/pages/$(pageId)).data.ownerUid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000;
+      allow update, delete: if false;
     }
 
     // বাকি সব ডিফল্টভাবে বন্ধ।

@@ -29,10 +29,10 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
-import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, type GroupItem, type PageItem } from './groups'
+import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
@@ -3507,17 +3507,47 @@ export function GroupsPage() {
 export function GroupDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { uid } = useStore()
+  const { uid, user } = useStore()
   const [group, setGroup] = useState<GroupItem | null>(() => loadLocalGroups().find(g => g.id === id) ?? null)
   const [page, setPage] = useState<PageItem | null>(() => loadLocalPages().find(p => p.id === id) ?? null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  // Group posts (members only write) + page posts (owner only writes).
+  const [groupPosts, setGroupPosts] = useState<GroupPost[]>(() => (id ? loadLocalGroupPosts(id) : []))
+  const [pagePosts, setPagePosts] = useState<PagePost[]>(() => (id ? loadLocalPagePosts(id) : []))
+  const [postText, setPostText] = useState('')
+  const [postErr, setPostErr] = useState('')
+  const [postBusy, setPostBusy] = useState(false)
+  const [pagePostText, setPagePostText] = useState('')
+  const [pagePostErr, setPagePostErr] = useState('')
+  const [pagePostBusy, setPagePostBusy] = useState(false)
+  // Member add (owner only): real users from publicProfiles, searched by name.
+  const [profiles, setProfiles] = useState<NewMember[]>([])
+  const [addQuery, setAddQuery] = useState('')
+  const [addBusyUid, setAddBusyUid] = useState('')
+  const [addMsg, setAddMsg] = useState('')
+  const [removeBusyUid, setRemoveBusyUid] = useState('')
   useEffect(() => {
     if (!id) return
     fetchGroup(id).then(g => { if (g) { setGroup(g); saveLocalGroups(mergeGroupLists(loadLocalGroups(), [g])) } })
     fetchPage(id).then(p => { if (p) { setPage(p); saveLocalPages(mergePageLists(loadLocalPages(), [p])) } })
+    fetchGroupPosts(id).then(list => { if (list.length > 0) { const m = mergeGroupPostLists(loadLocalGroupPosts(id), list); setGroupPosts(m); saveLocalGroupPosts(id, m) } })
+    fetchPagePosts(id).then(list => { if (list.length > 0) { const m = mergePagePostLists(loadLocalPagePosts(id), list); setPagePosts(m); saveLocalPagePosts(id, m) } })
+    const unGP = subscribeGroupPosts(id, list => { const m = mergeGroupPostLists(loadLocalGroupPosts(id), list); setGroupPosts(m); if (list.length > 0) saveLocalGroupPosts(id, m) })
+    const unPP = subscribePagePosts(id, list => { const m = mergePagePostLists(loadLocalPagePosts(id), list); setPagePosts(m); if (list.length > 0) saveLocalPagePosts(id, m) })
+    fetchAllPublicProfiles(100).then(list => setProfiles(list)).catch(() => { /* names fall back to Member */ })
+    return () => { unGP?.(); unPP?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+  function memberName(memberUid: string): string {
+    if (group && memberUid === group.ownerUid) return group.ownerName
+    if (page && memberUid === page.ownerUid) return page.ownerName
+    return profiles.find(p => p.id === memberUid)?.displayName ?? 'Member'
+  }
+  function formatPostTime(ms: number): string {
+    if (!ms) return 'Just now'
+    return new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
   if (!group && !page) {
     return (
       <div className="space-y-3 max-w-2xl mx-auto">
@@ -3553,6 +3583,61 @@ export function GroupDetailPage() {
     }
     setBusy(false)
   }
+  async function addMember(m: NewMember) {
+    if (!group || !uid || uid !== group.ownerUid) return
+    if (group.memberUids.includes(m.id)) return
+    setAddBusyUid(m.id); setAddMsg('')
+    const ok = await addGroupMember(group.id, m.id)
+    if (ok) {
+      const next: GroupItem = { ...group, memberUids: [...group.memberUids, m.id] }
+      setGroup(next); saveLocalGroups(mergeGroupLists(loadLocalGroups(), [next]))
+      setAddMsg(`✅ ${m.displayName} added to the group.`)
+    } else {
+      setAddMsg('Could not add — check the connection and try again.')
+    }
+    setAddBusyUid('')
+  }
+  async function removeMember(memberUid: string) {
+    if (!group || !uid || uid !== group.ownerUid || memberUid === group.ownerUid) return
+    setRemoveBusyUid(memberUid); setAddMsg('')
+    const ok = await removeGroupMember(group.id, memberUid)
+    if (ok) {
+      const next: GroupItem = { ...group, memberUids: group.memberUids.filter(u => u !== memberUid) }
+      setGroup(next); saveLocalGroups(mergeGroupLists(loadLocalGroups(), [next]))
+      setAddMsg('Member removed.')
+    } else {
+      setAddMsg('Could not remove — check the connection and try again.')
+    }
+    setRemoveBusyUid('')
+  }
+  async function submitGroupPost() {
+    if (!group || !uid || !user) return
+    const err = validateGroupPost(postText)
+    if (err) { setPostErr(err); return }
+    setPostBusy(true); setPostErr('')
+    const pid = await createGroupPostDoc(group.id, { authorUid: uid, authorName: user.name, text: postText.trim() })
+    const saved: GroupPost = { id: pid ?? ('local-' + Date.now()), authorUid: uid, authorName: user.name, text: postText.trim(), createdAtMs: Date.now() }
+    const merged = mergeGroupPostLists(loadLocalGroupPosts(group.id), [saved])
+    saveLocalGroupPosts(group.id, merged); setGroupPosts(merged)
+    setPostText(''); setPostBusy(false)
+  }
+  async function submitPagePost() {
+    if (!page || !uid || !user) return
+    const err = validatePagePost(pagePostText)
+    if (err) { setPagePostErr(err); return }
+    setPagePostBusy(true); setPagePostErr('')
+    const pid = await createPagePostDoc(page.id, { authorUid: uid, authorName: user.name, text: pagePostText.trim() })
+    const saved: PagePost = { id: pid ?? ('local-' + Date.now()), authorUid: uid, authorName: user.name, text: pagePostText.trim(), createdAtMs: Date.now() }
+    const merged = mergePagePostLists(loadLocalPagePosts(page.id), [saved])
+    saveLocalPagePosts(page.id, merged); setPagePosts(merged)
+    setPagePostText(''); setPagePostBusy(false)
+  }
+  const isGroupOwner = !!group && !!uid && uid === group.ownerUid
+  const isPageOwner = !!page && !!uid && uid === page.ownerUid
+  const addCandidates = addQuery.trim().length < 2 ? [] : profiles
+    .filter(p => p.id !== uid && !(group?.memberUids.includes(p.id))
+      && ((p.displayName + ' ' + (p.referralCode ?? '')).toLowerCase().includes(addQuery.trim().toLowerCase())))
+    .slice(0, 10)
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <Btn variant="ghost" onClick={() => navigate('/groups')}>← Back to Groups & Pages</Btn>
@@ -3562,7 +3647,46 @@ export function GroupDetailPage() {
         <p className="text-sm text-gray-500 mt-2">{memberCount(group)} member{memberCount(group) === 1 ? '' : 's'} • by {group.ownerName}</p>
         <Btn className="mt-3" disabled={busy || !uid} onClick={toggleGroup}>{isMember(group, uid) ? 'Leave Group' : 'Join Group'}</Btn>
         {msg && <p className="text-sm text-gray-500 mt-2">{msg}</p>}
-        <p className="text-sm text-gray-400 mt-4 pt-3 border-t">No posts here yet — group posts are coming.</p>
+        <div className="mt-4 pt-3 border-t">
+          <h2 className="font-bold">Members</h2>
+          {group.memberUids.map(mUid => (
+            <div key={mUid} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-white/10 last:border-0">
+              <p className="text-sm font-medium">{memberName(mUid)} {mUid === group.ownerUid && <span className="text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">Owner</span>}</p>
+              {isGroupOwner && mUid !== group.ownerUid && <button type="button" className="text-xs text-red-600 font-medium" disabled={removeBusyUid === mUid} onClick={() => removeMember(mUid)}>{removeBusyUid === mUid ? 'Removing…' : 'Remove'}</button>}
+            </div>
+          ))}
+        </div>
+        {isGroupOwner && <div className="mt-4 pt-3 border-t">
+          <h2 className="font-bold">Add members</h2>
+          <input className="w-full border rounded-lg px-3 py-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={addQuery} onChange={e => setAddQuery(e.target.value)} placeholder="Search users by name…" />
+          {addCandidates.map(m => (
+            <div key={m.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-white/10 last:border-0">
+              <p className="text-sm font-medium">{m.displayName}</p>
+              <Btn variant="ghost" disabled={addBusyUid === m.id} onClick={() => addMember(m)}>{addBusyUid === m.id ? 'Adding…' : 'Add'}</Btn>
+            </div>
+          ))}
+          {addQuery.trim().length >= 2 && addCandidates.length === 0 && <p className="text-sm text-gray-500 mt-2">No users found with that name.</p>}
+          {addMsg && <p className="text-sm text-gray-500 mt-2">{addMsg}</p>}
+        </div>}
+        <div className="mt-4 pt-3 border-t">
+          <h2 className="font-bold">Posts</h2>
+          {isMember(group, uid) ? (
+            <>
+              <textarea className="w-full border rounded-lg px-3 py-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postText} onChange={e => setPostText(e.target.value)} placeholder="Share something with the group…" rows={3} />
+              {postErr && <p className="text-sm text-red-600 mt-2">{postErr}</p>}
+              <Btn className="w-full mt-2" disabled={postBusy} onClick={submitGroupPost}>{postBusy ? 'Posting…' : 'Post'}</Btn>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 mt-2">Join the group to post.</p>
+          )}
+          {groupPosts.length === 0 && <p className="text-sm text-gray-500 mt-3">No posts yet — be the first to post.</p>}
+          {groupPosts.map(p => (
+            <div key={p.id} className="py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+              <p className="text-sm font-bold">{p.authorName} <span className="text-xs text-gray-400 font-normal">• {formatPostTime(p.createdAtMs)}</span></p>
+              <p className="text-sm mt-1 whitespace-pre-wrap break-words">{p.text}</p>
+            </div>
+          ))}
+        </div>
       </Card>}
       {page && <Card>
         <h1 className="text-xl font-bold">{page.name}</h1>
@@ -3570,7 +3694,23 @@ export function GroupDetailPage() {
         <p className="text-sm text-gray-500 mt-2">{followerCount(page)} follower{followerCount(page) === 1 ? '' : 's'} • by {page.ownerName}</p>
         <Btn className="mt-3" disabled={busy || !uid} onClick={togglePage}>{isFollower(page, uid) ? 'Unfollow' : 'Follow'}</Btn>
         {msg && <p className="text-sm text-gray-500 mt-2">{msg}</p>}
-        <p className="text-sm text-gray-400 mt-4 pt-3 border-t">No posts here yet — page posts are coming.</p>
+        <div className="mt-4 pt-3 border-t">
+          <h2 className="font-bold">Posts</h2>
+          {isPageOwner && (
+            <>
+              <textarea className="w-full border rounded-lg px-3 py-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={pagePostText} onChange={e => setPagePostText(e.target.value)} placeholder="Share something on your page…" rows={3} />
+              {pagePostErr && <p className="text-sm text-red-600 mt-2">{pagePostErr}</p>}
+              <Btn className="w-full mt-2" disabled={pagePostBusy} onClick={submitPagePost}>{pagePostBusy ? 'Posting…' : 'Post'}</Btn>
+            </>
+          )}
+          {pagePosts.length === 0 && <p className="text-sm text-gray-500 mt-3">No posts yet.</p>}
+          {pagePosts.map(p => (
+            <div key={p.id} className="py-3 border-b border-gray-100 dark:border-white/10 last:border-0">
+              <p className="text-sm font-bold">{p.authorName} <span className="text-xs text-gray-400 font-normal">• {formatPostTime(p.createdAtMs)}</span></p>
+              <p className="text-sm mt-1 whitespace-pre-wrap break-words">{p.text}</p>
+            </div>
+          ))}
+        </div>
       </Card>}
     </div>
   )
