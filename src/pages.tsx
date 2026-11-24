@@ -2006,7 +2006,8 @@ export function WalletPage() {
       <Card className="text-center">
         <p className="text-gray-500 text-sm">Wallet Balance</p>
         <p className="text-4xl font-extrabold pb-gradient-text">{formatPi(totalPi)}</p>
-        <p className="text-sm text-gray-500 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
+        <p className="text-lg font-bold text-gray-700 dark:text-gray-200">≈ {formatBDT(totalPi * piRateBDT)}</p>
+        <p className="text-sm text-gray-500 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> ({formatBDT(piBalance * piRateBDT)}) • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
         <p className="text-xs text-amber-600 mt-1">Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.</p>
         <p className="text-sm text-gray-500 mt-1">Reward Points: {points} • Referral: {referrals} people</p>
         <p className="text-xs text-gray-400 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
