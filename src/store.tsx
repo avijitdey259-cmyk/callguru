@@ -689,22 +689,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (docData) {
           applyHydrated(fromUserDoc(docData))
           // পুরোনো প্রোফাইলে referralCode না থাকলে লগইনে ব্যাকফিল — নাম/আইডি
-          // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনের প্রোফাইল লেখা হয় না।
-          if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
-            await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
-            if (cancelled) return
-          }
+          // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনও সাধারণ ব্যবহারকারীর
+          // মতো — তার প্রোফাইলও লেখা হয়, নতুন সদস্যের তালিকায় আসে।
+          await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
+          if (cancelled) return
         } else {
           await writeUserDoc(uid, toUserDoc(collectSnapshot()))
           if (cancelled) return
           // প্রথম লগইন — পাবলিক প্রোফাইল (নাম + যোগদানের সময় + রং + পাবলিক আইডি)
           // লেখা হয়, যাতে "নতুন সদস্য" সেকশনে আর নাম/আইডি খোঁজায় আসল নতুন
-          // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনের প্রোফাইল লেখা হয় না (তিনি নতুন
-          // সদস্যের তালিকায় আসবেন না)।
-          if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
-            await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
-            if (cancelled) return
-          }
+          // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনও সাধারণ ব্যবহারকারীর মতো — তার
+          // প্রোফাইলও লেখা হয়।
+          await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
+          if (cancelled) return
         }
         const cfg = await fetchPublicConfig()
         if (cancelled) return
@@ -772,10 +769,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
-  // জন্মতারিখ এখানে যায় না — সেগুলো শুধু users/{uid} ডকে থাকে।
+  // জন্মতারিখ এখানে যায় না — সেগুলো শুধু users/{uid} ডকে থাকে। অ্যাডমিনও
+  // সাধারণ ব্যবহারকারীর মতো — তার প্রোফাইলও এখানে সিঙ্ক হয়।
   useEffect(() => {
     if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
-    if (user.email.trim().toLowerCase() === ADMIN_EMAIL) return
     const t = setTimeout(() => {
       writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto }).catch(() => { /* ignore */ })
     }, 800)

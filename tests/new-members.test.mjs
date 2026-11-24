@@ -112,14 +112,29 @@ check('নিয়ম: users নিজেরই থাকে; publicProfiles �
   assert.ok(ppBody.includes('allow delete: if false'))
 })
 
-// ---- গঠন: প্রথম লগইনে পাবলিক প্রোফাইল লেখা হয়; অ্যাডমিনের নয় ----
+// ---- গঠন: প্রথম লগইনে পাবলিক প্রোফাইল লেখা হয়; অ্যাডমিনও সাধারণ ব্যবহারকারী ----
 // referralCode-সহ লেখা হয় (নতুন ব্যবহারকারী + পুরোনো প্রোফাইলের ব্যাকফিল) —
-// নাম/আইডি খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে।
-check('স্টোর: প্রথম লগইনে পাবলিক প্রোফাইল লেখে; অ্যাডমিন বাদ', () => {
+// নাম/আইডি খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনের প্রোফাইলও লেখা হয় —
+// তিনি নতুন সদস্যের তালিকায়, নাম/আইডি খোঁজায় আর বন্ধু হিসেবে আসেন।
+check('স্টোর: প্রথম লগইনে পাবলিক প্রোফাইল লেখে; অ্যাডমিনও লেখে (বাদ নয়)', () => {
   assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })'))
   const i = storeSrc.indexOf('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })')
   const guard = storeSrc.slice(Math.max(0, i - 400), i)
-  assert.ok(guard.includes('!== ADMIN_EMAIL'), 'অ্যাডমিন বাদ দেওয়ার শর্ত নেই')
+  assert.ok(!guard.includes('!== ADMIN_EMAIL'), 'অ্যাডমিন বাদ দেওয়ার শর্ত এখনো আছে')
+  // প্রোফাইল-সিঙ্ক ইফেক্টেও অ্যাডমিনের জন্য early return নেই
+  const syncStart = storeSrc.indexOf('পাবলিক প্রোফাইল সিঙ্ক')
+  const syncBody = storeSrc.slice(syncStart, storeSrc.indexOf('// Friend photos refresh', syncStart))
+  assert.ok(!syncBody.includes('=== ADMIN_EMAIL) return'), 'প্রোফাইল সিঙ্কে অ্যাডমিন early return আছে')
+})
+
+// ---- গঠন: অ্যাডমিন প্যানেল আগের মতোই শুধু অ্যাডমিনের ----
+// প্রোফাইল সাধারণ ব্যবহারকারীর মতো হলেও /admin রুট আর Admin মেনু isAdmin দিয়েই আটকানো।
+check('অ্যাডমিন প্যানেল শুধু অ্যাডমিনের: /admin রুট + Admin মেনু isAdmin-গেটেড', () => {
+  assert.ok(storeSrc.includes('isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL'), 'isAdmin নেই')
+  const appSrc = readFileSync(join(root, 'src/App.tsx'), 'utf8')
+  assert.ok(appSrc.includes("path=\"/admin\" element={isAdmin ? <AdminPage /> : <AdminBlocked />}"), '/admin রুট isAdmin-গেটেড নয়')
+  const compSrc = readFileSync(join(root, 'src/components.tsx'), 'utf8')
+  assert.ok(compSrc.includes("...(isAdmin ? [{ to: '/admin', label: 'Admin'"), 'Admin মেনু isAdmin-গেটেড নয়')
 })
 
 // ---- গঠন: সেকশন হোমে, সার্চের নিচে, ফিড পোস্টের উপরে ----
@@ -149,4 +164,4 @@ check('সেকশনের উৎস শুধু Firestore — পারস�
   assert.ok(!nmSrc.includes('রিমা') && !fsSrc.includes('রিমা'), 'ডেটা স্তরে পারসোনা নাম আছে')
 })
 
-console.log(`\n${passed}/12 passed`)
+console.log(`\n${passed}/13 passed`)
