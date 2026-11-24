@@ -111,10 +111,10 @@ export const SEED_POSTS: Post[] = [
   // দিয়ে আপলোড হলে imageUrl ফিরিয়ে দেওয়া হবে — বাইনারি ফাইল snapshot
   // push-এ যায় না বলে আপাতত লেখা-পোস্ট হিসেবে লাইভ হচ্ছে। সরানো ডেমো
   // পোস্টের কেউ এতে নেই।
-  { id: 'persona-tanvir-1', author: 'Tanvir', time: '3h', text: 'Why did the chicken cross the road? To prove it wasn\'t chicken! 😂 Okay okay, I\'ll stop now... or will I?', likes: 19, comments: 12, shares: 3, color: '#0EA5E9' },
-  { id: 'persona-faysal-1', author: 'Faysal', time: '5h', text: 'Study tip that actually works: read for 25 minutes, rest 5, repeat. Your brain will thank you. 📚', likes: 22, comments: 4, shares: 6, color: '#14B8A6' },
-  { id: 'persona-imran-1', author: 'Imran', time: '7h', text: 'Long day? Make yourself a cup of tea, sit by the window, and breathe. You did enough today. ☕❤️', likes: 28, comments: 7, shares: 2, color: '#65A30D' },
-  { id: 'persona-sadia-1', author: 'Sadia', time: '10h', text: 'Headphones on, world off. 🎧 Which song is on repeat for you this week?', likes: 33, comments: 15, shares: 4, color: '#8B5CF6' },
+  { id: 'persona-tanvir-1', author: 'Tanvir', time: '3h', text: 'Why did the chicken cross the road? To prove it wasn\'t chicken! 😂 Okay okay, I\'ll stop now... or will I?', likes: 19, comments: 12, shares: 3, color: '#0EA5E9', imageUrl: '/persona-tanvir-1.jpg' },
+  { id: 'persona-faysal-1', author: 'Faysal', time: '5h', text: 'Study tip that actually works: read for 25 minutes, rest 5, repeat. Your brain will thank you. 📚', likes: 22, comments: 4, shares: 6, color: '#14B8A6', imageUrl: '/persona-faysal-1.jpg' },
+  { id: 'persona-imran-1', author: 'Imran', time: '7h', text: 'Long day? Make yourself a cup of tea, sit by the window, and breathe. You did enough today. ☕❤️', likes: 28, comments: 7, shares: 2, color: '#65A30D', imageUrl: '/persona-imran-1.jpg' },
+  { id: 'persona-sadia-1', author: 'Sadia', time: '10h', text: 'Headphones on, world off. 🎧 Which song is on repeat for you this week?', likes: 33, comments: 15, shares: 4, color: '#8B5CF6', imageUrl: '/persona-sadia-1.jpg' },
   { id: 'persona-tanha-1', author: 'Tanha', time: 'Yesterday', text: 'The sky was on fire tonight. Some sunsets feel like the day is saying goodbye properly. 🌇', likes: 41, comments: 9, shares: 7, color: '#F59E0B' },
   { id: 'persona-nabila-1', author: 'Nabila', time: 'Yesterday', text: 'Rain on the window, a warm blanket, and nothing to do. Perfect evening. ☔ What\'s your rainy-day favourite?', likes: 26, comments: 10, shares: 3, color: '#EC4899' },
 ]

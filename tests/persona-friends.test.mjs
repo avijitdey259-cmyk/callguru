@@ -73,17 +73,24 @@ check('সরানো ডেমো নাম ফিরে আসেনি', () 
   assert.ok(!D.SEED_POSTS.some(p => BANNED_NAMES.includes(p.author)), 'ডেমো নামের পোস্ট আছে')
 })
 
-check('ফিড পোস্ট: ১২টি, সব লেখকই পারসোনা (ছবি ব্রাউজার-আপলোডের পর)', () => {
+check('ফিড পোস্ট: ১২টি, সব লেখকই পারসোনা (৪টিতে ছবি)', () => {
   assert.equal(D.SEED_POSTS.length, 12)
   const names = new Set(B.BUDDIES.map(b => b.name))
   for (const p of D.SEED_POSTS) {
     assert.ok(names.has(p.author), `পোস্টের লেখক পারসোনা নয়: ${p.author}`)
     assert.ok(p.text.length > 0, 'খালি পোস্ট')
   }
-  // ছবি আপাতত নেই — ৪টি JPG (public/persona-*.jpg) snapshot push-এ যায় না
-  // (বাইনারি); GitHub-এ ব্রাউজার দিয়ে আপলোড হলে imageUrl ফিরবে।
+  // ৪টি JPG এখন GitHub-এ আছে (public/persona-*.jpg, ব্রাউজার দিয়ে আপলোড)
+  // — Tanvir/Faysal/Imran/Sadia পোস্টে ছবি, Tanha/Nabila লেখা-পোস্টই থাকবে।
   const withPhoto = D.SEED_POSTS.filter(p => p.imageUrl)
-  assert.equal(withPhoto.length, 0, `ছবিসহ পোস্ট ${withPhoto.length}টি — আপলোডের আগে ০ চাই`)
+  assert.equal(withPhoto.length, 4, `ছবিসহ পোস্ট ${withPhoto.length}টি — ৪ চাই`)
+  for (const p of withPhoto) {
+    assert.equal(p.imageUrl, `/${p.id}.jpg`, `${p.id} imageUrl ভুল: ${p.imageUrl}`)
+  }
+  for (const id of ['persona-tanha-1', 'persona-nabila-1']) {
+    const p = D.SEED_POSTS.find(x => x.id === id)
+    assert.ok(p && !p.imageUrl, `${id} লেখা-পোস্টই থাকবে`)
+  }
   assert.equal(new Set(D.SEED_POSTS.map(p => p.id)).size, 12, 'ডুপ্লিকেট পোস্ট id')
 })
 
