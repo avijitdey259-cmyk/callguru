@@ -39,17 +39,19 @@ import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, m
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { buildPostShareUrl, isOwnPost, parsePostDeepLink } from './feedPosts'
+import { inviteQrUrl, shareErrorToResult, type ShareResult } from './share'
 import type { Post } from './data'
 import { colourForUid, formatJoinTime, filterNewMembers, filterAdminUsers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, type AnalyticsIds, type SignupMethod } from './analytics'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
-// নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
-export async function shareLink(title: string, text: string, url: string): Promise<'shared' | 'copied' | 'failed'> {
+// নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়; শেয়ার শিট
+// বন্ধ করা (cancel) ব্যর্থতা নয় — চুপচাপ থাকে, কোনো ভুল বার্তা নয়
+export async function shareLink(title: string, text: string, url: string): Promise<ShareResult> {
   try {
     if (navigator.share) { await navigator.share({ title, text, url }); return 'shared' }
-  } catch { return 'failed' }
+  } catch (err) { return shareErrorToResult(err) }
   try { await navigator.clipboard.writeText(`${text} ${url}`); return 'copied' } catch { return 'failed' }
 }
 
@@ -92,6 +94,7 @@ export function RefWelcomeBanner() {
 export function InviteCard() {
   const { referralCode, referrals, referralPiEarned } = useStore()
   const [msg, setMsg] = useState('')
+  const [qrHidden, setQrHidden] = useState(false)
   const link = `${INVITE_BASE_URL}?ref=${referralCode}`
   async function copy() {
     try { await navigator.clipboard.writeText(link); setMsg('✅ Link copied — send it to a friend!') }
@@ -99,13 +102,23 @@ export function InviteCard() {
   }
   async function share() {
     const r = await shareLink('PiCall — Live Expert Advice', 'Join PiCall — first call\'s first 1 minute free + 1 π bonus!', link)
-    setMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ Link copied — send it to a friend!' : '')
+    setMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ Link copied — send it to a friend!' : r === 'failed' ? 'Sharing is not supported here — tap Copy Link.' : '')
   }
   return (
     <Card>
       <h2 className="font-bold">📣 Invite a friend — both of you get it</h2>
       <p className="text-sm mt-1">If a friend joins through your link, they will get <b>First call's first 1 minute free + {REF_WELCOME_PI} π</b>. When your friend makes their first top-up, <b>You will get {REF_INVITER_PI} π</b>।</p>
-      <p className="text-sm mt-2 break-all">Your link: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code></p>
+      {/* লিংক নিজেই ট্যাপ করা যায় — ট্যাপ করলেই শেয়ার শিট ওঠে (না থাকলে কপি);
+          আগে এটা শুধু লেখা ছিল, ট্যাপে কিছুই হতো না */}
+      <button onClick={share} className="text-sm mt-2 break-all text-left w-full" title="Tap to share your link">
+        Your link: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code> <span className="text-violet-600 font-medium">↗️ Share</span>
+      </button>
+      {!qrHidden && (
+        <button onClick={share} className="mt-3 block" title="Tap the QR code to share">
+          <img src={inviteQrUrl(link)} alt="Invite QR code — tap to share" className="w-[180px] h-[180px] rounded-xl bg-white p-1" onError={() => setQrHidden(true)} />
+          <span className="block text-xs text-gray-400 mt-1">Scan or tap the QR code to share your invite link</span>
+        </button>
+      )}
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={copy}>📋 Copy Link</Btn>
         <Btn variant="green" onClick={share}>↗️ Share</Btn>
@@ -847,6 +860,7 @@ export function Feed() {
   async function sharePost(p: Post) {
     const url = buildPostShareUrl(window.location.origin, p.id)
     const result = await shareLink('PiCall', `${p.author}: ${p.text.slice(0, 120)}`, url)
+    if (result === 'cancelled') return
     if (result === 'shared' || result === 'copied') {
       setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))
       if (result === 'copied') setShareMsg(m => ({ ...m, [p.id]: 'Link copied — share it anywhere.' }))
@@ -2058,6 +2072,13 @@ export function WalletPage() {
   const [wdMsg, setWdMsg] = useState('')
   const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
+  const [affiliateMsg, setAffiliateMsg] = useState('')
+  // অ্যাফিলিয়েট লিংক — ট্যাপ করলেই শেয়ার শিট ওঠে (না থাকলে কপি); শিট বন্ধ
+  // করা ব্যর্থতা নয়, চুপচাপ থাকে; আসল ব্যর্থতায় সত্যি বার্তা
+  async function shareAffiliateLink() {
+    const r = await shareLink('PiCall — Live Expert Advice', 'Join PiCall — first call\'s first 1 minute free + 1 π bonus!', `${INVITE_BASE_URL}?ref=${referralCode}`)
+    setAffiliateMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ Link copied — send it to a friend!' : r === 'failed' ? 'Sharing is not supported here — long-press the link to copy it.' : '')
+  }
   const depChain = 'Pi Mainnet'
   const wdChain = 'Pi Mainnet'
   // চালু থাকা মাধ্যমেই টপ-আপ — বন্ধ মাধ্যম বোতামে দেখায় না; বর্তমান মাধ্যম
@@ -2224,7 +2245,10 @@ export function WalletPage() {
       <InviteCard />
       <Card>
         <h2 className="font-bold">🔗 Affiliate & Referral</h2>
-        <p className="text-sm mt-1 break-all">Your link: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{`${INVITE_BASE_URL}?ref=${referralCode}`}</code></p>
+        <button onClick={shareAffiliateLink} className="text-sm mt-1 break-all text-left w-full" title="Tap to share your link">
+          Your link: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{`${INVITE_BASE_URL}?ref=${referralCode}`}</code> <span className="text-violet-600 font-medium">↗️ Share</span>
+        </button>
+        {affiliateMsg && <p className="text-sm text-green-600 mt-2">{affiliateMsg}</p>}
         <p className="text-sm mt-1">Commission <b>10%</b> — only for the referred user <b>First deposit + first purchase (call/service/premium)</b> You get it only when it is complete. No commission for just signup or clicks.</p>
         <p className="text-sm mt-1">Referral 2-tier: Level-1 = 1.0 points, Level-2 = 0.5 points • 1 point = Tk 50.</p>
         <Btn variant="ghost" className="mt-3" onClick={() => setAffiliateOn(a => !a)}>{affiliateOn ? 'Hide Dashboard' : 'View Affiliate Dashboard'}</Btn>
@@ -3938,7 +3962,7 @@ export function LiveTV() {
           <div><p className="font-bold">{current.name}</p><p className="text-xs text-gray-400">{current.group} • In-app HLS player</p></div>
           <div className="flex gap-2 items-center">
             <button onClick={toggleFullscreen} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm flex items-center gap-1.5"><IconExpand className="w-4 h-4" /> {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}</button>
-            <button onClick={async () => { const r = await shareLink('PiCall Live TV', `Watch ${current.name} free on PiCall Live TV!`, INVITE_BASE_URL); setShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm flex items-center gap-1.5"><IconShare className="w-4 h-4" /> Share TV</button>
+            <button onClick={async () => { const r = await shareLink('PiCall Live TV', `Watch ${current.name} free on PiCall Live TV!`, INVITE_BASE_URL); setShareMsg(r === 'cancelled' ? '' : r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-3 py-1.5 rounded-full bg-white dark:bg-fb-card text-sm font-medium shadow-sm flex items-center gap-1.5"><IconShare className="w-4 h-4" /> Share TV</button>
             {current.officialUrl && <a className="text-fb-blue text-sm font-medium" href={current.officialUrl} target="_blank" rel="noreferrer">Official Source →</a>}
           </div>
         </div>
