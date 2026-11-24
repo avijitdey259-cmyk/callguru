@@ -12,7 +12,7 @@ import { profileCompletion, type Gender, type ProfileFields } from './profile'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, type AnalyticsIds } from './analytics'
 import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
 
-export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
+export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string }
 export type ChatMsg = { id: string; from: string; text: string; time: string }
 export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'

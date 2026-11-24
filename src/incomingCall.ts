@@ -34,7 +34,7 @@ export type CallInvite = {
   /** কলকারীর অবতার রং (না থাকলে fromId থেকে বানানো হয়) */
   fromColor?: string
   /** কী ধরনের কল — ইনভাইট শুধু বন্ধুর কলে পাঠানো হয় */
-  kind: 'friend' | 'expert' | 'dating' | 'link'
+  kind: 'friend' | 'expert' | 'dating' | 'link' | 'service'
   /** পাঠানোর সময় (ms epoch) — ৬০ সেকেন্ডের বেশি পুরোনো ইনভাইট মেয়াদোত্তীর্ণ */
   at: number
 }
@@ -72,7 +72,7 @@ export function parseInviteMessage(raw: unknown): CallInvite | null {
   if (!isValidCallCode(m.code)) return null
   if (typeof m.fromId !== 'string' || !m.fromId.trim()) return null
   if (typeof m.fromName !== 'string' || !m.fromName.trim()) return null
-  const kind = m.kind === 'friend' || m.kind === 'expert' || m.kind === 'dating' || m.kind === 'link' ? m.kind : 'friend'
+  const kind = m.kind === 'friend' || m.kind === 'expert' || m.kind === 'dating' || m.kind === 'link' || m.kind === 'service' ? m.kind : 'friend'
   return {
     code: String(m.code),
     fromId: String(m.fromId),

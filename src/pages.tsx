@@ -17,7 +17,7 @@ import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './compone
 import { Avatar } from './avatar'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
-  REELS, SERVICES, TV_CHANNELS, TOPUP_PACKS, DISTRICTS, INTERESTS,
+  REELS, TV_CHANNELS, TOPUP_PACKS, DISTRICTS, INTERESTS,
   contactBanCheck, formatBDT, formatPi, roundPi, takaToPi,
   USDT_NETWORKS, piWithdrawFee,
   type Expert, type DatingProfile, type TvChannel
@@ -29,7 +29,8 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews } from './firestore'
+import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
@@ -532,6 +533,146 @@ export function LoginPage() {
   )
 }
 
+// ---------- Services (virtual, video-call only) ----------
+// Home-এ New Members-এর উপরে: আসল ব্যবহারকারীদের ভিডিও-কল সার্ভিস —
+// প্রিপেইড Pi/মিনিট, ব্যালেন্স শেষে অটো-কাট, ব্যালেন্স না থাকলে কল নয়।
+// সব সার্ভিস ভার্চুয়াল — সামনাসামনি/লোকেশন কিছু নেই। ডেমো প্রোভাইডার/
+// রিভিউ নেই — খালি থাকলে "No services yet. Offer the first one!" দেখায়।
+export function ServicesSection() {
+  const { uid, totalPi, freeFirstMinuteUsed } = useStore()
+  const [services, setServices] = useState<ServiceListing[]>(() => loadLocalServices())
+  const [loaded, setLoaded] = useState(false)
+  const navigate = useNavigate()
+  useEffect(() => {
+    let cancelled = false
+    fetchServices(50).then(list => {
+      if (cancelled) return
+      if (list.length > 0) {
+        const merged = mergeServiceLists(loadLocalServices(), list)
+        setServices(merged)
+        saveLocalServices(merged)
+      }
+      setLoaded(true)
+    })
+    const unsub = subscribeServices(list => {
+      if (cancelled) return
+      if (list.length > 0) {
+        const merged = mergeServiceLists(loadLocalServices(), list)
+        setServices(merged)
+        saveLocalServices(merged)
+      }
+      setLoaded(true)
+    })
+    return () => { cancelled = true; unsub?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const freeMinuteAvailable = !freeFirstMinuteUsed
+  return (
+    <div id="services-section">
+      <Card>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="font-bold flex items-center gap-2 flex-1"><IconVideo className="w-5 h-5 text-pi-gold" /> Services</h2>
+          <Btn variant="green" onClick={() => navigate('/create-service')}>+ Offer a service</Btn>
+        </div>
+        <p className="text-sm text-gray-500 mt-1">Video-call services offered by people on PiCall — prepaid per minute in Pi. All services are virtual, by video call only.</p>
+        {!loaded && <p className="text-sm text-gray-400 mt-2">Loading services…</p>}
+        {loaded && services.length === 0 && <p className="text-sm text-gray-500 mt-2">No services yet. Offer the first one!</p>}
+        {services.map(s => (
+          <ServiceCard key={s.id} service={s} uid={uid} totalPi={totalPi} freeMinuteAvailable={freeMinuteAvailable} />
+        ))}
+      </Card>
+    </div>
+  )
+}
+
+function ServiceCard({ service, uid, totalPi, freeMinuteAvailable }: { service: ServiceListing; uid: string | null; totalPi: number; freeMinuteAvailable: boolean }) {
+  const navigate = useNavigate()
+  const [reviews, setReviews] = useState<ServiceReview[]>([])
+  const [reviewsLoaded, setReviewsLoaded] = useState(false)
+  const [showReviews, setShowReviews] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetchServiceReviews(service.id, 50).then(list => { if (!cancelled) { setReviews(list); setReviewsLoaded(true) } })
+    const unsub = subscribeServiceReviews(service.id, list => { if (!cancelled) { setReviews(list); setReviewsLoaded(true) } })
+    return () => { cancelled = true; unsub?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service.id])
+  const { avg, count } = averageRating(reviews)
+  const own = isOwnService(service, uid)
+  const canCall = canStartServiceCall(totalPi, service.ratePiPerMin, freeMinuteAvailable)
+  return (
+    <div className="border-t border-gray-100 dark:border-white/10 mt-3 pt-3">
+      <div className="flex gap-3">
+        <Avatar photo={service.providerPhoto} name={service.providerName} color="#7C3AED" className="w-12 h-12 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="font-bold truncate">{service.title}</p>
+          <p className="text-sm text-gray-500 truncate">{service.providerName}</p>
+          <p className="text-xs text-gray-400">{reviewsLoaded ? ratingSummary(avg, count) : 'Loading reviews…'}</p>
+        </div>
+        <span className="font-bold text-fb-blue whitespace-nowrap">{serviceRateLabel(service.ratePiPerMin)}</span>
+      </div>
+      <p className="text-sm mt-2">{service.description}</p>
+      <p className="text-xs text-gray-400 mt-1">Virtual video call only — no in-person meeting.</p>
+      <div className="flex gap-2 mt-3 flex-wrap items-center">
+        {own ? (
+          <span className="text-sm font-medium text-gray-500">This is your service</span>
+        ) : (
+          <>
+            <Btn variant="green" disabled={!canCall} onClick={() => navigate(`/call/service/${service.id}`)}>📞 Call</Btn>
+            {!canCall && <button className="text-sm text-fb-blue font-medium" onClick={() => navigate('/wallet')}>Top up Pi to call</button>}
+          </>
+        )}
+        <Btn variant="ghost" onClick={() => setShowReviews(v => !v)}>Reviews ({count})</Btn>
+      </div>
+      {showReviews && (
+        <div className="mt-3 space-y-2">
+          {reviews.length === 0 && <p className="text-sm text-gray-500">No reviews yet.</p>}
+          {reviews.map(r => (
+            <div key={r.id} className="bg-gray-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+              <p className="text-sm"><b>{r.reviewerName}</b> <span className="text-amber-500">{'★'.repeat(r.stars)}{'☆'.repeat(5 - r.stars)}</span></p>
+              {r.text && <p className="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{r.text}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// সার্ভিস কল শেষে কলকারী রিভিউ দেন — তারকা ১–৫ + ছোট লেখা; রিভিউয়ারের
+// নামসহ সবার কাছে দেখায় (মালিকের শর্ত)।
+function ServiceReviewForm({ serviceId, reviewerUid, reviewerName }: { serviceId: string; reviewerUid: string; reviewerName: string }) {
+  const [stars, setStars] = useState(0)
+  const [text, setText] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  async function submit() {
+    const err = validateReviewInput(stars, text)
+    if (err) { setMsg(err); return }
+    setBusy(true); setMsg('')
+    const ok = await submitServiceReview(serviceId, { reviewerUid, reviewerName, stars, text })
+    setBusy(false)
+    if (ok) setSubmitted(true)
+    else setMsg('Could not save the review — check your connection and try again.')
+  }
+  if (submitted) return <p className="text-sm text-green-400 mt-3">✅ Thanks — your review is now visible on the service, with your name.</p>
+  return (
+    <div className="mt-4 text-left bg-slate-700 rounded-xl p-3">
+      <p className="font-bold text-sm">Rate this service</p>
+      <p className="text-xs text-gray-300 mt-0.5">Your review — with your name — will be visible to everyone on the service.</p>
+      <div className="flex gap-1 mt-2">
+        {[1, 2, 3, 4, 5].map(n => (
+          <button key={n} type="button" aria-label={`${n} star${n === 1 ? '' : 's'}`} onClick={() => setStars(n)} className={`text-2xl ${stars >= n ? 'text-amber-400' : 'text-gray-500'}`}>★</button>
+        ))}
+      </div>
+      <textarea className="w-full border rounded-lg p-2 mt-2 text-sm text-gray-900 dark:bg-slate-800 dark:text-white dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Short review (optional)…" />
+      {msg && <p className="text-sm text-amber-300 mt-2">{msg}</p>}
+      <Btn variant="green" className="w-full mt-2" disabled={busy || stars === 0} onClick={submit}>Submit Review</Btn>
+    </div>
+  )
+}
+
 // ---------- নতুন সদস্য ----------
 // আসল নতুন ব্যবহারকারী (Firestore publicProfiles থেকে, নতুন থেকে পুরনো) —
 // কোনো ডেমো/ভুয়া ব্যবহারকারী নয়। চ্যাট পারসোনারা এখানে আসে না (তারা লোকাল
@@ -572,7 +713,7 @@ function NewMembersSection() {
                 <div className="mt-2">
                   {isFriend
                     ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: m.displayName } })}>💬 Chat</Btn>
-                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true, ...(m.photo ? { photo: m.photo } : {}) })}>Add Friend</Btn>}
+                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true, ...(m.photo ? { photo: m.photo } : {}) })}>+ Add Friend</Btn>}
                 </div>
               </div>
             )
@@ -656,19 +797,17 @@ export function Feed() {
     setComposerPhoto(null); setComposerVideoUrl(null); setComposerErr('')
   }
   const navigate = useNavigate()
-  const locState = useLocation().state as { postId?: string; openComposerVideo?: boolean } | null
+  const locState = useLocation().state as { postId?: string; scrollTo?: string } | null
   // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
-  // Reels পাতার "Upload Reel" থেকে এলে কম্পোজার খুলে ভিডিও বাছাই দেখানো
+  // মেনু থেকে Services-এ এলে Services সেকশনে স্ক্রল করা
   useEffect(() => {
-    if (locState?.openComposerVideo) {
-      setComposerOpen(true)
-      // কম্পোজার রেন্ডার হওয়ার পর ভিডিও ইনপুটে ক্লিক — একই আপলোড পথ
-      setTimeout(() => { videoInputRef.current?.click() }, 100)
-    }
     if (locState?.postId) {
       jumpToPost(locState.postId)
     }
-    if (locState?.postId || locState?.openComposerVideo) {
+    if (locState?.scrollTo === 'services') {
+      requestAnimationFrame(() => { document.getElementById('services-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
+    }
+    if (locState?.postId || locState?.scrollTo) {
       navigate('/feed', { replace: true, state: {} })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -695,6 +834,10 @@ export function Feed() {
           <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
         </div>
       )}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Btn onClick={() => navigate('/friends')}>👥 Find friends</Btn>
+        <p className="text-xs text-gray-500">To add a friend, tap + Add Friend on any New Member card below — or search by name or ID in Friends.</p>
+      </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
           <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
@@ -747,7 +890,7 @@ export function Feed() {
             </div>}
             <div className="flex gap-2 mt-2 flex-wrap">
               <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconPhoto className="w-4 h-4" /> Photo</button>
-              <button onClick={() => videoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconVideo className="w-4 h-4" /> Video (max 50 MB)</button>
+              <button disabled className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1 opacity-50"><IconVideo className="w-4 h-4" /> Video (max 50 MB) — coming soon</button>
               <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconImage className="w-4 h-4" /> Set profile photo</button>
             </div>
             <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerPhoto} />
@@ -809,6 +952,7 @@ export function Feed() {
           ))}
         </Card>
       )}
+      <ServicesSection />
       <NewMembersSection />
       <RefWelcomeBanner />
       <div className="flex gap-2">
@@ -853,7 +997,6 @@ export function Feed() {
 // ---------- Marketplace / Discover / Experts ----------
 export function Marketplace() {
   const [cat, setCat] = useState('All')
-  const [services, setServices] = useState(SERVICES)
   const [q, setQ] = useState('')
   const navigate = useNavigate()
   const { experts: liveExperts, source } = useExperts()
@@ -861,7 +1004,7 @@ export function Marketplace() {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap items-center">
-        <h1 className="text-xl font-bold flex-1">Marketplace — Experts & Services</h1>
+        <h1 className="text-xl font-bold flex-1">Marketplace — Experts</h1>
         <Btn variant="green" onClick={() => navigate('/create-service')}>+ Create Service</Btn>
       </div>
       <input className="w-full border rounded-lg px-3 py-2 dark:bg-fb-card dark:border-slate-600" placeholder="Search — doctor, teacher, lawyer…" value={q} onChange={e => setQ(e.target.value)} />
@@ -873,20 +1016,7 @@ export function Marketplace() {
         {filteredExperts.map(e => <ExpertCard key={e.id} expert={e} />)}
         {filteredExperts.length === 0 && <p className="text-sm text-gray-500">There is no expert yet.</p>}
       </div>
-      <h2 className="font-bold pt-2">Service Marketplace</h2>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {services.length === 0 && <p className="text-sm text-gray-500">No services yet.</p>}
-        {services.map(s => (
-          <Card key={s.id}>
-            <p className="font-bold">{s.title}</p>
-            <p className="text-sm text-gray-500">{s.provider} • ⭐ {s.rating} • {s.category}</p>
-            <p className="text-sm mt-1">{s.desc}</p>
-            <div className="flex justify-between items-center mt-3"><span className="font-bold text-fb-blue">{formatBDT(s.price)}</span><Btn onClick={() => alert('The order will stay pending for call confirmation. The team will call to confirm.')}>Order Now</Btn></div>
-          </Card>
-        ))}
-      </div>
-      <p className="text-xs text-gray-400">A new service you create will show here (saved locally on this device).</p>
-      <input type="hidden" value={services.length} readOnly />
+      <Card><p className="text-sm">Looking for services? <Link className="text-fb-blue" to="/services">See Services</Link> — video-call services offered by people, prepaid per minute in Pi.</p></Card>
     </div>
   )
 }
@@ -944,21 +1074,54 @@ export function ExpertProfile() {
 
 export function CreateService() {
   const navigate = useNavigate()
+  const { user, uid, profilePhoto } = useStore()
   const [title, setTitle] = useState('')
-  const [price, setPrice] = useState('')
+  const [rate, setRate] = useState('')
   const [desc, setDesc] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  const [deviceOnly, setDeviceOnly] = useState(false)
+  async function publish() {
+    const input = { title, description: desc, ratePiPerMin: Number(rate) }
+    const vErr = validateServiceInput(input)
+    if (vErr) { setErr(vErr); return }
+    if (!uid || !user) { setErr('Log in first to offer a service.'); return }
+    setBusy(true); setErr('')
+    const doc = {
+      providerUid: uid,
+      providerName: user.name,
+      ...(profilePhoto ? { providerPhoto: profilePhoto } : {}),
+      title: title.trim(),
+      description: desc.trim(),
+      ratePiPerMin: roundPi(Number(rate)),
+    }
+    const id = await createServiceDoc(doc)
+    if (id) {
+      saveLocalServices(mergeServiceLists(loadLocalServices(), [{ id, ...doc, createdAtMs: Date.now() }]))
+      setDone(true)
+    } else {
+      // Firestore unreachable — keep it on this device only, honestly labelled.
+      saveLocalServices(mergeServiceLists(loadLocalServices(), [{ id: 'local-' + Date.now(), ...doc, createdAtMs: Date.now() }]))
+      setDeviceOnly(true)
+      setDone(true)
+    }
+    setBusy(false)
+  }
   return (
     <div className="max-w-lg mx-auto"><Card>
-      <h1 className="text-xl font-bold">Create Service</h1>
-      <label className="text-sm font-medium block mt-3">Service Name</label>
-      <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={title} onChange={e => setTitle(e.target.value)} />
-      <label className="text-sm font-medium block mt-3">Price (Tk)</label>
-      <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" type="number" value={price} onChange={e => setPrice(e.target.value)} />
-      <label className="text-sm font-medium block mt-3">Description</label>
-      <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" rows={3} value={desc} onChange={e => setDesc(e.target.value)} />
-      <Btn className="w-full mt-4" disabled={!title || !price} onClick={() => setDone(true)}>Publish</Btn>
-      {done && <p className="text-sm text-green-600 mt-3">✅ Service published. <button className="text-fb-blue" onClick={() => navigate('/marketplace')}>View Marketplace</button></p>}
+      <h1 className="text-xl font-bold">Offer a service</h1>
+      <p className="text-sm text-gray-500 mt-1">Offer a service by video call — prepaid per minute in Pi. All services are virtual: video call only, no in-person meeting, no location needed.</p>
+      <p className="text-sm text-gray-500 mt-1">Listed as: <b>{user?.name || 'You'}</b></p>
+      <label className="text-sm font-medium block mt-3">Service title</label>
+      <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. English speaking practice" />
+      <label className="text-sm font-medium block mt-3">Rate (Pi per minute)</label>
+      <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" type="number" min="0.01" max="100" step="0.01" value={rate} onChange={e => setRate(e.target.value)} placeholder="e.g. 0.15" />
+      <label className="text-sm font-medium block mt-3">Short description</label>
+      <textarea className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" rows={3} value={desc} onChange={e => setDesc(e.target.value)} placeholder="What will the caller get on the video call?" />
+      {err && <p className="text-sm text-red-500 mt-2">{err}</p>}
+      <Btn className="w-full mt-4" disabled={busy || !title.trim() || !rate} onClick={publish}>{busy ? 'Publishing…' : 'Publish Service'}</Btn>
+      {done && <p className="text-sm text-green-600 mt-3">✅ Service published.{deviceOnly ? ' Saved on this device only — others cannot see it yet. Try publishing again when you are back online.' : ''} <button className="text-fb-blue" onClick={() => navigate('/services')}>View Services</button></p>}
     </Card></div>
   )
 }
@@ -996,10 +1159,28 @@ export function CallPage() {
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
   const isDating = type === 'dating'
+  const isService = type === 'service'
   const datingProfile = isDating ? DATING_PROFILES.find(p => p.id === id) : undefined
   const friendName = type === 'friend' ? (id || 'Friend') : undefined
-  const rate = expert ? takaToPi(expert.rate) : isDating ? datingRate : FRIEND_RATE // সব কল Pi-তে — এক্সপার্টের টাকার রেট ÷১০০, ডেটিং রেট অ্যাডমিন থেকে (ডিফল্ট π ০.১), বন্ধুর কল π ০.১ ফ্ল্যাট
-  const name = isLinkCall ? (linkInfo?.callerName || 'Caller') : expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'Dating')) : decodeURIComponent(friendName || 'Friend')
+  // সার্ভিস কল: দর সার্ভিসের নিজের Pi/মিনিট রেট (টাকায় নয়) — লোকাল ক্যাশ
+  // থেকে আগে, তারপর Firestore থেকে আসল দর; না পেলে কল শুরু হয় না।
+  const [service, setService] = useState<ServiceListing | null>(null)
+  const [serviceLoading, setServiceLoading] = useState(isService)
+  useEffect(() => {
+    if (!isService || !id) return
+    let alive = true
+    const cached = loadLocalServices().find(s => s.id === id)
+    if (cached) { setService(cached); setServiceLoading(false) }
+    fetchService(id).then(s => {
+      if (!alive) return
+      if (s) { setService(s); setServiceLoading(false) }
+      else if (!cached) setServiceLoading(false)
+    })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isService, id])
+  const rate = isService ? (service?.ratePiPerMin ?? 0) : expert ? takaToPi(expert.rate) : isDating ? datingRate : FRIEND_RATE // সব কল Pi-তে — সার্ভিসের নিজের Pi দর, এক্সপার্টের টাকার রেট ÷১০০, ডেটিং রেট অ্যাডমিন থেকে (ডিফল্ট π ০.১), বন্ধুর কল π ০.১ ফ্ল্যাট
+  const name = isLinkCall ? (linkInfo?.callerName || 'Caller') : isService ? (service?.providerName ?? 'Service') : expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'Dating')) : decodeURIComponent(friendName || 'Friend')
   // Peer photo — friend calls resolve from the friends list; dating calls
   // resolve from publicProfiles by uid. Experts have no photo in the backend
   // (/api/experts returns id/name/rate/online only), so they keep initials.
@@ -1042,11 +1223,16 @@ export function CallPage() {
   const paidSeconds = Math.max(0, seconds - freeSeconds)
   const billedMinutes = Math.ceil(paidSeconds / 60)
   const liveCost = isLinkCall ? 0 : billedMinutes * rate // লিংক-কলে গ্রহণকারী দেন না
-  const maxPaidMinutes = Math.floor(totalPi / rate)
+  const maxPaidMinutes = rate > 0 ? Math.floor(totalPi / rate) : 0
   // লিংক-কলে গ্রহণকারীর অটো-কাট সীমা নেই (0 = সীমা নেই); কলকারী আগের মতোই প্রিপেইড সীমায় চলবেন
   const maxSeconds = isLinkCall ? 0 : freeSeconds + maxPaidMinutes * 60
   const talkableMinutes = freeSeconds / 60 + maxPaidMinutes
-  const canStart = isFreeAvailable || totalPi >= rate
+  // সার্ভিস কল প্রিপেইড: সার্ভিস না পেলে / নিজের সার্ভিস হলে / ব্যালেন্সে
+  // ১ মিনিটের দর না থাকলে (ফ্রি মিনিট না থাকলে) শুরু হয় না।
+  const isOwnServiceCall = !!isService && !!service && service.providerUid === uid
+  const canStart = isService
+    ? (!serviceLoading && !!service && !isOwnServiceCall && (isFreeAvailable || totalPi >= rate))
+    : (isFreeAvailable || totalPi >= rate)
 
   // টাইমার (আর বিলিং) শুধু পিয়ার সংযুক্ত হলেই চলে — অপেক্ষার সময় টাকা কাটবে না
   useEffect(() => {
@@ -1279,6 +1465,13 @@ export function CallPage() {
         sendCallInvite(target.id, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'friend' })
       }
     }
+    // সার্ভিস কল: প্রোভাইডার অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল
+    // ওভারলে যাবে (presence ইনভাইট, kind 'service'); না পৌঁছালে শেয়ার
+    // লিংক আগের মতোই কাজ করে। প্রোভাইডারের কল-প্রাইভেসি 'friends' হলে
+    // অপরিচিত কলকারীর ইনভাইট ওভারলেতে উঠবে না — তখন লিংকই পথ।
+    if (type === 'service' && service) {
+      sendCallInvite(service.providerUid, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'service' })
+    }
   }
 
   // গ্রহণকারী কল ধরলেন: রুমে ঢুকলেন, অফারের অপেক্ষা করবেন
@@ -1325,7 +1518,7 @@ export function CallPage() {
     const cost = isLinkCall ? 0 : roundPi(Math.ceil(Math.max(0, secondsRef.current - freeSeconds) / 60) * rate)
     if (cost > 0) addPi(-cost, 'Call Cost', `Call — ${name}`)
     if (!isLinkCall && isFreeAvailable && secondsRef.current > 0) markFreeMinuteUsed()
-    addCall({ name, type: expert ? 'Expert' : isDating ? 'Dating' : 'Friend', rate, durationSec: secondsRef.current, cost, freeMinute: !isLinkCall && isFreeAvailable && secondsRef.current > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
+    addCall({ name, type: expert ? 'Expert' : isService ? 'Service' : isDating ? 'Dating' : 'Friend', rate, durationSec: secondsRef.current, cost, freeMinute: !isLinkCall && isFreeAvailable && secondsRef.current > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
   }
 
   function fmt(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
@@ -1357,8 +1550,50 @@ export function CallPage() {
           <p className="mt-1 text-sm">Cost: {formatPi(cost)}{isFreeAvailable && seconds > 0 ? ' (first 1 minute free applied)' : ''}</p>
           <p className="text-sm text-gray-300">{endReason}</p>
           <p className="text-sm mt-1">Current Pi Balance: {formatPi(totalPi)}</p>
+          {isService && !isLinkCall && seconds > 0 && service && uid && (
+            <ServiceReviewForm serviceId={service.id} reviewerUid={uid} reviewerName={user?.name || 'You'} />
+          )}
           <div className="flex gap-2 mt-5 justify-center">
             <Btn variant="green" onClick={() => navigate('/call-history')}>Call History</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>Back to Feed</Btn>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // সার্ভিস কল: সার্ভিস না পেলে / নিজের সার্ভিস হলে কল শুরু হয় না
+  if (isService && serviceLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">Loading service…</h1>
+        </Card>
+      </div>
+    )
+  }
+  if (isService && !service) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">Service not found</h1>
+          <p className="text-sm text-gray-300 mt-2">This service may have been removed. Pick another service from the Services section.</p>
+          <div className="flex gap-2 mt-5 justify-center">
+            <Btn variant="green" onClick={() => navigate('/services')}>View Services</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>Back to Feed</Btn>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+  if (isService && service && service.providerUid === uid) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">This is your own service</h1>
+          <p className="text-sm text-gray-300 mt-2">You cannot call yourself — other people can call you for this service.</p>
+          <div className="flex gap-2 mt-5 justify-center">
+            <Btn variant="green" onClick={() => navigate('/services')}>View Services</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>Back to Feed</Btn>
           </div>
         </Card>
@@ -1438,8 +1673,9 @@ export function CallPage() {
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full">
           <h1 className="text-xl font-bold">📞 {name}</h1>
-          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isDating ? 'Dating • ' : 'Friend • '}{formatPi(rate)}/ minute</p>
+          <p className="text-sm text-gray-300">{expert ? `${expert.title} • ` : isService ? `${service?.title ?? 'Service'} • ` : isDating ? 'Dating • ' : 'Friend • '}{formatPi(rate)}/ minute</p>
           {isFreeAvailable && <p className="mt-2 text-sm bg-green-600 rounded-lg px-3 py-2">🎉 1st minute free — your first call's first 1 minute is completely free!</p>}
+          {isService && <p className="mt-2 text-sm bg-violet-600 rounded-lg px-3 py-2">💼 Prepaid service call — {formatPi(rate)}/minute, video call only. Only you (the caller) will pay; the call will cut itself when your Pi balance ends. After the call you can leave a review with your name.</p>}
           {isDating && <div className="mt-2 space-y-2">
             <p className="text-sm bg-pink-600 rounded-lg px-3 py-2">💳 Prepaid video call — {formatPi(rate)}/minute. Only you (the caller) will pay; the person you are calling will not be charged. The free minute does not apply to this call.</p>
             <p className="text-xs text-gray-300">🔴 This call, like other calls, is covered by admin-only recording — only the admin can view it for appeals/disputes.</p>
@@ -3180,15 +3416,12 @@ export function LiveTV() {
 
 // ---------- Home services / Groups / Reels / Ads / Admin / Menu ----------
 export function ServicesPage() {
+  // ভার্চুয়াল সার্ভিসের পাতা — Home-এর Services সেকশনেরই পুরো পাতা সংস্করণ।
+  // আগের "Home Service" (সামনাসামনি বুকিং) সরানো হয়েছে: সব সার্ভিস
+  // ভিডিও কলে হয়, প্রিপেইড Pi/মিনিটে।
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <h1 className="text-xl font-bold">🏠 Home Service</h1>
-      {SERVICES.filter(s => s.category === 'Home Service').length === 0 && <p className="text-sm text-gray-500">No home services yet.</p>}
-      {SERVICES.filter(s => s.category === 'Home Service').map(s => (
-        <Card key={s.id}><div className="flex justify-between"><div><p className="font-bold">{s.title}</p><p className="text-sm text-gray-500">{s.provider} • ⭐ {s.rating}</p><p className="text-sm mt-1">{s.desc}</p></div><span className="font-bold text-fb-blue whitespace-nowrap">{formatBDT(s.price)}</span></div>
-          <Btn className="mt-3" onClick={() => alert('Booking pending — the team will call to confirm.')}>Book</Btn></Card>
-      ))}
-      <Card><p className="text-sm">Want to become a service provider? <Link className="text-fb-blue" to="/create-service">Create Service</Link> — platform commission applies on every booking.</p></Card>
+      <ServicesSection />
     </div>
   )
 }
@@ -3204,7 +3437,6 @@ export function GroupsPage() {
 
 export function ReelsPage() {
   const { reelShares, totalShares, recordShare, posts } = useStore()
-  const navigate = useNavigate()
   const [shareMsg, setShareMsg] = useState('')
   async function shareReel(r: { id: string; title: string; creator: string }) {
     const url = `${INVITE_BASE_URL}reels?reel=${r.id}`
@@ -3220,10 +3452,7 @@ export function ReelsPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconReels className="w-6 h-6" /> Reels & Monetization</h1>
       <p className="text-sm text-gray-500">Total share: <b>↗️ {totalShares}</b> • If you like it, share — friends will join PiCall!</p>
-      <div>
-        <Btn onClick={() => navigate('/feed', { state: { openComposerVideo: true } })}><span className="flex items-center gap-1"><IconVideo className="w-4 h-4" /> Upload Reel</span></Btn>
-        <p className="text-sm text-gray-500 mt-2">Upload a video from the post composer (max 50 MB) — it will appear here as a reel.</p>
-      </div>
+      <p className="text-sm text-gray-500">🎬 Reels is coming soon — video uploads will open here later.</p>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
         {REELS.length === 0 && videoReels.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
@@ -3981,7 +4210,7 @@ export function MenuPage() {
   const tiles = [
     { to: '/feed', label: 'Feed', icon: '📰', color: '#7C3AED' }, { to: '/marketplace', label: 'Marketplace', icon: '🛍️', color: '#27AE60' },
     { to: '/friends', label: 'Friends', icon: '👥', color: '#8E44AD' }, { to: '/dating', label: 'Dating 18+', icon: '❤️', color: '#E91E63' },
-    { to: '/live-tv', label: 'Live TV', icon: '📺', color: '#C0392B' }, { to: '/services', label: 'Home Service', icon: '🏠', color: '#16A085' },
+    { to: '/live-tv', label: 'Live TV', icon: '📺', color: '#C0392B' }, { to: '/services', label: 'Services', icon: '💼', color: '#16A085' },
     { to: '/reels', label: 'Reels', icon: '🎬', color: '#E67E22' }, { to: '/wallet', label: 'Wallet', icon: '💰', color: '#2C3E50' },
     { to: '/call-history', label: 'Call History', icon: '📞', color: '#2980B9' }, { to: '/ads', label: 'Ads', icon: '📢', color: '#D35400' },
     { to: '/groups', label: 'Groups & Pages', icon: '👥', color: '#7F8C8D' },

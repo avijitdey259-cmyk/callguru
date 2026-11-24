@@ -18,6 +18,11 @@
 //                    (ছোট UID আগে, '_' দিয়ে জোড়া); শুধু ওই দুই
 //                    ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
 //                    fromUid নিজের UID-ই হতে হবে। আপডেট/মোছা বন্ধ।
+//   services/{serviceId} — ভার্চুয়াল (শুধু ভিডিও কল) সার্ভিস: লগইন করা
+//                    সবাই পড়তে পারেন; তৈরি/বদলাতে পারেন শুধু মালিক নিজে
+//                    (providerUid নিজের UID); মোছা বন্ধ।
+//   services/{serviceId}/reviews/{reviewId} — রিভিউ: লগইন করা সবাই
+//                    পড়তে পারেন (নামসহ); লিখতে পারেন শুধু রিভিউয়ার নিজে।
 //   বাকি সব — ডিফল্টভাবে বন্ধ।
 // NID/সেলফি/ভিডিও Firestore-এ কখনো যায় না (কোডেই বাদ দেওয়া হয়), তাই নিয়মে
 // সেগুলোর আলাদা কিছু লেখার দরকার নেই — ক্লাউডে সেগুলো থাকার কথাই নয়।
@@ -76,6 +81,29 @@ service cloud.firestore {
       allow read: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1]);
       allow create: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1])
         && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ভার্চুয়াল (শুধু ভিডিও কল) সার্ভিস — সব সার্ভিস ভিডিও কলে হয়, কখনো
+    // সামনাসামনি নয়; তাই location / in-person ক্ষেত্র এখানে নেই। লগইন করা
+    // সবাই পড়তে পারেন; তৈরি/বদলাতে পারেন শুধু সেই সার্ভিসের মালিক নিজে
+    // (providerUid নিজের UID-ই হতে হবে); মোছা বন্ধ।
+    // ⚠️ এই নিয়মগুলো Firebase কনসোলে publish না হওয়া পর্যন্ত অন্য ডিভাইস
+    // থেকে সার্ভিস/রিভিউ পড়া-লেখা যাবে না (local cache-ই শুধু দেখাবে):
+    //   firebase deploy --only firestore:rules --project picall-76185
+    match /services/{serviceId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.providerUid == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.providerUid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // সার্ভিসের রিভিউ — লগইন করা সবাই পড়তে পারেন, রিভিউয়ারের নামসহ
+    // (মালিকের শর্ত: রিভিউ কে দিয়েছেন তা সবাই দেখতে পাবেন)। লিখতে পারেন
+    // শুধু রিভিউয়ার নিজে (reviewerUid নিজের UID-ই হতে হবে); বদলানো/মোছা বন্ধ।
+    match /services/{serviceId}/reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.reviewerUid == request.auth.uid;
       allow update, delete: if false;
     }
 

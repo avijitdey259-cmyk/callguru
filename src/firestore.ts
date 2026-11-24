@@ -7,6 +7,7 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where,
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
+import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
 
 let db: Firestore | null = null
 
@@ -271,4 +272,114 @@ export async function fetchMyTopUps(uid: string): Promise<Array<{ id: string; da
     const snap = await getDocs(query(collection(d, 'topups'), where('uid', '==', uid)))
     return snap.docs.map(s => ({ id: s.id, data: s.data() as TopUpDoc & Record<string, unknown> }))
   } catch { return [] }
+}
+
+// ---------- services/{serviceId} — virtual (video-call only) services ----------
+// Real user-created listings only — no seeds, no demo providers. A service is
+// delivered by video call; there is no location / in-person field. Firestore
+// off / rules not published yet → [] / null / false, and the UI falls back to
+// its localStorage cache (graceful degradation, like the feed). Never throws.
+export type NewServiceDoc = {
+  providerUid: string
+  providerName: string
+  providerPhoto?: string
+  title: string
+  description: string
+  ratePiPerMin: number
+}
+
+export async function fetchServices(limitN = 50): Promise<ServiceListing[]> {
+  const d = getDb()
+  if (!d) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'services'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapServiceDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((s): s is ServiceListing => s !== null)
+  } catch { return [] }
+}
+
+export async function fetchService(id: string): Promise<ServiceListing | null> {
+  const d = getDb()
+  if (!d || !id) return null
+  try {
+    const snap = await getDoc(doc(d, 'services', id))
+    if (!snap.exists()) return null
+    return mapServiceDoc(snap.id, snap.data() as Record<string, unknown>)
+  } catch { return null }
+}
+
+export function subscribeServices(cb: (services: ServiceListing[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const q = query(collection(d, 'services'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapServiceDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((s): s is ServiceListing => s !== null))
+    }, () => { /* subscription failed — the section keeps its local cache */ })
+  } catch { return null }
+}
+
+// A service is created by its provider (rules: providerUid must be own uid).
+// Returns the new doc id, or null when Firestore is unreachable / denied.
+export async function createServiceDoc(data: NewServiceDoc): Promise<string | null> {
+  const d = getDb()
+  if (!d) return null
+  try {
+    const ref = await addDoc(collection(d, 'services'), {
+      ...data,
+      description: data.description || '',
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// ---------- services/{serviceId}/reviews/{reviewId} ----------
+// Reviews are public to signed-in users, WITH the reviewer's name shown
+// (owner requirement). Only the reviewer themself can create one
+// (rules: reviewerUid must be own uid). No update / delete.
+export async function fetchServiceReviews(serviceId: string, limitN = 50): Promise<ServiceReview[]> {
+  const d = getDb()
+  if (!d || !serviceId) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'services', serviceId, 'reviews'), orderBy('createdAtMs', 'desc'), limit(limitN)))
+    return snap.docs
+      .map(s => mapReviewDoc(s.id, serviceId, s.data() as Record<string, unknown>))
+      .filter((r): r is ServiceReview => r !== null)
+  } catch { return [] }
+}
+
+export function subscribeServiceReviews(serviceId: string, cb: (reviews: ServiceReview[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !serviceId) return null
+  try {
+    const q = query(collection(d, 'services', serviceId, 'reviews'), orderBy('createdAtMs', 'desc'), limit(50))
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs
+        .map(s => mapReviewDoc(s.id, serviceId, s.data() as Record<string, unknown>))
+        .filter((r): r is ServiceReview => r !== null))
+    }, () => { /* subscription failed — the card keeps its last reviews */ })
+  } catch { return null }
+}
+
+export async function submitServiceReview(serviceId: string, review: { reviewerUid: string; reviewerName: string; stars: number; text: string }): Promise<boolean> {
+  const d = getDb()
+  if (!d || !serviceId || !review.reviewerUid || !review.reviewerName.trim()) return false
+  const stars = Math.trunc(review.stars)
+  if (stars < 1 || stars > 5) return false
+  try {
+    await addDoc(collection(d, 'services', serviceId, 'reviews'), {
+      reviewerUid: review.reviewerUid,
+      reviewerName: review.reviewerName.trim().slice(0, 80),
+      stars,
+      text: review.text.trim().slice(0, 300),
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return true
+  } catch { return false }
 }

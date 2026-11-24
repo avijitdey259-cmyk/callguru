@@ -72,7 +72,7 @@ export function Sidebar() {
     { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
     { to: '/dating', label: 'Dating 18+', icon: IconDating }, { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
     { to: '/wallet', label: 'Wallet', icon: IconWallet },
-    { to: '/services', label: 'Home Service', icon: IconStore }, { to: '/groups', label: 'Groups & Pages', icon: IconFriends },
+    { to: '/services', label: 'Services', icon: IconStore }, { to: '/groups', label: 'Groups & Pages', icon: IconFriends },
     { to: '/reels', label: 'Reels', icon: IconReels }, { to: '/ads', label: 'Place an Ad', icon: IconMegaphone },
     { to: '/call-history', label: 'Call History', icon: IconCall },
     { to: '/menu', label: 'Settings', icon: IconSettings },
