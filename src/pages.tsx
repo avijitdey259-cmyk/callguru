@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
-import { useStore } from './store'
+import { useStore, type Friend } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
@@ -620,7 +620,7 @@ function ServiceReviewForm({ serviceId, reviewerUid, reviewerName }: { serviceId
 // বন্ধু, কোনো অ্যাকাউন্ট নয়), অ্যাডমিনও আসে না (তার পাবলিক প্রোফাইল লেখা হয় না)।
 // Firestore/নিয়ম না থাকলে খালি অবস্থা দেখায় — ভুয়া কাউকে দেখায় না।
 function NewMembersSection() {
-  const { uid, friends, addFriend } = useStore()
+  const { uid, friends, sendFriendRequest, cancelFriendRequest, sentRequests } = useStore()
   const [members, setMembers] = useState<NewMember[]>([])
   const [loaded, setLoaded] = useState(false)
   const navigate = useNavigate()
@@ -654,7 +654,9 @@ function NewMembersSection() {
                 <div className="mt-2">
                   {isFriend
                     ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: m.displayName } })}>💬 Chat</Btn>
-                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true, ...(m.photo ? { photo: m.photo } : {}) })}>+ Add Friend</Btn>}
+                    : sentRequests.some(s => s.toUid === m.id)
+                      ? <Btn variant="ghost" onClick={() => cancelFriendRequest(m.id)}>Request Sent</Btn>
+                      : <Btn onClick={() => sendFriendRequest({ id: m.id, name: m.displayName, color: m.colour, online: true, ...(m.photo ? { photo: m.photo } : {}) })}>+ Add Friend</Btn>}
                 </div>
               </div>
             )
@@ -702,7 +704,7 @@ function HomeTvSection() {
 }
 
 export function Feed() {
-  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, addPost, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
+  const { friends, user, sendFriendRequest, cancelFriendRequest, sentRequests, installBonusClaimed, posts, setPosts, addPost, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [postTitle, setPostTitle] = useState('')
@@ -719,7 +721,6 @@ export function Feed() {
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
-  const [sent, setSent] = useState<Record<string, boolean>>({})
   // কম্পোজার মিডিয়া — একই জায়গায় ছবি + ভিডিও (ভিডিও পোস্ট রিলও হয়) + প্রোফাইল ছবি
   const photoInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
@@ -954,9 +955,9 @@ export function Feed() {
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
-                : sent[p.id]
-                  ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
-                  : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) }) }}>Add Friend</Btn>}
+                : sentRequests.some(s => s.toUid === p.id)
+                  ? <Btn variant="ghost" onClick={() => cancelFriendRequest(p.id)}>Request Sent</Btn>
+                  : <Btn onClick={() => sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })}>Add Friend</Btn>}
             </div>
           ))}
           <h2 className="font-bold mt-4">Posts ({postResults.length})</h2>
@@ -2069,12 +2070,12 @@ export function WalletPage() {
 
 // ---------- Friends ----------
 export function FriendsPage() {
-  const { friends, requests, acceptRequest, removeFriend, addFriend, referralCode, blockedUids, blockUser, unblockUser } = useStore()
+  const { friends, requests, acceptRequest, declineRequest, sendFriendRequest, cancelFriendRequest, sentRequests, removeFriend, referralCode, blockedUids, blockUser, unblockUser } = useStore()
   const navigate = useNavigate()
-  const [sent, setSent] = useState<Record<string, boolean>>({})
   const [query, setQuery] = useState('')
   const [showSugg, setShowSugg] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [reqError, setReqError] = useState('')
   const searching = query.trim() !== ''
   // খোঁজার তালিকা: বন্ধু + People You May Know + চ্যাট পারসোনা + সব আসল ব্যবহারকারী
   // (নাম/আইডি দিয়ে ডুপ্লিকেট বাদ, নিজেকে বাদ)
@@ -2082,9 +2083,18 @@ export function FriendsPage() {
   async function copyId() {
     try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
   }
-  function addFromSearch(p: SearchablePerson) {
-    setSent(v => ({ ...v, [p.id]: true }))
-    addFriend({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
+  // আসল ব্যবহারকারীকে রিকোয়েস্ট পাঠানো (পারসোনা হলে সাথে সাথে লোকাল বন্ধু —
+  // sendFriendRequest-ই সেটা ঠিক করে); ব্যর্থ হলে বোতাম আগের মতোই থাকে।
+  async function addFromSearch(p: SearchablePerson) {
+    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
+  }
+  async function handleAccept(r: Friend) {
+    const ok = await acceptRequest(r.requestId ?? r.id)
+    setReqError(ok ? '' : 'Could not confirm the request — check your connection and try again.')
+  }
+  async function handleDecline(r: Friend) {
+    const ok = await declineRequest(r.requestId ?? r.id)
+    setReqError(ok ? '' : 'Could not decline the request — try again.')
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -2111,8 +2121,8 @@ export function FriendsPage() {
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
-                : sent[p.id]
-                  ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
+                : sentRequests.some(s => s.toUid === p.id)
+                  ? <Btn variant="ghost" onClick={() => cancelFriendRequest(p.id)}>Request Sent</Btn>
                   : <Btn onClick={() => addFromSearch(p)}>Add Friend</Btn>}
             </div>
           ))}
@@ -2122,12 +2132,13 @@ export function FriendsPage() {
       <Card>
         <h2 className="font-bold">Friend Requests ({requests.length})</h2>
         {requests.length === 0 && <p className="text-sm text-gray-500 mt-1">No new requests.</p>}
+        {reqError && <p className="text-sm text-red-600 mt-1">{reqError}</p>}
         {requests.map(r => (
-          <div key={r.id} className="flex items-center gap-3 py-2">
+          <div key={r.requestId ?? r.id} className="flex items-center gap-3 py-2">
             <Avatar photo={r.photo} name={r.name} color={r.color} className="w-10 h-10" />
             <span className="flex-1 font-medium">{r.name}</span>
-            <Btn onClick={() => acceptRequest(r.id)}>Confirm</Btn>
-            <Btn variant="ghost" onClick={() => removeFriend(r.id)}>Delete</Btn>
+            <Btn onClick={() => handleAccept(r)}>Accept</Btn>
+            <Btn variant="ghost" onClick={() => handleDecline(r)}>Decline</Btn>
           </div>
         ))}
       </Card>
@@ -2154,8 +2165,9 @@ export function FriendsPage() {
           <div key={s.id} className="flex items-center gap-3 py-2">
             <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: s.color }}>{s.name.slice(0, 1)}</span>
             <span className="flex-1"><span className="font-medium">{s.name}</span><span className="block text-xs text-gray-400">{s.mutual} mutual friends</span></span>
-            {sent[s.id] ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [s.id]: false }))}>Remove</Btn>
-              : <Btn onClick={() => { setSent(v => ({ ...v, [s.id]: true })); addFriend({ id: s.id, name: s.name, color: s.color, online: true }) }}>Add Friend</Btn>}
+            {sentRequests.some(x => x.toUid === s.id)
+              ? <Btn variant="ghost" onClick={() => cancelFriendRequest(s.id)}>Request Sent</Btn>
+              : <Btn onClick={() => sendFriendRequest({ id: s.id, name: s.name, color: s.color, online: true })}>Add Friend</Btn>}
           </div>
         ))}
       </Card>

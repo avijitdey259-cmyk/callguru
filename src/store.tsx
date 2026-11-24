@@ -3,7 +3,9 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests } from './firestore'
+import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
+import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
@@ -15,7 +17,9 @@ import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMa
 import { DEFAULT_AD_RATES, type AdRateSettings } from './ads'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
-export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string }
+export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string; requestId?: string }
+// requestId — আসা বন্ধু রিকোয়েস্টের friendRequests ডকের চাবি (শুধু রিকোয়েস্ট
+// এন্ট্রিতে থাকে); Accept/Decline কোন ডকটা বদলাবে তা এটা দিয়েই চেনে।
 export type ChatMsg = { id: string; from: string; text: string; time: string }
 export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'
 // ডেটিং KYC — জমা দিলে অ্যাডমিন দেখে মিলিয়ে অনুমোদন/বাতিল করেন; অনুমোদন হলেই ডেটিং খুলবে।
@@ -100,7 +104,16 @@ type Store = {
   friends: Friend[]
   requests: Friend[]
   addFriend: (f: Friend) => void
-  acceptRequest: (id: string) => void
+  acceptRequest: (id: string) => Promise<boolean>
+  declineRequest: (id: string) => Promise<boolean>
+  // পাঠানো (pending) রিকোয়েস্ট — "Request Sent" অবস্থা দেখাতে।
+  sentRequests: { toUid: string; requestId: string }[]
+  // আসল ব্যবহারকারীকে বন্ধু রিকোয়েস্ট পাঠানো (Facebook-এর মতো) — পারসোনা/
+  // লোকাল id হলে আগের মতো সাথে সাথে লোকাল বন্ধু হয়ে যায়; OTP লগইনে
+  // (Firebase সেশন নেই) লোকাল যোগই একমাত্র উপায়। false = পাঠানো যায়নি
+  // (নিজেকে, ইতিমধ্যে বন্ধু, pending রিকোয়েস্ট আছে, ব্লক করা, বা সার্ভার ব্যর্থ)।
+  sendFriendRequest: (f: Friend) => Promise<boolean>
+  cancelFriendRequest: (toUid: string) => Promise<boolean>
   removeFriend: (id: string) => void
   // ফিডের খোঁজা + পোস্ট — হেডার সার্চ (সব পেজে) আর ফিড একই অবস্থা দেখে; সেশন-মাত্র
   feedQuery: string
@@ -303,6 +316,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // সরানো ডেমো রিকোয়েস্ট (হাসান/প্রিয়া) পুরোনো localStorage-এ থাকলেও আর দেখাবে না
     load<Friend[]>('requests', []).filter(f => !REMOVED_DEMO_REQUEST_IDS.includes(f.id))
   )
+  // পাঠানো (pending) বন্ধু রিকোয়েস্ট — "Request Sent" অবস্থা দেখাতে;
+  // সাবস্ক্রিপশন থেকেই আসে (নিচের friendRequests সাবস্ক্রিপশন দেখুন)।
+  const [sentRequests, setSentRequests] = useState<{ toUid: string; requestId: string }[]>([])
   const [likesUsed, setLikesUsed] = useState<number>(() => load('likesUsed', 0))
   const [premium, setPremium] = useState<boolean>(() => load('premium', false))
   // অ্যাপের একমাত্র মুদ্রা Pi — আগের 'coins' ব্যালেন্স ১:১-এ Pi হয়ে গেছে
@@ -537,6 +553,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const friendPhotoUidRef = useRef<string | null>(null)
   const fsWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userRef = useRef(user)
+
+  // সাবস্ক্রিপশন কলব্যাকের জন্য ব্লক তালিকার সবশেষ কপি (ক্লোজার বাসি হলে ব্লক করা প্রেরকের রিকোয়েস্ট দেখা যেত)।
+  const blockedUidsRef = useRef<string[]>([])
+  useEffect(() => { blockedUidsRef.current = blockedUids }, [blockedUids])
+
+  // গ্রহণ হওয়া রিকোয়েস্ট একবারই বন্ধু তালিকায় যোগ হয় — ডক id মনে রাখা হয়
+  // (localStorage-এ থাকে, প্রতি ডিভাইসে আলাদা); নইলে আনফ্রেন্ডের পর আবার
+  // অ্যাপ খুললেই পুরোনো গ্রহণ-ডক দেখে বন্ধু ফিরে আসত।
+  const handledAcceptedRef = useRef<Set<string> | null>(null)
+  const getHandledAccepted = (): Set<string> => {
+    if (!handledAcceptedRef.current) handledAcceptedRef.current = new Set(load<string[]>('frAcceptedHandled', []))
+    return handledAcceptedRef.current
+  }
+  const markAcceptedHandled = (id: string) => {
+    const s = getHandledAccepted()
+    if (!s.has(id)) { s.add(id); save('frAcceptedHandled', [...s]) }
+  }
+  // একই ব্যবহারকারীকে দ্রুত দুবার চাপলে দুটো রিকোয়েস্ট ডক না বসে — পাঠানো
+  // চলছে এমন id মনে রাখা হয় (sendFriendRequest-এ ব্যবহার হয়)।
+  const sendInFlightRef = useRef<Set<string>>(new Set())
   userRef.current = user
 
   // Firebase সেশন ফিরে এলে UID ধরা হয় (রিলোডের পর সেশন async ফেরে)।
@@ -571,7 +607,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (h.freeFirstMinuteUsed !== undefined) setFreeUsed(h.freeFirstMinuteUsed)
     if (h.calls !== undefined) setCalls(h.calls)
     if (h.friends !== undefined) setFriends(h.friends)
-    if (h.requests !== undefined) setRequests(h.requests)
+    // requests এখানে বসে না — আসা রিকোয়েস্ট friendRequests সাবস্ক্রিপশন
+    // থেকেই আসে (নিচে); ডকের পুরোনো কপি বসালে বাতিল/গ্রহণ হওয়া রিকোয়েস্ট
+    // আবার ফিরে আসত। ডকে requests লেখা হয় (collectSnapshot) — শুধু ক্যাশ হিসেবে।
     if (h.likesUsed !== undefined) setLikesUsed(h.likesUsed)
     if (h.premium !== undefined) setPremium(h.premium)
     if (h.piBalance !== undefined) setPiBalance(h.piBalance)
@@ -791,6 +829,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, user, authReady])
 
+  // বন্ধু রিকোয়েস্ট — Firestore সাবস্ক্রিপশন (আসা + পাঠানো), uid থাকলেই চলে।
+  // আসা (toUid == আমি): শুধু pending দেখায়; ব্লক করা প্রেরকেরটা লুকানো থাকে।
+  // পাঠানো (fromUid == আমি): pending "Request Sent" অবস্থা দেখায়; কোনো
+  // রিকোয়েস্ট গ্রহণ হলে প্রাপক আমার বন্ধু তালিকায় ওঠে — একবারই
+  // (frAcceptedHandled মনে রাখে, নইলে আনফ্রেন্ডের পর ফিরে আসত)।
+  useEffect(() => {
+    if (!uid) return
+    const unsubIn = subscribeIncomingFriendRequests(uid, (docs) => {
+      const visible = docs.filter(d => d.status === 'pending' && isIncomingVisible(d, blockedUidsRef.current))
+      setRequests(visible.map(requestToFriend))
+    })
+    const unsubOut = subscribeSentFriendRequests(uid, (docs) => {
+      setSentRequests(docs.filter(d => d.status === 'pending').map(requestToSentEntry))
+      for (const d of docs) {
+        if (d.status === 'accepted' && !getHandledAccepted().has(d.id)) {
+          markAcceptedHandled(d.id)
+          setFriends(prev => {
+            if (prev.some(f => f.id === d.toUid)) return prev
+            return [...prev, { id: d.toUid, name: d.toName, color: d.toColour, online: true, ...(d.toPhoto ? { photo: d.toPhoto } : {}) }]
+          })
+        }
+      }
+    })
+    return () => { unsubIn?.(); unsubOut?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
+
   // Write-through — সিঙ্ক চালু থাকলে প্রতি বদল (৮০০ মিলিসেকেন্ড দেরিতে) ক্লাউডে যায়;
   // localStorage-তো আগেই প্রতি বদলে লেখা হয় (অফলাইন ক্যাশ)। অ্যাডমিনের দর/পেমেন্টের
   // বিবরণ config/public-এ যায় (গোপন অংশ কখনো নয়)। সিঙ্ক শেষ হওয়ার আগের বদল লেখা হয় না।
@@ -936,6 +1001,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // লোকাল বন্ধু যোগ — পারসোনা + OTP/লোকাল লগইনের জন্য (Firestore রিকোয়েস্ট
+  // নয়); ইতিমধ্যে বন্ধু হলে শুধু ছবি তাজা হয়। addFriend আর acceptRequest
+  // দুজনেই এটা ব্যবহার করে।
+  const addFriendLocal = (f: Friend) => setFriends(prev => {
+    const i = prev.findIndex(x => x.id === f.id)
+    if (i === -1) return [...prev, f]
+    if (f.photo && prev[i].photo !== f.photo) return prev.map(x => x.id === f.id ? { ...x, photo: f.photo } : x)
+    return prev
+  })
+
   const value: Store = useMemo(() => ({
     user,
     uid,
@@ -964,16 +1039,63 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setFreshPostIds((prev) => (prev.includes(p.id) ? prev : [p.id, ...prev]))
     },
     requests,
-    addFriend: (f) => setFriends(prev => {
-      const i = prev.findIndex(x => x.id === f.id)
-      if (i === -1) return [...prev, f]
-      // Already a friend — a re-add still refreshes the photo (e.g. they changed it).
-      if (f.photo && prev[i].photo !== f.photo) return prev.map(x => x.id === f.id ? { ...x, photo: f.photo } : x)
-      return prev
-    }),
-    acceptRequest: (id) => {
-      const r = requests.find(x => x.id === id)
-      if (r) { setFriends(prev => [...prev, r]); setRequests(prev => prev.filter(x => x.id !== id)) }
+    addFriend: addFriendLocal,
+    acceptRequest: async (id) => {
+      const r = requests.find(x => x.requestId === id || x.id === id)
+      if (!r) return false
+      // লোকাল-মাত্র রিকোয়েস্ট (পুরোনো সিড/ক্যাশ, ডক নেই) — আগের মতোই সাথে সাথে বন্ধু।
+      if (!r.requestId) { addFriendLocal(r); setRequests(prev => prev.filter(x => x.id !== r.id)); return true }
+      // আসল রিকোয়েস্ট: প্রথমে ডকে গ্রহণ লেখা হয় — সফল হলেই প্রেরক আমার
+      // বন্ধু তালিকায় ওঠে (write-through-এ users/{আমি}-তে যায়); ব্যর্থ হলে
+      // রিকোয়েস্ট তালিকাতেই থাকে, চুপচাপ বন্ধু দেখায় না।
+      const ok = await updateFriendRequestStatus(r.requestId, 'accepted')
+      if (!ok) return false
+      addFriendLocal(r)
+      setRequests(prev => prev.filter(x => x.requestId !== r.requestId))
+      return true
+    },
+    declineRequest: async (id) => {
+      const r = requests.find(x => x.requestId === id || x.id === id)
+      if (!r) return false
+      if (!r.requestId) { setRequests(prev => prev.filter(x => x.id !== r.id)); return true }
+      const ok = await updateFriendRequestStatus(r.requestId, 'declined')
+      if (!ok) return false
+      setRequests(prev => prev.filter(x => x.requestId !== r.requestId))
+      return true
+    },
+    sentRequests,
+    sendFriendRequest: async (f) => {
+      // পারসোনা বা লোকাল id (bd-…/fr-…/f1…) — Firestore রিকোয়েস্ট যায় না,
+      // সাথে সাথে লোকাল বন্ধু (আগের আচরণ)।
+      if (isBuddyId(f.id) || !looksLikeFirebaseUid(f.id)) { addFriendLocal(f); return true }
+      // OTP লগইন (Firebase সেশন নেই, uid null) — রিকোয়েস্ট পাঠানোর উপায়
+      // নেই, লোকাল যোগই থাকে।
+      if (!uid) { addFriendLocal(f); return true }
+      const verdict = canSendFriendRequest(f.id, { uid, friendIds: friends.map(x => x.id), sentToUids: sentRequests.map(s => s.toUid), blockedUids })
+      if (verdict !== 'ok') return false
+      if (sendInFlightRef.current.has(f.id)) return false
+      sendInFlightRef.current.add(f.id)
+      try {
+        const payload = buildFriendRequestData(
+          { uid, name: user?.name || 'User', colour: colourForUid(uid), ...(profilePhoto ? { photo: profilePhoto } : {}) },
+          { uid: f.id, name: f.name, colour: f.color, ...(f.photo ? { photo: f.photo } : {}) },
+        )
+        if (!payload) return false
+        const requestId = await createFriendRequest(payload)
+        if (!requestId) return false
+        setSentRequests(prev => prev.some(s => s.toUid === f.id) ? prev : [...prev, { toUid: f.id, requestId }])
+        return true
+      } finally {
+        sendInFlightRef.current.delete(f.id)
+      }
+    },
+    cancelFriendRequest: async (toUid) => {
+      const sent = sentRequests.find(s => s.toUid === toUid)
+      if (!sent) return false
+      const ok = await updateFriendRequestStatus(sent.requestId, 'cancelled')
+      if (!ok) return false
+      setSentRequests(prev => prev.filter(s => s.toUid !== toUid))
+      return true
     },
     removeFriend: (id) => {
       if (BUDDIES.some(b => b.id === id)) {
@@ -1250,7 +1372,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
       } catch { return false }
     },
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

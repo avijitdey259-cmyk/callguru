@@ -16,6 +16,14 @@
 //                    লিখতে পারেন শুধু অ্যাডমিন (avijitdey259@gmail.com)।
 //   topups/{id}   — ব্যবহারকারী শুধু নিজের আবেদন তৈরি/পড়তে পারেন;
 //                    অ্যাডমিন সব পড়তে ও স্ট্যাটাস বদলাতে পারেন।
+//   friendRequests/{reqId} — বন্ধুর রিকোয়েস্ট: তৈরি করেন প্রেরক নিজে
+//                    (fromUid নিজের UID, toUid নিজে নয়, status 'pending');
+//                    পড়তে পারেন প্রেরক বা প্রাপক; প্রাপক শুধু status বদলান
+//                    (pending → accepted/declined); প্রেরক শুধু বাতিল করেন
+//                    (pending → cancelled)। মোছা বন্ধ। ⚠️ নিয়ম কনসোলে
+//                    publish না হওয়া পর্যন্ত রিকোয়েস্ট পাঠানো যাবে না
+//                    (তৈরি করতে গেলে অনুমতি মিলবে না):
+//                      firebase deploy --only firestore:rules --project picall-76185
 //   chats/{roomId}/messages/{msgId} — রুমের নামে দুই UID থাকে
 //                    (ছোট UID আগে, '_' দিয়ে জোড়া); শুধু ওই দুই
 //                    ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
@@ -82,6 +90,28 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow update: if isAdmin();
+    }
+
+    // বন্ধুর রিকোয়েস্ট — Facebook-এর মতো: Add Friend চাপলে প্রেরক নিজে ডক
+    // তৈরি করেন (fromUid নিজের UID, toUid নিজে নয়, status 'pending',
+    // নাম ১–৮০ অক্ষর); পড়তে পারেন প্রেরক বা প্রাপক; প্রাপক শুধু status
+    // বদলাতে পারেন (pending → accepted/declined), প্রেরক শুধু বাতিল করতে
+    // পারেন (pending → cancelled) — অন্য ক্ষেত্র বদলানো যায় না, মোছা বন্ধ।
+    match /friendRequests/{reqId} {
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.fromName is string
+        && request.resource.data.fromName.size() > 0
+        && request.resource.data.fromName.size() <= 80;
+      allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow update: if isSignedIn() && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((resource.data.toUid == request.auth.uid && request.resource.data.status in ['accepted', 'declined'])
+          || (resource.data.fromUid == request.auth.uid && request.resource.data.status == 'cancelled'));
+      allow delete: if false;
     }
 
     // চ্যাট রুমের সূচক ডক (chats/{roomId}) — প্রাপক যেন রুমটা খুঁজে পায়

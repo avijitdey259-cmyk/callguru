@@ -10,6 +10,8 @@ import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
 import { mapGroupDoc, mapGroupPostDoc, mapPageDoc, mapPagePostDoc, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
+import { mapFriendRequestDoc, type FriendRequestDoc } from './friendRequests'
+export type { FriendRequestDoc, FriendRequestStatus } from './friendRequests'
 
 let db: Firestore | null = null
 
@@ -106,6 +108,76 @@ export async function updatePublicProfileName(uid: string, displayName: string):
     await updateDoc(doc(d, 'publicProfiles', uid), { displayName: name })
     return true
   } catch { return false }
+}
+
+// ---------- friendRequests — Facebook-এর মতো বন্ধু রিকোয়েস্ট ----------
+// ডক: fromUid/toUid (আসল Firebase UID), নাম + রং (+ ঐচ্ছিক ছবি), status,
+// createdAtMs। নিয়ম (firestore.rules): তৈরি করতে পারেন শুধু প্রেরক নিজে
+// (fromUid নিজের UID, toUid নিজে নয়, status 'pending'); পড়তে পারেন প্রেরক
+// বা প্রাপক; প্রাপক শুধু status বদলাতে পারেন (pending → accepted/declined),
+// প্রেরক শুধু বাতিল করতে পারেন (pending → cancelled)। মোছা বন্ধ — বাতিল/
+// প্রত্যাখ্যান status দিয়েই হয়, তাই দুই দিক থেকেই রিকোয়েস্ট মিলিয়ে যায়।
+// কোয়েরি একটাই সমতা-শর্তে (toUid বা fromUid) — কম্পোজিট ইনডেক্স লাগে না;
+// status ক্লায়েন্টেই ছাঁকা হয়, নতুন থেকে পুরনো ক্লায়েন্টেই সাজানো হয়।
+// Firestore/নিয়ম না থাকলে [] / null / false — অ্যাপ আগের মতো localStorage-এই
+// চলে। কখনো throw করে না।
+export async function createFriendRequest(data: Omit<FriendRequestDoc, 'id' | 'status' | 'createdAtMs'>): Promise<string | null> {
+  const d = getDb()
+  if (!d || !data.fromUid || !data.toUid || data.fromUid === data.toUid) return null
+  try {
+    const ref = await addDoc(collection(d, 'friendRequests'), {
+      ...data,
+      status: 'pending',
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// status বদল — প্রাপক accepted/declined, প্রেরক cancelled (নিয়মে বাঁধা);
+// অন্য status বা অন্য ক্ষেত্র বদলাতে গেলে নিয়মে আটকায়, false ফেরে।
+export async function updateFriendRequestStatus(id: string, status: 'accepted' | 'declined' | 'cancelled'): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id) return false
+  try {
+    await updateDoc(doc(d, 'friendRequests', id), { status })
+    return true
+  } catch { return false }
+}
+
+// আমার কাছে আসা রিকোয়েস্ট (toUid == আমি) — লাইভ সাবস্ক্রিপশন; Firestore
+// না থাকলে null (রিকোয়েস্ট সেকশন তখন লোকাল ক্যাশেই থাকে)।
+export function subscribeIncomingFriendRequests(uid: string, cb: (docs: FriendRequestDoc[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'friendRequests'), where('toUid', '==', uid), limit(50))
+    return onSnapshot(q, (snap) => {
+      const docs = snap.docs
+        .map(s => mapFriendRequestDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((x): x is FriendRequestDoc => x !== null)
+      docs.sort((a, b) => b.createdAtMs - a.createdAtMs)
+      cb(docs)
+    }, () => { /* subscription failed — the requests section keeps its local cache */ })
+  } catch { return null }
+}
+
+// আমার পাঠানো রিকোয়েস্ট (fromUid == আমি) — লাইভ সাবস্ক্রিপশন; গ্রহণ হলে
+// স্টোর এটা দেখেই প্রাপককে বন্ধু তালিকায় যোগ করে।
+export function subscribeSentFriendRequests(uid: string, cb: (docs: FriendRequestDoc[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'friendRequests'), where('fromUid', '==', uid), limit(50))
+    return onSnapshot(q, (snap) => {
+      const docs = snap.docs
+        .map(s => mapFriendRequestDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((x): x is FriendRequestDoc => x !== null)
+      docs.sort((a, b) => b.createdAtMs - a.createdAtMs)
+      cb(docs)
+    }, () => { /* subscription failed — the sent state keeps its last value */ })
+  } catch { return null }
 }
 
 // ---------- chats/{roomId}/messages/{msgId} — আসল বন্ধুদের মধ্যে চ্যাট ----------
