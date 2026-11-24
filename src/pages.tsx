@@ -26,6 +26,7 @@ import {
 import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPlaylist'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
+import { computeTransfer } from './piTransfer'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
@@ -2021,8 +2022,8 @@ function PiReportCard() {
   const sum = (types: string[]) => roundPi(piLedger.filter(r => types.includes(r.type)).reduce((s, r) => s + r.amount, 0))
   const totalDeposit = sum(['Deposit', 'জমা'])
   const totalWithdraw = roundPi(-sum(['Withdraw', 'তোলা']))
-  const totalIncome = sum(['Daily Bonus', 'ডেইলি বোনাস', 'Referral', 'রেফারেল', 'Live Earnings', 'লাইভ আয়', 'Gift Box', 'গিফট বক্স', 'Install Bonus', 'ইন্সটল বোনাস'])
-  const totalExpense = roundPi(-sum(['Call Cost', 'কল খরচ', 'Watching Live', 'লাইভ দেখা', 'Gifts Sent', 'গিফট দেওয়া', 'Boost', 'বুস্ট', 'Super Like', 'সুপার লাইক']))
+  const totalIncome = sum(['Daily Bonus', 'ডেইলি বোনাস', 'Referral', 'রেফারেল', 'Live Earnings', 'লাইভ আয়', 'Gift Box', 'গিফট বক্স', 'Install Bonus', 'ইন্সটল বোনাস', 'Transfer Received', 'Transfer Fee'])
+  const totalExpense = roundPi(-sum(['Call Cost', 'কল খরচ', 'Watching Live', 'লাইভ দেখা', 'Gifts Sent', 'গিফট দেওয়া', 'Boost', 'বুস্ট', 'Super Like', 'সুপার লাইক', 'Transfer Sent']))
   let run = totalPi
   const rows = piLedger.map(r => { const after = run; run = roundPi(run - r.amount); return { ...r, after } })
   return (
@@ -2058,7 +2059,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { points, referrals, referralCode, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, pendingTopUps, submitManualTopUp, adminSettings, kycVerified } = useStore()
+  const { points, referrals, referralCode, numericUid, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, piTransferFeePct, piMinTransfer, sendPi, lookupUserByUid, friends, pendingTopUps, submitManualTopUp, adminSettings, kycVerified } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -2070,6 +2071,42 @@ export function WalletPage() {
   const [wdAddress, setWdAddress] = useState('')
   const [wdAmount, setWdAmount] = useState('')
   const [wdMsg, setWdMsg] = useState('')
+  // Pi পাঠানো (UID দিয়ে) — UID লিখে খুঁজলে নাম + ছবি দেখে নিশ্চিত হয়ে তবে
+  // পাঠানো যায়; অচেনা UID-তে কিছু যায় না। বন্ধু তালিকা থেকেও বেছে নেওয়া যায়।
+  const [trUid, setTrUid] = useState('')
+  const [trFound, setTrFound] = useState<{ uid: string; displayName: string; colour: string; photo?: string; numericUid?: number } | null>(null)
+  const [trLookupMsg, setTrLookupMsg] = useState('')
+  const [trLookupBusy, setTrLookupBusy] = useState(false)
+  const [trAmount, setTrAmount] = useState('')
+  const [trMsg, setTrMsg] = useState('')
+  const [trBusy, setTrBusy] = useState(false)
+  const [trConfirm, setTrConfirm] = useState(false)
+  async function doLookupUid() {
+    const n = Number(trUid.replace(/\D/g, ''))
+    if (!Number.isInteger(n) || n < 100000 || n > 999999) { setTrLookupMsg('Enter a 6-digit UID (e.g. 100001).'); setTrFound(null); return }
+    if (numericUid !== null && n === numericUid) { setTrLookupMsg('That is your own UID — you cannot send Pi to yourself.'); setTrFound(null); return }
+    setTrLookupBusy(true); setTrLookupMsg('')
+    const found = await lookupUserByUid(n)
+    setTrLookupBusy(false)
+    if (!found) { setTrFound(null); setTrLookupMsg('No user found with this UID — check the number and try again.'); return }
+    setTrFound(found); setTrLookupMsg('')
+  }
+  async function doSendPi() {
+    if (!trFound || trBusy) return
+    if (!kycVerified) { setTrMsg('Pi send needs approved KYC — complete Dating KYC first.'); return }
+    const m = Number(trAmount)
+    if (!Number.isFinite(m) || m <= 0) { setTrMsg('Enter a valid amount.'); return }
+    if (m < piMinTransfer) { setTrMsg(`Minimum transfer: ${formatPi(piMinTransfer)}.`); return }
+    if (m > piBalance) { setTrMsg('Not enough Pi balance — only real Pi can be sent, bonus Pi cannot be transferred.'); return }
+    if (!trConfirm) { setTrConfirm(true); setTrMsg(''); return }
+    setTrBusy(true); setTrMsg('')
+    const res = await sendPi({ uid: trFound.uid, name: trFound.displayName, numericUid: trFound.numericUid }, m)
+    setTrBusy(false); setTrConfirm(false)
+    if (res.ok === false) { setTrMsg(res.error); return }
+    const { fee, net } = computeTransfer(m, piTransferFeePct)
+    setTrMsg(`✅ Sent ${formatPi(m)} to ${trFound.displayName} — fee ${formatPi(fee)} • they get ${formatPi(net)}.`)
+    setTrAmount(''); setTrFound(null); setTrUid('')
+  }
   const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
   const [affiliateMsg, setAffiliateMsg] = useState('')
@@ -2144,6 +2181,7 @@ export function WalletPage() {
         <div className="flex gap-2 justify-center mt-3">
           <button onClick={() => document.getElementById('wallet-topup')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white text-pi-purple font-bold text-sm">Deposit</button>
           <button onClick={() => document.getElementById('wallet-withdraw')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Withdraw</button>
+          <button onClick={() => document.getElementById('wallet-sendpi')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Send Pi</button>
         </div>
         <p className="text-sm text-white/80 mt-3">Reward Points: {points} • Referral: {referrals} people</p>
         <p className="text-xs text-white/60 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
@@ -2180,6 +2218,53 @@ export function WalletPage() {
           <Btn variant="green" className="w-full mt-3" onClick={doWithdraw}>Withdraw Pi</Btn>
           {wdMsg && <p className="text-sm mt-2">{wdMsg}</p>}
           {piWithdrawals.length > 0 && <div className="mt-2">{piWithdrawals.map(w => <p key={w.id} className="text-sm text-gray-500">{formatPi(w.amount)} • Fee {formatPi(w.fee)} • Will get {formatPi(w.received)}{w.chain ? ` • ${w.chain}` : ''} • {shortPiAddress(w.address)} • {w.date} • {w.status}</p>)}</div>}
+        </div>
+        <div id="wallet-sendpi" className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">Send Pi</p>
+          <p className="text-sm mt-1">Send Pi to any user by their 6-digit UID — they get {100 - piTransferFeePct}%, {piTransferFeePct}% goes to the admin as a transfer fee. Only real Pi can be sent (bonus Pi cannot be transferred).</p>
+          {!kycVerified ? (
+            <p className="text-sm mt-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">Pi send needs approved KYC — complete Dating KYC first.</p>
+          ) : (<>
+            <label className="text-sm block mt-2">Recipient UID (6 digits)</label>
+            <div className="flex gap-2 mt-1">
+              <input className="flex-1 min-w-0 border rounded-lg px-3 py-2 dark:bg-slate-800 dark:border-slate-600" value={trUid} onChange={e => { setTrUid(e.target.value.replace(/\D/g, '').slice(0, 6)); setTrFound(null); setTrConfirm(false); setTrMsg('') }} placeholder="e.g. 100001" inputMode="numeric" />
+              <Btn onClick={doLookupUid} disabled={trLookupBusy}>{trLookupBusy ? 'Finding…' : 'Find'}</Btn>
+            </div>
+            {trLookupMsg && <p className="text-sm text-red-600 mt-2">{trLookupMsg}</p>}
+            {trFound && (
+              <div className="flex items-center gap-3 mt-3 border rounded-lg px-3 py-2">
+                <Avatar photo={trFound.photo} name={trFound.displayName} color={trFound.colour} className="w-10 h-10" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{trFound.displayName}</p>
+                  <p className="text-xs text-gray-400">{trFound.numericUid !== undefined ? `ID: ${trFound.numericUid}` : 'Friend'}</p>
+                </div>
+                <Btn variant="ghost" onClick={() => { setTrFound(null); setTrUid(''); setTrConfirm(false) }}>Change</Btn>
+              </div>
+            )}
+            {friends.filter(f => !isBuddyId(f.id)).length > 0 && (<>
+              <label className="text-sm block mt-3">Or pick a friend</label>
+              <div className="flex gap-2 flex-wrap mt-1">
+                {friends.filter(f => !isBuddyId(f.id)).slice(0, 8).map(f => (
+                  <button key={f.id} onClick={() => { setTrFound({ uid: f.id, displayName: f.name, colour: f.color, ...(f.photo ? { photo: f.photo } : {}), ...(f.numericUid !== undefined ? { numericUid: f.numericUid } : {}) }); setTrUid(f.numericUid !== undefined ? String(f.numericUid) : ''); setTrConfirm(false); setTrMsg('') }} className={`px-3 py-1.5 rounded-full text-sm border ${trFound?.uid === f.id ? 'bg-fb-blue text-white' : ''}`}>{f.name}{f.numericUid !== undefined ? ` (${f.numericUid})` : ''}</button>
+                ))}
+              </div>
+            </>)}
+            {trFound && (<>
+              <label className="text-sm block mt-3">Amount (Pi)</label>
+              <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trAmount} onChange={e => { setTrAmount(e.target.value); setTrConfirm(false); setTrMsg('') }} placeholder={`Minimum ${formatPi(piMinTransfer)}`} />
+              {(Number(trAmount) || 0) > 0 && (() => { const c = computeTransfer(Number(trAmount), piTransferFeePct); return <p className="text-sm mt-2">Send {formatPi(c.amount)} • Fee ({piTransferFeePct}%): {formatPi(c.fee)} • {trFound.displayName} gets {formatPi(c.net)}</p> })()}
+              {trConfirm && trFound && (Number(trAmount) || 0) >= piMinTransfer && (() => { const c = computeTransfer(Number(trAmount), piTransferFeePct); return (
+                <div className="mt-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+                  <p className="text-sm font-bold">Confirm send to {trFound.displayName}{trFound.numericUid !== undefined ? ` (ID ${trFound.numericUid})` : ''}?</p>
+                  <p className="text-sm mt-1">Send {formatPi(c.amount)} • Fee ({piTransferFeePct}%): {formatPi(c.fee)} • Receiver gets {formatPi(c.net)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Only your real Pi balance is used — bonus Pi is never sent.</p>
+                </div>
+              ) })()}
+              <Btn variant="green" className="w-full mt-3" disabled={trBusy || !trFound || (Number(trAmount) || 0) < piMinTransfer} onClick={doSendPi}>{trBusy ? 'Sending…' : trConfirm ? 'Confirm Send' : 'Send Pi'}</Btn>
+              {trConfirm && <Btn variant="ghost" className="w-full mt-2" onClick={() => setTrConfirm(false)}>Cancel</Btn>}
+            </>)}
+            {trMsg && <p className="text-sm mt-2">{trMsg}</p>}
+          </>)}
         </div>
         <p className="text-xs text-gray-400 mt-3">Real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>
       </Card>
@@ -4720,7 +4805,7 @@ function AdminSettingsTab() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl, uid, bannedUids, setBannedUids } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, piTransferFeePct, setPiTransferFeePct, piMinTransfer, setPiMinTransfer, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl, uid, bannedUids, setBannedUids } = useStore()
   // টপ-আপ আবেদনের গন্তব্য — গ্রাহককে যে নম্বর/ঠিকানা দেখানো হয়েছিল (অ্যাডমিন সেটিংসে বসানো থাকলে আসলটা)
   function topUpDestination(t: { method: string; network?: string }): string {
     if (t.method === 'bKash') return adminSettings.payments.bkash
@@ -4841,6 +4926,11 @@ export function AdminPage() {
   const [usdtRateMsg, setUsdtRateMsg] = useState('')
   const [feeInput, setFeeInput] = useState('')
   const [feeMsg, setFeeMsg] = useState('')
+  // Pi ট্রান্সফারের ফি% + সর্বনিম্ন ট্রান্সফার — অ্যাডমিন নির্ধারিত (ওয়ালেটে সাথে সাথে বদলায়)
+  const [trFeeInput, setTrFeeInput] = useState('')
+  const [trFeeMsg, setTrFeeMsg] = useState('')
+  const [trMinInput, setTrMinInput] = useState('')
+  const [trMinMsg, setTrMinMsg] = useState('')
   function savePiRate() {
     const v = Math.round(Number(piRateInput) * 100) / 100
     if (!Number.isFinite(v) || v < 1) { setPiRateMsg('Rate must be at least Tk 1/Pi.'); return }
@@ -4855,6 +4945,16 @@ export function AdminPage() {
     const v = Math.round(Number(feeInput) * 10) / 10
     if (!Number.isFinite(v) || v < 0 || v > 10) { setFeeMsg('Fee must be between 0–10%.'); return }
     setPiWithdrawFeePct(v); setFeeMsg(`✅ Withdraw fee saved: ${v}%.`)
+  }
+  function saveTrFee() {
+    const v = Math.round(Number(trFeeInput) * 10) / 10
+    if (!Number.isFinite(v) || v < 0 || v > 10) { setTrFeeMsg('Fee must be between 0–10%.'); return }
+    setPiTransferFeePct(v); setTrFeeMsg(`✅ Transfer fee saved: ${v}%.`)
+  }
+  function saveTrMin() {
+    const v = Math.round(Number(trMinInput) * 100000) / 100000
+    if (!Number.isFinite(v) || v < 0.01 || v > 100) { setTrMinMsg('Minimum must be between 0.01–100 π.'); return }
+    setPiMinTransfer(v); setTrMinMsg(`✅ Minimum transfer saved: ${formatPi(v)}.`)
   }
   // Live TV — ONE playlist link (M3U) drives the whole channel list; the app
   // fetches it and shows every channel inside it. Saving here writes
@@ -4931,8 +5031,20 @@ export function AdminPage() {
             <Btn className="mt-1" onClick={saveFee}>Save</Btn>
             {feeMsg && <p className="text-xs text-green-600 mt-1">{feeMsg}</p>}
           </div>
+          <div>
+            <label className="text-sm block">Pi Transfer Fee (%)</label>
+            <input type="number" min={0} max={10} step={0.1} className="border rounded-lg px-3 py-2 w-full dark:bg-slate-800 mt-1" value={trFeeInput} onChange={e => { setTrFeeInput(e.target.value); setTrFeeMsg('') }} placeholder={`Current: ${piTransferFeePct}%`} />
+            <Btn className="mt-1" onClick={saveTrFee}>Save</Btn>
+            {trFeeMsg && <p className="text-xs text-green-600 mt-1">{trFeeMsg}</p>}
+          </div>
+          <div>
+            <label className="text-sm block">Minimum Transfer (π)</label>
+            <input type="number" min={0.01} max={100} step={0.01} className="border rounded-lg px-3 py-2 w-full dark:bg-slate-800 mt-1" value={trMinInput} onChange={e => { setTrMinInput(e.target.value); setTrMinMsg('') }} placeholder={`Current: ${formatPi(piMinTransfer)}`} />
+            <Btn className="mt-1" onClick={saveTrMin}>Save</Btn>
+            {trMinMsg && <p className="text-xs text-green-600 mt-1">{trMinMsg}</p>}
+          </div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">Current rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} • Withdraw fee {piWithdrawFeePct}% (minimum 0.1 π) • Minimum withdraw 10 USDT = {formatPi(piMinWithdraw)}।</p>
+        <p className="text-xs text-gray-400 mt-2">Current rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} • Withdraw fee {piWithdrawFeePct}% (minimum 0.1 π) • Transfer fee {piTransferFeePct}% • Minimum transfer {formatPi(piMinTransfer)} • Minimum withdraw 10 USDT = {formatPi(piMinWithdraw)}।</p>
         <h3 className="font-bold mt-5">Top-up Approval</h3>
         <p className="text-xs text-gray-500">Manual top-up requests — approval adds to the Pi balance (Taka ÷ Pi rate; USDT × USDT rate ÷ Pi rate, at admin-set rates).</p>
         {pendingTopUps.length === 0 && <p className="text-sm text-gray-500 mt-2">No requests.</p>}

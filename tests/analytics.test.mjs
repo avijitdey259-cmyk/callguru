@@ -266,7 +266,7 @@ check('store: adminSettings.analytics stored, synced to config/public, init effe
   assert.ok(store.includes('analytics: { ...DEFAULT_ADMIN_SETTINGS.analytics, ...(v.analytics || {}) }'))
   assert.ok(store.includes('if (c.analytics !== undefined) setAdminSettingsState'))
   assert.ok(store.includes('initAnalytics(resolveAnalyticsIds(envAnalyticsIds(), adminSettings.analytics))'))
-  assert.equal((store.match(/toPublicConfig\(\{ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate \}, adminSettings\.payments, tvPlaylistUrl, adminSettings\.analytics, adminSettings\.ads, bannedUids\)/g) || []).length, 2)
+  assert.equal((store.match(/toPublicConfig\(\{ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate \}, adminSettings\.payments, tvPlaylistUrl, adminSettings\.analytics, adminSettings\.ads, bannedUids\)/g) || []).length, 2)
 })
 
 check('main.tsx: boot init from build env (logged-out PageView)', () => {

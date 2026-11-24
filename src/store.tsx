@@ -3,7 +3,8 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers } from './firestore'
+import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
 import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
 import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
@@ -258,6 +259,15 @@ type Store = {
   piWithdrawFeePct: number
   setPiWithdrawFeePct: (v: number) => void
   piMinWithdraw: number
+  // Pi ট্রান্সফার — ব্যবহারকারী থেকে ব্যবহারকারী (UID দিয়ে); ফি% আর সর্বনিম্ন
+  // ট্রান্সফার অ্যাডমিন-নিয়ন্ত্রিত (config/public-এ সিঙ্ক হয়)
+  piTransferFeePct: number
+  setPiTransferFeePct: (v: number) => void
+  piMinTransfer: number
+  setPiMinTransfer: (v: number) => void
+  // UID দিয়ে প্রাপক খোঁজা + Pi পাঠানো (ট্রানজ্যাকশনে; ব্যর্থ হলে কিছুই যায় না)
+  lookupUserByUid: (numericUid: number) => Promise<{ uid: string; displayName: string; colour: string; photo?: string; numericUid: number } | null>
+  sendPi: (to: { uid: string; name: string; numericUid?: number }, amount: number) => Promise<{ ok: true } | { ok: false; error: string }>
   // Live TV — ONE IPTV playlist URL (M3U) from config/public; empty = default playlist.
   tvPlaylistUrl: string
   setTvPlaylistUrl: (u: string) => void
@@ -474,6 +484,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [usdtRateBDT, setUsdtRateBDTState] = useState<number>(() => load('usdtRateBDT', DEFAULT_USDT_RATE_BDT))
   // Pi তোলার ফি — অ্যাডমিন নির্ধারিত (ডিফল্ট ১%, সর্বনিম্ন ০.১ π)
   const [piWithdrawFeePct, setPiWithdrawFeePctState] = useState<number>(() => load('piWithdrawFeePct', DEFAULT_PI_WITHDRAW_FEE_PCT))
+  // Pi ট্রান্সফারের ফি% (ডিফল্ট ২%) + সর্বনিম্ন ট্রান্সফার (ডিফল্ট ০.১ π) — অ্যাডমিন সেট করেন, config/public-এ সিঙ্ক হয়
+  const [piTransferFeePct, setPiTransferFeePctState] = useState<number>(() => load('piTransferFeePct', DEFAULT_TRANSFER_FEE_PCT))
+  const [piMinTransfer, setPiMinTransferState] = useState<number>(() => load('piMinTransfer', DEFAULT_MIN_TRANSFER_PI))
   // Live TV প্লেলিস্টের লিঙ্ক — অ্যাডমিন নির্ধারিত (ডিফল্ট: Eamin Tv M3U); খালি মানে ডিফল্ট
   const [tvPlaylistUrl, setTvPlaylistUrlState] = useState<string>(() => load('tvPlaylistUrl', DEFAULT_TV_PLAYLIST_URL))
 
@@ -535,6 +548,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('piRateBDT', piRateBDT), [piRateBDT])
   useEffect(() => save('usdtRateBDT', usdtRateBDT), [usdtRateBDT])
   useEffect(() => save('piWithdrawFeePct', piWithdrawFeePct), [piWithdrawFeePct])
+  useEffect(() => save('piTransferFeePct', piTransferFeePct), [piTransferFeePct])
+  useEffect(() => save('piMinTransfer', piMinTransfer), [piMinTransfer])
   useEffect(() => save('tvPlaylistUrl', tvPlaylistUrl), [tvPlaylistUrl])
   // ম্যানুয়াল টপ-আপের আবেদন — অ্যাডমিন অনুমোদন দিলে ব্যালেন্স যোগ হয়
   const [pendingTopUps, setPendingTopUps] = useState<TopUpRequest[]>(() => load('pendingTopUps', []))
@@ -679,10 +694,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
-  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds; adRates: AdRateSettings; bannedUids: string[] }>) => {
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; piTransferFeePct: number; piMinTransfer: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds; adRates: AdRateSettings; bannedUids: string[] }>) => {
     if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
     if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
     if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
+    if (c.piTransferFeePct !== undefined) setPiTransferFeePctState(c.piTransferFeePct)
+    if (c.piMinTransfer !== undefined) setPiMinTransferState(c.piMinTransfer)
     if (c.datingRate !== undefined) setDatingRateState(c.datingRate)
     if (c.liveRate !== undefined) setLiveRateState(c.liveRate)
     if (c.tvPlaylistUrl !== undefined) setTvPlaylistUrlState(c.tvPlaylistUrl)
@@ -690,6 +707,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (c.analytics !== undefined) setAdminSettingsState((prev) => ({ ...prev, analytics: { ...prev.analytics, ...c.analytics } }))
     if (c.adRates !== undefined) setAdminSettingsState((prev) => ({ ...prev, ads: { ...prev.ads, ...c.adRates } }))
     if (c.bannedUids !== undefined) { const clean = cleanUidList(c.bannedUids); setBannedUidsState(clean); save('bannedUids', clean) }
+  }
+
+  // খতিয়ানের সর্বশেষ সারি (ট্রান্সফার জমায় পুরোনো ক্লোজার না ধরে — একই
+  // ট্রান্সফার দুবার জমা ঠেকাতে খতিয়ানের id-ই দেখা হয়)।
+  const ledgerRef = useRef<PiLedgerRow[]>([])
+  ledgerRef.current = piLedger
+
+  // ট্রান্সফার জমা — piTransfers ডক থেকে নিজের ভূমিকার জমা: প্রাপক +net,
+  // অ্যাডমিন +fee, পাঠক −amount (অন্য ডিভাইস থেকে পাঠানো হলে — এই ডিভাইসে
+  // পাঠালে sendPi-তেই জমা হয়)। খতিয়ানে সারি থাকলে আর জমা হয় না।
+  // knownRowIds — লগইনে ক্লাউডের খতিয়ান থেকেও মেলানো হয় (স্থানীয়
+  // খতিয়ান তখনো পুরোনো হতে পারে)।
+  const applyPiTransfer = (t: PiTransferDoc, knownRowIds?: string[]) => {
+    if (!uid) return
+    const roles = transferRoles(t, uid)
+    if (roles.length === 0) return
+    const ids = knownRowIds ?? ledgerRef.current.map(r => r.id)
+    let delta = 0
+    const rows: PiLedgerRow[] = []
+    for (const role of roles) {
+      if (isTransferApplied(ids, t.id, role)) continue
+      const app = buildTransferApplication(t, role)
+      delta = roundPi(delta + app.delta)
+      rows.push(app.row)
+    }
+    if (rows.length === 0) return
+    setPiBalance(b => roundPi(b + delta))
+    setPiLedger(prev => [...rows.filter(r => !prev.some(x => x.id === r.id)), ...prev].slice(0, 200))
   }
 
   // অন্য ব্যবহারকারীর ক্যাশে লগইন করলে — আগের ব্যবহারকারীর ডেটা নতুন ব্যবহারকারীর
@@ -810,7 +855,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           applyPublicConfig(fromPublicConfig(cfg))
         } else if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
           // অ্যাডমিন প্রথমবার — নিজের দর + পেমেন্টের বিবরণ ক্লাউডে ওঠে (গোপন অংশ ছাড়া)
-          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids))
+          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids))
           if (cancelled) return
         }
         if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
@@ -841,6 +886,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (cancelled) return
+        // আমার Pi ট্রান্সফার — লগইনে ক্লাউড থেকে এনে খতিয়ানে নেই এমন জমা
+        // প্রয়োগ করা হয় (অন্য ডিভাইস থেকে পাঠানো / পাওয়া / ফি)। ক্লাউডের
+        // খতিয়ানেও মেলানো হয় — স্থানীয় খতিয়ান তখনো পুরোনো হতে পারে।
+        const transfers = await fetchMyPiTransfers(uid)
+        if (cancelled) return
+        if (transfers.length > 0) {
+          const cloudLedger = docData && Array.isArray((docData as Record<string, unknown>).piLedger)
+            ? ((docData as Record<string, unknown>).piLedger as { id?: unknown }[]).map(r => typeof r.id === 'string' ? r.id : '').filter(Boolean)
+            : []
+          const knownIds = [...new Set([...cloudLedger, ...ledgerRef.current.map(r => r.id)])]
+          transfers.forEach(t => applyPiTransfer(t, knownIds))
+        }
         fsReadyRef.current = true
         setFsState('on')
       } catch {
@@ -879,6 +936,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid])
 
+  // Pi ট্রান্সফার — লাইভ সাবস্ক্রিপশন; নতুন ট্রান্সফার এলেই নিজের ভূমিকার
+  // জমা প্রয়োগ হয় (প্রাপক/ফি — পাঠকের কাটা ট্রানজ্যাকশনেই হয়েছে)।
+  // fsState 'on' হওয়ার পরেই চলে — লগইন সিঙ্কের জমা আগে শেষ হয়।
+  useEffect(() => {
+    if (!uid || fsState !== 'on') return
+    const unsub = subscribeMyPiTransfers(uid, (docs) => { docs.forEach(t => applyPiTransfer(t)) })
+    return () => { unsub?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, fsState])
+
   // Write-through — সিঙ্ক চালু থাকলে প্রতি বদল (৮০০ মিলিসেকেন্ড দেরিতে) ক্লাউডে যায়;
   // localStorage-তো আগেই প্রতি বদলে লেখা হয় (অফলাইন ক্যাশ)। অ্যাডমিনের দর/পেমেন্টের
   // বিবরণ config/public-এ যায় (গোপন অংশ কখনো নয়)। সিঙ্ক শেষ হওয়ার আগের বদল লেখা হয় না।
@@ -888,12 +955,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fsWriteTimer.current = setTimeout(() => {
       writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
-        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids)).catch(() => { /* ignore */ })
+        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids)).catch(() => { /* ignore */ })
       }
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids, bannedUids])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids, bannedUids])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -1290,6 +1357,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setPiWithdrawals(prev => [{ id: 'wd-' + Date.now(), amount: m, fee, received, address, date: new Date().toLocaleString('en-GB'), status: '⏳ Processing', chain: chain || 'Pi Mainnet' }, ...prev])
       return true
     },
+    lookupUserByUid: (numericUid) => findUserByNumericUid(numericUid),
+    sendPi: async (to, amount) => {
+      // শুধু আসল Pi — বোনাস/গিফট Pi কখনো নয়; পাঠাতে অনুমোদিত KYC লাগে
+      if (!uid || !user) return { ok: false, error: 'Log in again and try.' }
+      if (fsState !== 'on') return { ok: false, error: 'No connection — try again.' }
+      const err = validateTransferInput({ amount: roundPi(Number(amount)), balance: balRef.current.pi, minTransfer: piMinTransfer, kycApproved: kycStatus === 'approved', isSelf: to.uid === uid })
+      if (err) return { ok: false, error: err }
+      const { amount: a } = computeTransfer(amount, piTransferFeePct)
+      // ক্লাউডের ব্যালেন্স তাজা করা — ট্রানজ্যাকশন যাতে পুরোনো অঙ্ক না পড়ে
+      try { await writeUserDoc(uid, toUserDoc(collectSnapshot())) } catch { /* ট্রানজ্যাকশন ক্লাউড ব্যালেন্স যাচাই করেই */ }
+      const res = await createPiTransfer({ fromUid: uid, toUid: to.uid, fromName: user.name || 'User', toName: to.name, ...(numericUid !== null ? { fromNumericUid: numericUid } : {}), ...(to.numericUid !== undefined ? { toNumericUid: to.numericUid } : {}), amount: a, feePct: piTransferFeePct })
+      if (!res.ok) return res
+      // সফল — স্থানীয় ব্যালেন্স ট্রানজ্যাকশনের ফলে বসানো হয়; খতিয়ানের
+      // সারি ট্রানজ্যাকশনেই ক্লাউডে গেছে, এখানে একই সারি স্থানীয়ভাবে বসে
+      setPiBalance(res.newBalance)
+      const row = buildTransferApplication(res.transfer, 'sent').row
+      setPiLedger(prev => prev.some(r => r.id === row.id) ? prev : [row, ...prev].slice(0, 200))
+      return { ok: true }
+    },
     profileDob,
     gender,
     district,
@@ -1354,6 +1440,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setUsdtRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setUsdtRateBDTState(n) },
     piWithdrawFeePct,
     setPiWithdrawFeePct: (v) => { const n = Math.round(Number(v) * 10) / 10; if (Number.isFinite(n) && n >= 0 && n <= 10) setPiWithdrawFeePctState(n) },
+    piTransferFeePct,
+    setPiTransferFeePct: (v) => { const n = cleanTransferFeePct(v); if (n !== null) setPiTransferFeePctState(n) },
+    piMinTransfer,
+    setPiMinTransfer: (v) => { const n = cleanMinTransfer(v); if (n !== null) setPiMinTransferState(n) },
     tvPlaylistUrl,
     setTvPlaylistUrl: (u) => { const v = String(u ?? '').trim(); if (v === '' || (/^https?:\/\//.test(v) && v.length <= 500)) setTvPlaylistUrlState(v) },
     piMinWithdraw: piMinWithdraw(piRateBDT, usdtRateBDT),
@@ -1409,10 +1499,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setBannedUidsState(next)
       save('bannedUids', next)
       try {
-        return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
+        return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
       } catch { return false }
     },
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

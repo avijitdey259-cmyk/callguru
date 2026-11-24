@@ -6,6 +6,7 @@
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc } from './numericUid'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
+import { roundPi } from './data'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
@@ -13,6 +14,9 @@ import { mapGroupDoc, mapGroupPostDoc, mapPageDoc, mapPagePostDoc, type GroupIte
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
 import { mapFriendRequestDoc, type FriendRequestDoc } from './friendRequests'
 export type { FriendRequestDoc, FriendRequestStatus } from './friendRequests'
+import { ADMIN_UID, computeTransfer, buildTransferApplication, mapPiTransferDoc, type PiTransferDoc } from './piTransfer'
+export type { PiTransferDoc } from './piTransfer'
+export { ADMIN_UID } from './piTransfer'
 
 let db: Firestore | null = null
 
@@ -150,6 +154,22 @@ export async function backfillNumericUids(members: { id: string; createdAtMs: nu
     else assigned++
   }
   return { assigned, failed }
+}
+
+// UID দিয়ে ব্যবহারকারী খোঁজা — publicProfiles-এ numericUid == n ডক
+// একটাই থাকে (বরাদ্দ কাউন্টার ট্রানজ্যাকশনে হয়); না থাকলে null।
+// টাকা পাঠানোর আগে প্রাপক যাচাইয়ে লাগে — নাম + ছবি দেখে নিশ্চিত হয়ে তবে পাঠানো হয়।
+export async function findUserByNumericUid(numericUid: number): Promise<{ uid: string; displayName: string; colour: string; photo?: string; numericUid: number } | null> {
+  const d = getDb()
+  if (!d || !isValidNumericUid(numericUid)) return null
+  try {
+    const q = query(collection(d, 'publicProfiles'), where('numericUid', '==', numericUid), limit(1))
+    const snap = await getDocs(q)
+    if (snap.empty) return null
+    const m = mapPublicProfile(snap.docs[0].id, snap.docs[0].data() as Record<string, unknown>)
+    if (!m || m.numericUid === undefined) return null
+    return { uid: m.id, displayName: m.displayName, colour: m.colour, ...(m.photo ? { photo: m.photo } : {}), numericUid: m.numericUid }
+  } catch { return null }
 }
 
 // অ্যাডমিনের নাম বদল — শুধু displayName বদলায় (createdAt/colour/অন্য ক্ষেত্র ছোঁয়া হয় না)।
@@ -446,6 +466,105 @@ export async function fetchMyTopUps(uid: string): Promise<Array<{ id: string; da
     const snap = await getDocs(query(collection(d, 'topups'), where('uid', '==', uid)))
     return snap.docs.map(s => ({ id: s.id, data: s.data() as TopUpDoc & Record<string, unknown> }))
   } catch { return [] }
+}
+
+// ---------- piTransfers/{id} — ব্যবহারকারী থেকে ব্যবহারকারী Pi ট্রান্সফার ----------
+// নিয়ম: প্রাপক/অ্যাডমিনের users ডক অন্য কেউ লিখতে পারে না — তাই ব্যালেন্স
+// জমা হয় transfer ডক থেকে, প্রত্যেকের নিজের ডিভাইসে (applyPiTransfer,
+// store.tsx)। এই ট্রানজ্যাকশনে শুধু দুটো জিনিস একসাথে হয় — পাঠকের নিজের
+// ডক থেকে টাকা কাটা + piTransfers ডক তৈরি। একটা ব্যর্থ হলে অন্যটাও হয় না,
+// তাই টাকা কাটা গেলেও রেকর্ড না থাকা, বা রেকর্ড থাকলেও টাকা না কাটা —
+// কোনোটাই হতে পারে না। কখনো throw করে না।
+export async function createPiTransfer(input: {
+  fromUid: string
+  toUid: string
+  fromName: string
+  toName: string
+  fromNumericUid?: number
+  toNumericUid?: number
+  amount: number
+  feePct: number
+}): Promise<{ ok: true; transfer: PiTransferDoc; newBalance: number } | { ok: false; error: string }> {
+  const d = getDb()
+  if (!d) return { ok: false, error: 'No connection — try again.' }
+  if (input.fromUid === input.toUid) return { ok: false, error: 'You cannot send Pi to yourself.' }
+  const { amount, fee, net } = computeTransfer(input.amount, input.feePct)
+  if (amount <= 0) return { ok: false, error: 'Enter a valid amount.' }
+  const transferRef = doc(collection(d, 'piTransfers'))
+  const transferId = transferRef.id
+  const transfer: PiTransferDoc = {
+    id: transferId,
+    fromUid: input.fromUid,
+    toUid: input.toUid,
+    adminUid: ADMIN_UID,
+    fromName: input.fromName.trim().slice(0, 80) || 'User',
+    toName: input.toName.trim().slice(0, 80) || 'User',
+    ...(input.fromNumericUid !== undefined && isValidNumericUid(input.fromNumericUid) ? { fromNumericUid: input.fromNumericUid } : {}),
+    ...(input.toNumericUid !== undefined && isValidNumericUid(input.toNumericUid) ? { toNumericUid: input.toNumericUid } : {}),
+    amount,
+    fee,
+    net,
+    feePct: input.feePct,
+    participants: [...new Set([input.fromUid, input.toUid, ADMIN_UID])],
+    status: 'completed',
+    createdAtMs: Date.now(),
+  }
+  try {
+    const newBalance = await runTransaction(d, async (tx) => {
+      const senderRef = doc(d, 'users', input.fromUid)
+      const snap = await tx.get(senderRef)
+      if (!snap.exists()) throw new Error('no-sender-doc')
+      const data = snap.data() as Record<string, unknown>
+      // ক্লাউডের ব্যালেন্সই সত্য — পাঠানোর আগে store স্থানীয় স্ন্যাপশট
+      // ক্লাউডে তুলে দেয়, তাই এখানে পুরোনো অঙ্ক থাকে না।
+      const bal = typeof data.piBalance === 'number' && Number.isFinite(data.piBalance) ? data.piBalance : 0
+      const kycStatus = (data.kyc as Record<string, unknown> | undefined)?.status
+      if (kycStatus !== 'approved') throw new Error('kyc')
+      if (roundPi(bal) < amount) throw new Error('balance')
+      const ledger = Array.isArray(data.piLedger) ? (data.piLedger as { id: string; date: string; type: string; label: string; amount: number }[]) : []
+      const row = buildTransferApplication(transfer, 'sent').row
+      const newLedger = [row, ...ledger].slice(0, 200)
+      tx.update(senderRef, { piBalance: roundPi(bal - amount), piLedger: newLedger, updatedAt: serverTimestamp() })
+      const { createdAtMs: _omit, ...docData } = transfer
+      tx.set(transferRef, { ...docData, createdAt: serverTimestamp() })
+      return roundPi(bal - amount)
+    })
+    return { ok: true, transfer, newBalance }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'kyc') return { ok: false, error: 'Pi send needs approved KYC — complete Dating KYC first.' }
+    if (msg === 'balance') return { ok: false, error: 'Not enough Pi balance — only real Pi can be sent, bonus Pi cannot be transferred.' }
+    if (msg === 'no-sender-doc') return { ok: false, error: 'Your account was not found — log in again and try.' }
+    return { ok: false, error: 'Transfer failed — nothing was sent. Check the connection and try again.' }
+  }
+}
+
+// আমার ট্রান্সফারগুলো (পাঠানো + পাওয়া + ফি) — participants-এ আমি আছি এমন
+// ডক; নতুনতম আগে। array-contains একক ফিল্টার — কম্পোজিট ইনডেক্স লাগে না।
+export async function fetchMyPiTransfers(uid: string): Promise<PiTransferDoc[]> {
+  const d = getDb()
+  if (!d || !uid) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'piTransfers'), where('participants', 'array-contains', uid), limit(50)))
+    const list = snap.docs.map(s => mapPiTransferDoc(s.id, s.data() as Record<string, unknown>)).filter((x): x is PiTransferDoc => x !== null)
+    list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return list
+  } catch { return [] }
+}
+
+// আমার ট্রান্সফারগুলোর লাইভ সাবস্ক্রিপশন — নতুন ট্রান্সফার এলেই কলব্যাক
+// (প্রাপক/অ্যাডমিনের জমা এখান থেকেই হয়)।
+export function subscribeMyPiTransfers(uid: string, cb: (docs: PiTransferDoc[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'piTransfers'), where('participants', 'array-contains', uid), limit(50))
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(s => mapPiTransferDoc(s.id, s.data() as Record<string, unknown>)).filter((x): x is PiTransferDoc => x !== null)
+      list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+      cb(list)
+    }, () => { /* listener failed — login fetch still covers it */ })
+  } catch { return null }
 }
 
 // ---------- services/{serviceId} — virtual (video-call only) services ----------

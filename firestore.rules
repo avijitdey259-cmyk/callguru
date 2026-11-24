@@ -24,6 +24,9 @@
 //                    publish না হওয়া পর্যন্ত রিকোয়েস্ট পাঠানো যাবে না
 //                    (তৈরি করতে গেলে অনুমতি মিলবে না):
 //                      firebase deploy --only firestore:rules --project picall-76185
+//   piTransfers/{id} — Pi ট্রান্সফার: তৈরি করেন শুধু পাঠক নিজে (fromUid
+//                    নিজের UID, পরিমাণ > ০, ফি% ০–১০%); পড়তে পারেন
+//                    পাঠক/প্রাপক/অ্যাডমিন; বদলানো/মোছা বন্ধ।
 //   chats/{roomId}/messages/{msgId} — রুমের নামে দুই UID থাকে
 //                    (ছোট UID আগে, '_' দিয়ে জোড়া); শুধু ওই দুই
 //                    ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
@@ -144,6 +147,30 @@ service cloud.firestore {
         && ((resource.data.toUid == request.auth.uid && request.resource.data.status in ['accepted', 'declined'])
           || (resource.data.fromUid == request.auth.uid && request.resource.data.status == 'cancelled'));
       allow delete: if false;
+    }
+
+    // Pi ট্রান্সফার (piTransfers) — অপরিবর্তনীয় রেকর্ড। তৈরি করেন শুধু পাঠক
+    // নিজে (fromUid নিজের UID, নিজেকে নয়, পরিমাণ > ০, ফি ০–পরিমাণ, প্রাপক
+    // পরিমাণের বেশি নয়, ফি% ০–১০%, স্ট্যাটাস 'completed'); পড়তে পারেন
+    // পাঠক/প্রাপক/অ্যাডমিন (ফি যাঁর); বদলানো/মোছা কখনো যায় না। প্রাপক/
+    // অ্যাডমিনের ব্যালেন্সে জমা হয় এই ডক থেকেই (নিজের ডিভাইসে) — তাই
+    // অন্যের users ডক লেখার অনুমতি লাগে না। ⚠️ নিয়ম কনসোলে publish না
+    // হওয়া পর্যন্ত ট্রান্সফার ডক তৈরি হবে না:
+    //   firebase deploy --only firestore:rules --project picall-76185
+    match /piTransfers/{transferId} {
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.fee is number && request.resource.data.fee >= 0 && request.resource.data.fee <= request.resource.data.amount
+        && request.resource.data.net is number && request.resource.data.net >= 0 && request.resource.data.net <= request.resource.data.amount
+        && request.resource.data.feePct is number && request.resource.data.feePct >= 0 && request.resource.data.feePct <= 10
+        && request.resource.data.status == 'completed'
+        && request.resource.data.fromName is string
+        && request.resource.data.toName is string;
+      allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid || resource.data.adminUid == request.auth.uid || isAdmin());
+      allow update, delete: if false;
     }
 
     // চ্যাট রুমের সূচক ডক (chats/{roomId}) — প্রাপক যেন রুমটা খুঁজে পায়

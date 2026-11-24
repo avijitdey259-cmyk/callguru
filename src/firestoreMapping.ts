@@ -174,6 +174,9 @@ export type PublicConfigDoc = {
   piRateBDT: number
   usdtRateBDT: number
   piWithdrawFeePct: number
+  // Pi ট্রান্সফারের ফি% (ডিফল্ট ২%) + সর্বনিম্ন ট্রান্সফার (ডিফল্ট ০.১ π) — অ্যাডমিন সেট করেন
+  piTransferFeePct: number
+  piMinTransfer: number
   datingRate: number
   liveRate: number
   tvPlaylistUrl: string
@@ -366,12 +369,14 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
 }
 
 // অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID; sms/smtp গোপন অংশ বাদ যায়)।
-export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS, adRates: { cpmRateBDT: number; cpcRateBDT: number } = { cpmRateBDT: 50, cpcRateBDT: 3 }, bannedUids: string[] = []): PublicConfigDoc {
+export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; piTransferFeePct: number; piMinTransfer: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS, adRates: { cpmRateBDT: number; cpcRateBDT: number } = { cpmRateBDT: 50, cpcRateBDT: 3 }, bannedUids: string[] = []): PublicConfigDoc {
   return {
     schemaVersion: SCHEMA_VERSION,
     piRateBDT: rates.piRateBDT,
     usdtRateBDT: rates.usdtRateBDT,
     piWithdrawFeePct: rates.piWithdrawFeePct,
+    piTransferFeePct: rates.piTransferFeePct,
+    piMinTransfer: rates.piMinTransfer,
     datingRate: rates.datingRate,
     liveRate: rates.liveRate,
     tvPlaylistUrl,
@@ -383,13 +388,15 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
 }
 
 // config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID (যা ঘর ডকে নেই, সেটা বদলায় না)।
-export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }> {
+export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; piTransferFeePct: number; piMinTransfer: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }> {
   if (!doc || typeof doc !== 'object') return {}
   const d = doc as Record<string, unknown>
   const out: Record<string, unknown> = {}
   if (typeof d.piRateBDT === 'number' && Number.isFinite(d.piRateBDT) && d.piRateBDT >= 1) out.piRateBDT = d.piRateBDT
   if (typeof d.usdtRateBDT === 'number' && Number.isFinite(d.usdtRateBDT) && d.usdtRateBDT >= 1) out.usdtRateBDT = d.usdtRateBDT
   if (typeof d.piWithdrawFeePct === 'number' && Number.isFinite(d.piWithdrawFeePct) && d.piWithdrawFeePct >= 0 && d.piWithdrawFeePct <= 10) out.piWithdrawFeePct = d.piWithdrawFeePct
+  if (typeof d.piTransferFeePct === 'number' && Number.isFinite(d.piTransferFeePct) && d.piTransferFeePct >= 0 && d.piTransferFeePct <= 10) out.piTransferFeePct = d.piTransferFeePct
+  if (typeof d.piMinTransfer === 'number' && Number.isFinite(d.piMinTransfer) && d.piMinTransfer >= 0.01 && d.piMinTransfer <= 100) out.piMinTransfer = d.piMinTransfer
   if (typeof d.datingRate === 'number' && Number.isFinite(d.datingRate) && d.datingRate >= 0.01) out.datingRate = d.datingRate
   if (typeof d.liveRate === 'number' && Number.isFinite(d.liveRate) && d.liveRate >= 0.01) out.liveRate = d.liveRate
   // প্লেলিস্টের লিঙ্ক — যেকোনো http(s) লিঙ্ক (শর্ট লিঙ্কও চলে: আসল .m3u-তে রিডাইরেক্ট হয়)।
@@ -429,7 +436,7 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
   if (Array.isArray(d.bannedUids)) {
     out.bannedUids = [...new Set(d.bannedUids.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))].slice(0, 500)
   }
-  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }>
+  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; piTransferFeePct: number; piMinTransfer: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }>
 }
 
 // ম্যানুয়াল টপ-আপ আবেদন → topups/{id} ডক।
