@@ -75,7 +75,10 @@ export default function App() {
       {/* লগইন পেজ Layout-এর বাইরে — লগইন ছাড়া অ্যাপের কিছুই (টপ নেভ, সাইডবার, ডান কলাম) দেখা যায় না, শুধু লগইন কার্ড */}
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Layout />}>
-        <Route path="/" element={<Landing />} />
+        {/* প্রথমবার খুললেই হোম/ফিড — লগইন থাকলে / খুললেই /feed-এ যায়, আর
+            কোনো ওয়েলকাম পেজে ট্যাপ করতে হয় না; Landing শুধু /welcome-এ থাকে */}
+        <Route path="/" element={<Navigate to="/feed" replace />} />
+        <Route path="/welcome" element={<Landing />} />
         <Route path="/feed" element={<Feed />} />
         <Route path="/marketplace" element={<Navigate to="/services" replace />} />
         <Route path="/expert/:id" element={<ExpertProfile />} />
