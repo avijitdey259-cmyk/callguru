@@ -93,7 +93,10 @@ export type DatingProfile = { id: string; name: string; age: number; city: strin
 // ডেটিং প্রোফাইল সিড সরানো হয়েছে (ডেমো ডেটা) — ডেটিং তালিকা খালি থাকবে, যতক্ষণ না আসল প্রোফাইল আসে।
 export const DATING_PROFILES: DatingProfile[] = []
 
-export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; authorPhoto?: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string }
+export type PostComment = { id: string; author: string; text: string; time: string }
+// mine — নিজের পোস্ট (নিজের পোস্টে ⋯ মেনু: Edit/Delete); commentsList — আসল কমেন্টের
+// তালিকা (সিড পোস্টের comments সংখ্যাটা শুধু সংখ্যা — তালিকা খালি থাকতে পারে)
+export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; authorPhoto?: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string; mine?: boolean; commentsList?: PostComment[] }
 // ফিডের পারসোনা পোস্ট — শুধু ৫ রাখা চ্যাট পারসোনা (রিমা/শাকিল/ফাহিম/মিম/আশা)
 // থেকে, যাতে ফিড খালি/নতুন না লাগে (মালিকের নির্দেশ ২০২৬-১১-২৪)। সরানো
 // ডেমো ডেটা (রাফি/সাবরিনা, সিড ডেটিং হোস্ট, সিড ফিড পোস্ট) ফিরে আসেনি —

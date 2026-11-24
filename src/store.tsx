@@ -15,6 +15,7 @@ import { profileCompletion, type Gender, type ProfileFields } from './profile'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, type AnalyticsIds } from './analytics'
 import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
 import { DEFAULT_AD_RATES, type AdRateSettings } from './ads'
+import { togglePostLike as togglePostLikePure, addPostComment as addPostCommentPure, deletePost as deletePostPure, updatePost as updatePostPure } from './feedPosts'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string; requestId?: string }
@@ -125,6 +126,12 @@ type Store = {
   // রিলোডের পর গত সেশনের পোস্ট ক্যাশ করা পোস্ট হিসেবেই নিচে যাবে।
   freshPostIds: string[]
   addPost: (p: Post) => void
+  // লাইক করা পোস্টের id — রিলোডেও লাইক থাকে (localStorage); সংখ্যা পোস্টেই থাকে
+  likedPostIds: string[]
+  togglePostLike: (id: string) => void
+  addPostComment: (postId: string, text: string) => void
+  deletePost: (id: string) => void
+  updatePost: (id: string, patch: Partial<Pick<Post, 'text' | 'location' | 'audience' | 'imageUrl' | 'videoUrl'>>) => void
   likesUsed: number
   useLike: () => boolean
   premium: boolean
@@ -297,6 +304,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   })
   useEffect(() => save('personaPostsSeeded', true), [])
   const [freshPostIds, setFreshPostIds] = useState<string[]>([])
+  // লাইক করা পোস্টের id — রিলোডেও লাইক থাকে; সংখ্যা পোস্টেই থাকে
+  const [likedPostIds, setLikedPostIds] = useState<string[]>(() => load('likedPostIds', []))
+  useEffect(() => save('likedPostIds', likedPostIds), [likedPostIds])
   // চ্যাট বন্ধুরা (রিমা, শাকিল, ফাহিম, মিম, আশা) বন্ধু তালিকায় থাকে — আগের
   // সংরক্ষিত তালিকায় না থাকলে একবার যোগ হয়; আনফ্রেন্ড করা হলে আর ফিরে আসে না
   const [friends, setFriends] = useState<Friend[]>(() => {
@@ -1038,6 +1048,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setPosts((prev) => [p, ...prev])
       setFreshPostIds((prev) => (prev.includes(p.id) ? prev : [p.id, ...prev]))
     },
+    likedPostIds,
+    togglePostLike: (id) => {
+      const r = togglePostLikePure(posts, likedPostIds, id)
+      setPosts(r.posts)
+      setLikedPostIds(r.likedIds)
+    },
+    addPostComment: (postId, text) => {
+      const t = text.trim()
+      if (!t) return
+      setPosts((prev) => addPostCommentPure(prev, postId, { id: 'c' + Date.now(), author: user?.name || 'You', text: t, time: 'Now' }))
+    },
+    deletePost: (id) => {
+      setPosts((prev) => deletePostPure(prev, id))
+      setFreshPostIds((prev) => prev.filter(x => x !== id))
+    },
+    updatePost: (id, patch) => setPosts((prev) => updatePostPure(prev, id, patch)),
     requests,
     addFriend: addFriendLocal,
     acceptRequest: async (id) => {
@@ -1372,7 +1398,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
       } catch { return false }
     },
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

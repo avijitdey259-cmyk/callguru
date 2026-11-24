@@ -38,6 +38,8 @@ import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mer
 import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
+import { buildPostShareUrl, isOwnPost, parsePostDeepLink } from './feedPosts'
+import type { Post } from './data'
 import { colourForUid, formatJoinTime, filterNewMembers, filterAdminUsers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, type AnalyticsIds, type SignupMethod } from './analytics'
@@ -705,9 +707,8 @@ function HomeTvSection() {
 }
 
 export function Feed() {
-  const { friends, user, sendFriendRequest, cancelFriendRequest, sentRequests, installBonusClaimed, posts, setPosts, addPost, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
+  const { friends, user, sendFriendRequest, cancelFriendRequest, sentRequests, installBonusClaimed, posts, setPosts, addPost, togglePostLike, addPostComment, deletePost, updatePost, likedPostIds, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
   const [text, setText] = useState('')
-  const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [postTitle, setPostTitle] = useState('')
   const [postLocation, setPostLocation] = useState('')
   const [postAudience, setPostAudience] = useState<'Public' | 'Friends'>('Public')
@@ -718,9 +719,19 @@ export function Feed() {
   // একবারই আসে। নিচের দিকে স্ক্রল করলে এই ক্যাশ করা তালিকা থেকেই আসে —
   // একই আইটেমের জন্য সার্ভারে আবার চাওয়া হয় না।
   const { fresh: freshPosts, cached: cachedPosts } = splitFeedPosts(posts, freshPostIds)
-  const visiblePosts = mergeFeedPosts(freshPosts, cachedPosts).filter(p => feedFilter === 'All' ? true : feedFilter === 'Liked' ? !!liked[p.id] : p.author === 'You')
+  const visiblePosts = mergeFeedPosts(freshPosts, cachedPosts).filter(p => feedFilter === 'All' ? true : feedFilter === 'Liked' ? likedPostIds.includes(p.id) : isOwnPost(p))
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
+  // সম্পাদনা — কোন পোস্ট সম্পাদনা হচ্ছে (null = নতুন পোস্ট); কমেন্ট খোলা আছে কি না;
+  // ⋯ মেনু; মুছে ফেলার নিশ্চিতকরণ; শেয়ারের বার্তা (Link copied)
+  const [editingPost, setEditingPost] = useState<Post | null>(null)
+  const [showComments, setShowComments] = useState<Record<string, boolean>>({})
+  const [menuPostId, setMenuPostId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [shareMsg, setShareMsg] = useState<Record<string, string>>({})
+  const [showLocationInput, setShowLocationInput] = useState(false)
+  const [showTitleInput, setShowTitleInput] = useState(false)
+  const composerTextRef = useRef<HTMLTextAreaElement>(null)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
   // কম্পোজার মিডিয়া — একই জায়গায় ছবি + ভিডিও (ভিডিও পোস্ট রিলও হয়) + প্রোফাইল ছবি
   const photoInputRef = useRef<HTMLInputElement>(null)
@@ -802,21 +813,71 @@ export function Feed() {
     r.readAsDataURL(f)
   }
   function resetComposer() {
-    setComposerOpen(false); setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false)
-    setComposerPhoto(null); setComposerVideoUrl(null); setComposerErr('')
+    setComposerOpen(false); setEditingPost(null); setText(''); setPostTitle(''); setPostLocation(''); setPostAudience('Public'); setBoostPost(false)
+    setComposerPhoto(null); setComposerVideoUrl(null); setComposerErr(''); setShowLocationInput(false); setShowTitleInput(false)
+  }
+  // কম্পোজার খোলা — নতুন পোস্টে খালি, সম্পাদনায় ওই পোস্টের লেখা/ছবি/অডিয়েন্স ভরা
+  function openComposer(post?: Post) {
+    if (post) {
+      setEditingPost(post)
+      setText(post.text); setPostTitle(post.title ?? ''); setPostLocation(post.location ?? ''); setPostAudience(post.audience ?? 'Public'); setBoostPost(false)
+      setComposerPhoto(post.imageUrl ?? null); setComposerVideoUrl(post.videoUrl ?? null); setShowLocationInput(!!post.location); setShowTitleInput(!!post.title)
+    } else {
+      setEditingPost(null)
+    }
+    setComposerErr(''); setComposerOpen(true)
+  }
+  // কম্পোজার জমা — নতুন হলে addPost (ফিডের একদম উপরে), সম্পাদনা হলে updatePost
+  function submitComposer() {
+    if (editingPost) {
+      updatePost(editingPost.id, { text, location: postLocation.trim() || undefined, audience: postAudience, imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
+      resetComposer()
+      return
+    }
+    let boosted = false
+    if (boostPost) {
+      if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
+      addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
+    }
+    addPost({ id: 'p' + Date.now(), author: user?.name || 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', mine: true, authorPhoto: profilePhoto || undefined, imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
+    resetComposer()
+  }
+  // পোস্ট শেয়ার — নেটিভ শেয়ার শিট থাকলে সেটা, না থাকলে লিংক কপি + বার্তা;
+  // শেয়ার সফল হলেই সংখ্যা +১; শিট বন্ধ করলে কিছুই বদলায় না
+  async function sharePost(p: Post) {
+    const url = buildPostShareUrl(window.location.origin, p.id)
+    const result = await shareLink('PiCall', `${p.author}: ${p.text.slice(0, 120)}`, url)
+    if (result === 'shared' || result === 'copied') {
+      setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))
+      if (result === 'copied') setShareMsg(m => ({ ...m, [p.id]: 'Link copied — share it anywhere.' }))
+    } else {
+      setShareMsg(m => ({ ...m, [p.id]: 'Sharing failed — try again.' }))
+    }
+  }
+  // কমেন্ট পাঠানো — খালি লেখা যায় না; পাঠালেই পোস্টের নিচে দেখায়, সংখ্যা বাড়ে
+  function sendComment(p: Post) {
+    const t = (commentDraft[p.id] || '').trim()
+    if (!t) return
+    addPostComment(p.id, t)
+    setCommentDraft(d => ({ ...d, [p.id]: '' }))
+    setShowComments(s => ({ ...s, [p.id]: true }))
   }
   const navigate = useNavigate()
   const locState = useLocation().state as { postId?: string; scrollTo?: string } | null
   // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
   // মেনু থেকে Services-এ এলে Services সেকশনে স্ক্রল করা
   useEffect(() => {
-    if (locState?.postId) {
+    // শেয়ার লিংকের ?post=<id> — খুললে সরাসরি ওই পোস্টে স্ক্রল, তারপর লিংক পরিষ্কার
+    const deepPostId = parsePostDeepLink(window.location.search)
+    if (deepPostId) {
+      jumpToPost(deepPostId)
+    } else if (locState?.postId) {
       jumpToPost(locState.postId)
     }
     if (locState?.scrollTo === 'services') {
       requestAnimationFrame(() => { document.getElementById('services-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
     }
-    if (locState?.postId || locState?.scrollTo) {
+    if (deepPostId || locState?.postId || locState?.scrollTo) {
       navigate('/feed', { replace: true, state: {} })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -848,7 +909,7 @@ export function Feed() {
         <p className="text-xs text-gray-500">To add a friend, tap + Add Friend on any New Member card below — or search by name or ID in Friends.</p>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
+        <button onClick={() => openComposer()} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
           <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
             <span className="w-full h-full rounded-full bg-white dark:bg-fb-card flex items-center justify-center text-2xl relative"><IconPlus className="w-6 h-6 text-gray-400" /><span className="absolute bottom-0 right-0 w-5 h-5 rounded-full pb-gradient text-white flex items-center justify-center text-sm border-2 border-white dark:border-fb-card">+</span></span>
           </span>
@@ -875,67 +936,88 @@ export function Feed() {
         </div>
       )}
       <Card>
-        {composerOpen ? (
-          <>
-            <div className="flex items-center gap-2">
-              <button onClick={() => profilePhotoInputRef.current?.click()} title="Set profile photo">
-                {profilePhoto
-                  ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover" />
-                  : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>}
-              </button>
-              <p className="font-medium">{user?.name || 'You'}</p>
-            </div>
-            <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postTitle} onChange={e => setPostTitle(e.target.value)} placeholder="Title (optional)" />
-            <textarea className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Write something…" />
-            <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postLocation} onChange={e => setPostLocation(e.target.value)} placeholder="Add location (optional)" />
-            {composerPhoto && <div className="relative mt-2">
-              <img src={composerPhoto} alt="Photo to post" className="rounded-xl w-full max-h-80 object-cover" />
-              <button onClick={() => setComposerPhoto(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
-            </div>}
-            {uploadingVideo && <p className="text-sm text-gray-500 mt-2">Uploading video…</p>}
-            {composerVideoUrl && <div className="relative mt-2">
-              <video src={composerVideoUrl} controls playsInline className="rounded-xl w-full max-h-80 bg-black" />
-              <button onClick={() => setComposerVideoUrl(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
-            </div>}
-            <div className="flex gap-2 mt-2 flex-wrap">
-              <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconPhoto className="w-4 h-4" /> Photo</button>
-              <button disabled className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1 opacity-50"><IconVideo className="w-4 h-4" /> Video (max 50 MB) — coming soon</button>
-              <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1"><IconImage className="w-4 h-4" /> Set profile photo</button>
-            </div>
-            <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerPhoto} />
-            <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={onComposerVideo} />
-            <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerProfilePhoto} />
-            {composerErr && <p className="text-sm text-red-500 mt-2">{composerErr}</p>}
-            {profilePhotoMsg && <p className="text-sm text-green-600 mt-2">{profilePhotoMsg}</p>}
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className="text-xs text-gray-400">Share to</span>
-              {(['Public', 'Friends'] as const).map(a => (
-                <button key={a} onClick={() => setPostAudience(a)} className={`px-3 py-1 rounded-full text-xs font-medium ${postAudience === a ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{a === 'Public' ? '🌐 Public' : '👥 Friends'}</button>
-              ))}
-              <button onClick={() => setBoostPost(b => !b)} className={`ml-auto px-3 py-1 rounded-full text-xs font-medium ${boostPost ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>🚀 Boost Post (0.1 π)</button>
-            </div>
-            <div className="flex justify-end gap-2 mt-2">
-              <Btn variant="ghost" onClick={resetComposer}>Cancel</Btn>
-              <Btn disabled={(!text.trim() && !composerPhoto && !composerVideoUrl) || uploadingVideo} onClick={() => {
-                let boosted = false
-                if (boostPost) {
-                  if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
-                  addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
-                }
-                addPost({ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', authorPhoto: profilePhoto || undefined, imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
-                resetComposer()
-              }}>Post</Btn>
-            </div>
-          </>
-        ) : (
-          <button onClick={() => setComposerOpen(true)} className="flex items-center gap-3 w-full text-left">
-            {profilePhoto
-              ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover shrink-0" />
-              : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>}
-            <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">What's on your mind?</span>
-          </button>
-        )}
+        <button onClick={() => openComposer()} className="flex items-center gap-3 w-full text-left">
+          {profilePhoto
+            ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover shrink-0" />
+            : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0">{(user?.name || 'Y').slice(0, 1)}</span>}
+          <span className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full px-4 py-2.5 text-sm text-gray-500">What's on your mind?</span>
+        </button>
       </Card>
+      {composerOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={editingPost ? 'Edit post' : 'Create post'}>
+          <div className="absolute inset-0 bg-black/60" onClick={resetComposer} />
+          <div className="relative w-full sm:max-w-lg bg-white dark:bg-fb-card sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-white dark:bg-fb-card border-b border-gray-100 dark:border-white/10 px-4 py-3 flex items-center">
+              <h2 className="flex-1 text-center font-bold text-lg">{editingPost ? 'Edit post' : 'Create post'}</h2>
+              <button onClick={resetComposer} className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-lg leading-none" aria-label="Close">✕</button>
+            </div>
+            <div className="p-4">
+              <div className="flex items-center gap-2">
+                <button onClick={() => profilePhotoInputRef.current?.click()} title="Set profile photo">
+                  {profilePhoto
+                    ? <img src={profilePhoto} alt="Profile photo" className="w-10 h-10 rounded-full object-cover" />
+                    : <span className="w-10 h-10 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{(user?.name || 'Y').slice(0, 1)}</span>}
+                </button>
+                <div>
+                  <p className="font-medium leading-tight">{user?.name || 'You'}</p>
+                  <select value={postAudience} onChange={e => setPostAudience(e.target.value as 'Public' | 'Friends')} className="text-xs bg-gray-100 dark:bg-slate-700 rounded-md px-1.5 py-0.5 mt-0.5" aria-label="Post audience">
+                    <option value="Public">🌐 Public</option>
+                    <option value="Friends">👥 Friends</option>
+                  </select>
+                </div>
+              </div>
+              <textarea
+                ref={composerTextRef}
+                className="w-full bg-transparent outline-none resize-none text-lg mt-3 min-h-[96px] placeholder:text-gray-400"
+                value={text}
+                onChange={e => setText(e.target.value)}
+                onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 320) + 'px' }}
+                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submitComposer() }}
+                placeholder={`What's on your mind, ${(user?.name || 'You').split(' ')[0]}?`}
+                autoFocus
+              />
+              {showTitleInput && (
+                <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postTitle} onChange={e => setPostTitle(e.target.value)} placeholder="Title (optional)" />
+              )}
+              {showLocationInput && (
+                <input className="w-full border rounded-lg p-2 mt-2 dark:bg-slate-800 dark:border-slate-600" value={postLocation} onChange={e => setPostLocation(e.target.value)} placeholder="Add location (optional)" />
+              )}
+              {composerPhoto && <div className="relative mt-2">
+                <img src={composerPhoto} alt="Photo to post" className="rounded-xl w-full max-h-80 object-cover" />
+                <button onClick={() => setComposerPhoto(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
+              </div>}
+              {uploadingVideo && <p className="text-sm text-gray-500 mt-2">Uploading video…</p>}
+              {composerVideoUrl && <div className="relative mt-2">
+                <video src={composerVideoUrl} controls playsInline className="rounded-xl w-full max-h-80 bg-black" />
+                <button onClick={() => setComposerVideoUrl(null)} className="absolute top-2 right-2 bg-black/60 text-white rounded-full px-2 py-1 text-xs">✕ Remove</button>
+              </div>}
+              <div className="flex items-center justify-between gap-2 mt-3 border rounded-xl px-3 py-2">
+                <span className="text-sm font-medium">Add to your post</span>
+                <div className="flex gap-1">
+                  <button onClick={() => photoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1" title="Add a photo"><IconPhoto className="w-4 h-4" /> Photo</button>
+                  <button disabled className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1 opacity-50" title="Video upload is coming soon"><IconVideo className="w-4 h-4" /> Video (max 50 MB) — coming soon</button>
+                  <button onClick={() => profilePhotoInputRef.current?.click()} className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-700 flex items-center gap-1" title="Set profile photo"><IconImage className="w-4 h-4" /> Profile photo</button>
+                </div>
+              </div>
+              <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerPhoto} />
+              <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={onComposerVideo} />
+              <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={onComposerProfilePhoto} />
+              {composerErr && <p className="text-sm text-red-500 mt-2">{composerErr}</p>}
+              {profilePhotoMsg && <p className="text-sm text-green-600 mt-2">{profilePhotoMsg}</p>}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <button onClick={() => setShowTitleInput(v => !v)} className={`px-3 py-1 rounded-full text-xs font-medium ${showTitleInput ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>✏️ Add title</button>
+                <button onClick={() => setShowLocationInput(v => !v)} className={`px-3 py-1 rounded-full text-xs font-medium ${showLocationInput ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>📍 Add location</button>
+                <button onClick={() => setBoostPost(b => !b)} className={`px-3 py-1 rounded-full text-xs font-medium ${boostPost ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>🚀 Boost Post (0.1 π)</button>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <Btn variant="ghost" className="flex-1" onClick={resetComposer}>Cancel</Btn>
+                <Btn className="flex-1" disabled={(!text.trim() && !composerPhoto && !composerVideoUrl) || uploadingVideo} onClick={submitComposer}>{editingPost ? 'Save' : 'Post'}</Btn>
+              </div>
+              <p className="text-[11px] text-gray-400 text-center mt-2">Ctrl + Enter to post</p>
+            </div>
+          </div>
+        </div>
+      )}
       <Card className="pb-gradient text-white">
         <div className="flex items-center gap-3">
           <span className="w-11 h-11 rounded-full bg-white/20 grid place-items-center shrink-0"><IconCall className="w-5 h-5" /></span>
@@ -992,30 +1074,68 @@ export function Feed() {
         </Card>
       ))}
       {visiblePosts.length === 0 && <Card><p className="text-sm text-gray-500 text-center">{feedFilter === 'All' ? 'No posts yet — write the first post.' : 'No posts in this filter.'}</p></Card>}
-      {visiblePosts.map(p => (
+      {visiblePosts.map(p => {
+        const own = isOwnPost(p)
+        const authorName = own ? (user?.name || 'You') : p.author
+        const authorPhoto = p.authorPhoto ?? (own ? profilePhoto : friends.find(f => f.name === p.author)?.photo)
+        const likedByMe = likedPostIds.includes(p.id)
+        return (
         <div key={p.id} id={'post-' + p.id}>
         <Card>
           <div className="flex items-center gap-2">
-            <Avatar photo={p.authorPhoto ?? (p.author === 'You' ? profilePhoto : friends.find(f => f.name === p.author)?.photo)} name={p.author} color={p.color} className="w-10 h-10" />
-            <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}{p.location ? ` • 📍 ${p.location}` : ''}{p.audience ? ` • ${p.audience === 'Public' ? '🌐 Public' : '👥 Friends'}` : ''}</p></div>
-            {p.boosted && <span className="ml-auto text-xs font-bold text-white px-2 py-1 rounded-full pb-gradient">🚀 Boosted</span>}
+            <Avatar photo={authorPhoto} name={authorName} color={p.color} className="w-10 h-10" />
+            <div className="flex-1 min-w-0"><p className="font-bold text-sm">{authorName}</p><p className="text-xs text-gray-400">{p.time}{p.location ? ` • 📍 ${p.location}` : ''}{p.audience ? ` • ${p.audience === 'Public' ? '🌐 Public' : '👥 Friends'}` : ''}</p></div>
+            {p.boosted && <span className="text-xs font-bold text-white px-2 py-1 rounded-full pb-gradient">🚀 Boosted</span>}
+            {own && (
+              <div className="relative">
+                <button onClick={() => setMenuPostId(menuPostId === p.id ? null : p.id)} className="px-2 py-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-lg leading-none" aria-label="Post options">⋯</button>
+                {menuPostId === p.id && (
+                  <div className="absolute right-0 top-8 z-20 w-44 bg-white dark:bg-slate-800 border border-gray-100 dark:border-white/10 rounded-xl shadow-lg py-1 text-sm">
+                    <button className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setMenuPostId(null); openComposer(p) }}>✏️ Edit post</button>
+                    <button className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-slate-700 text-red-600" onClick={() => { setMenuPostId(null); setDeleteConfirmId(p.id) }}>🗑️ Delete post</button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          {deleteConfirmId === p.id && (
+            <div className="mt-2 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-sm flex items-center gap-2 flex-wrap">
+              <span className="flex-1">Delete this post?</span>
+              <button className="px-3 py-1 rounded-full bg-red-600 text-white font-medium" onClick={() => { deletePost(p.id); setDeleteConfirmId(null) }}>Delete</button>
+              <button className="px-3 py-1 rounded-full bg-gray-200 dark:bg-slate-700" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+            </div>
+          )}
           {p.title && <p className="mt-3 font-bold">{p.title}</p>}
           <p className={`text-sm ${p.title ? 'mt-1' : 'mt-3'}`}>{p.text}</p>
           {p.imageUrl && <img src={p.imageUrl} alt="Post photo" className="rounded-xl mt-3 w-full max-h-96 object-cover" />}
           {p.videoUrl && <video src={p.videoUrl} controls playsInline className="rounded-xl mt-3 w-full max-h-96 bg-black" />}
           <div className="flex mt-3 pt-1 border-t text-sm text-gray-500 dark:text-gray-300">
-            <button className={`flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium ${liked[p.id] ? 'text-pink-600 font-bold' : ''}`} onClick={() => setLiked(l => ({ ...l, [p.id]: !l[p.id] }))}>{liked[p.id] ? '❤️' : '👍'} Likes ({p.likes + (liked[p.id] ? 1 : 0)})</button>
-            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5"><IconChat className="w-4 h-4" /> Comments ({p.comments})</button>
-            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5" onClick={() => setPosts(ps => ps.map(x => x.id === p.id ? { ...x, shares: x.shares + 1 } : x))}><IconShare className="w-4 h-4" /> Share ({p.shares})</button>
+            <button className={`flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium ${likedByMe ? 'text-pink-600 font-bold' : ''}`} onClick={() => togglePostLike(p.id)}>{likedByMe ? '❤️ Liked' : '👍 Like'} ({p.likes})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5" onClick={() => setShowComments(s => ({ ...s, [p.id]: !s[p.id] }))}><IconChat className="w-4 h-4" /> Comments ({p.comments})</button>
+            <button className="flex-1 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 font-medium flex items-center justify-center gap-1.5" onClick={() => sharePost(p)}><IconShare className="w-4 h-4" /> Share ({p.shares})</button>
           </div>
+          {shareMsg[p.id] && <p className="text-xs text-green-600 mt-2">{shareMsg[p.id]}</p>}
+          {showComments[p.id] && (p.commentsList?.length ?? 0) > 0 && (
+            <div className="mt-3 pt-3 border-t space-y-2">
+              {(p.commentsList ?? []).map(c => (
+                <div key={c.id} className="flex gap-2 text-sm">
+                  <Avatar name={c.author} color="#7C3AED" className="w-8 h-8 shrink-0" />
+                  <div className="bg-gray-100 dark:bg-slate-800 rounded-2xl px-3 py-2 flex-1 min-w-0">
+                    <p className="font-bold text-xs">{c.author}</p>
+                    <p className="break-words">{c.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2 mt-3">
-            <input className="flex-1 border rounded-full px-3 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-600" placeholder="Write a comment…" value={commentDraft[p.id] || ''} onChange={e => setCommentDraft(d => ({ ...d, [p.id]: e.target.value }))} />
-            <Btn variant="ghost" onClick={() => setCommentDraft(d => ({ ...d, [p.id]: '' }))}>Send</Btn>
+            <input className="flex-1 border rounded-full px-3 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-600" placeholder="Write a comment…" value={commentDraft[p.id] || ''} onChange={e => setCommentDraft(d => ({ ...d, [p.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') sendComment(p) }} />
+            <Btn variant="ghost" onClick={() => sendComment(p)}>Send</Btn>
           </div>
         </Card>
         </div>
-      ))}
+        )
+      })}
       {/* মোবাইলে ডান সাইডবারের কার্ড দুটো ফিডের নিচে আসে — একই কম্পোনেন্ট, একই আচরণ */}
       <div className="lg:hidden space-y-4">
         <ContactsCard />
