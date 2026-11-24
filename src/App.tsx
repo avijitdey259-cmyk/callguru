@@ -9,7 +9,7 @@ import { clearProbeCache, probeChannels } from './tvProbe'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, GroupDetailPage, Landing, LiveTV, LoginPage,
-  MenuPage, ReelsPage, ServicesPage, WalletPage
+  MenuPage, ReelsPage, SearchResultsPage, ServicesPage, UserProfilePage, WalletPage
 } from './pages'
 
 // অ্যাডমিন নয় এমন ব্যবহারকারী /admin খুললে — কোনো অ্যাডমিন তথ্য (রেট, KYC, টপ-আপ অনুমোদন, ব্যবহারকারী তালিকা) না দেখিয়ে ব্লক করা হয়
@@ -84,6 +84,8 @@ export default function App() {
         <Route path="/call-history" element={<CallHistory />} />
         <Route path="/friends" element={<FriendsPage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/search" element={<SearchResultsPage />} />
+        <Route path="/profile/:id" element={<UserProfilePage />} />
         <Route path="/dating" element={<DatingPage />} />
         <Route path="/live-tv" element={<LiveTV />} />
         <Route path="/services" element={<ServicesPage />} />

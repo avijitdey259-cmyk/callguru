@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore, type Friend } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
@@ -10,10 +10,10 @@ import { sendCallInvite, onInviteResponse, onInviteSent } from './presence'
 import { callFailureMessage, inviteResponseToFailureReason, inviteSentToFailureReason, callErrorToFailureReason, parseFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
-import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
+import { BUDDIES, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
 import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSend, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
-import { useAllUserSearch, SearchSuggestions } from './searchUI'
+import { useAllUserSearch, useCommunitySearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
 import { Avatar } from './avatar'
 import {
@@ -2223,6 +2223,207 @@ export function FriendsPage() {
   )
 }
 
+// ---------- সার্চের ফলের পেজ (Facebook-এর মতো — /search?q=…) ----------
+// Enter বা "See all results"-এ এখানে আসে। ট্যাব: All / People / Posts /
+// Groups & Pages। মানুষের সারিতে ছবি, নাম, ID (referralCode থাকলে — raw
+// Firebase uid কখনো দেখায় না), mutual-friend সংখ্যা, অনলাইন; নামে ট্যাপ
+// করলে তার প্রোফাইল খোলে, আর Add Friend / Request Sent / Chat বোতাম
+// Friends পেজের মতোই কাজ করে। পোস্টে ট্যাপ করলে সেই পোস্টে যায়, গ্রুপ/
+// পেজে ট্যাপ করলে তার পেজে যায়।
+export function SearchResultsPage() {
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const { friends, posts, sendFriendRequest, cancelFriendRequest, sentRequests } = useStore()
+  const q = params.get('q') ?? ''
+  const [tab, setTab] = useState<'all' | 'people' | 'posts' | 'communities'>('all')
+  const { results: people } = useAllUserSearch(friends, q)
+  const postResults = useMemo(() => searchPosts(posts, q), [posts, q])
+  const { results: communities } = useCommunitySearch(q)
+  // নতুন কোয়েরিতে আবার All ট্যাব থেকে শুরু
+  useEffect(() => { setTab('all') }, [q])
+  async function addFromSearch(p: SearchablePerson) {
+    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
+  }
+  function personRow(p: SearchablePerson) {
+    return (
+      <div key={p.id} className="flex items-center gap-3 py-2">
+        <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
+        <span className="flex-1 min-w-0">
+          <button onClick={() => navigate(`/profile/${encodeURIComponent(p.id)}`)} className="font-medium hover:underline text-left block truncate">{p.name}</button>
+          <span className="block text-xs text-gray-400 truncate">{p.referralCode ? `ID: ${p.referralCode}` : ''}{p.referralCode && p.mutual ? ' • ' : ''}{p.mutual ? `${p.mutual} mutual friends` : ''}{(p.referralCode || p.mutual) ? (p.online ? ' • ● Online' : ' • ○ Offline') : (p.online ? '● Online' : '○ Offline')}</span>
+        </span>
+        {p.isFriend
+          ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
+          : sentRequests.some(s => s.toUid === p.id)
+            ? <Btn variant="ghost" onClick={() => cancelFriendRequest(p.id)}>Request Sent</Btn>
+            : <Btn onClick={() => addFromSearch(p)}>Add Friend</Btn>}
+      </div>
+    )
+  }
+  function postRow(p: { id: string; author: string; text: string }) {
+    return (
+      <button key={p.id} onClick={() => navigate('/feed', { state: { postId: p.id } })} className="block w-full text-left py-2 border-b dark:border-slate-700 last:border-0">
+        <span className="font-medium text-sm block">{p.author}</span>
+        <span className="block text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{p.text}</span>
+      </button>
+    )
+  }
+  function communityRow(item: { id: string; name: string; description: string; kind: 'group' | 'page'; memberCount?: number }) {
+    return (
+      <button key={`${item.kind}-${item.id}`} onClick={() => navigate(item.kind === 'group' ? `/groups/${encodeURIComponent(item.id)}` : `/pages/${encodeURIComponent(item.id)}`)} className="flex items-center gap-3 w-full text-left py-2">
+        <span className="w-10 h-10 rounded-full bg-fb-blue/10 text-fb-blue grid place-items-center text-xs font-bold shrink-0">{item.kind === 'group' ? 'G' : 'P'}</span>
+        <span className="flex-1 min-w-0"><span className="font-medium block truncate">{item.name}</span><span className="block text-xs text-gray-400 truncate">{item.kind === 'group' ? 'Group' : 'Page'}{item.memberCount !== undefined ? ` • ${item.memberCount} ${item.kind === 'group' ? 'members' : 'followers'}` : ''}{item.description ? ` • ${item.description}` : ''}</span></span>
+      </button>
+    )
+  }
+  const tabs: { key: typeof tab; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: people.length + postResults.length + communities.length },
+    { key: 'people', label: 'People', count: people.length },
+    { key: 'posts', label: 'Posts', count: postResults.length },
+    { key: 'communities', label: 'Groups & Pages', count: communities.length },
+  ]
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <h1 className="text-xl font-bold flex items-center gap-2"><IconSearch className="w-6 h-6" /> Search results for “{q}”</h1>
+      <div className="flex gap-1 overflow-x-auto">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium ${tab === t.key ? 'bg-fb-blue text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{t.label} ({t.count})</button>
+        ))}
+      </div>
+      {q.trim() === '' && <Card><p className="text-sm text-gray-500">Type something in the search box above to search people, posts, groups and pages.</p></Card>}
+      {q.trim() !== '' && tab === 'all' && (
+        <>
+          <Card>
+            <div className="flex items-center justify-between"><h2 className="font-bold">People ({people.length})</h2>{people.length > 5 && <Btn variant="ghost" onClick={() => setTab('people')}>See all</Btn>}</div>
+            {people.length === 0 && <p className="text-sm text-gray-500 mt-1">No people found.</p>}
+            {people.slice(0, 5).map(personRow)}
+          </Card>
+          <Card>
+            <div className="flex items-center justify-between"><h2 className="font-bold">Posts ({postResults.length})</h2>{postResults.length > 5 && <Btn variant="ghost" onClick={() => setTab('posts')}>See all</Btn>}</div>
+            {postResults.length === 0 && <p className="text-sm text-gray-500 mt-1">No posts found.</p>}
+            {postResults.slice(0, 5).map(postRow)}
+          </Card>
+          <Card>
+            <div className="flex items-center justify-between"><h2 className="font-bold">Groups &amp; Pages ({communities.length})</h2>{communities.length > 5 && <Btn variant="ghost" onClick={() => setTab('communities')}>See all</Btn>}</div>
+            {communities.length === 0 && <p className="text-sm text-gray-500 mt-1">No groups or pages found.</p>}
+            {communities.slice(0, 5).map(communityRow)}
+          </Card>
+        </>
+      )}
+      {q.trim() !== '' && tab === 'people' && (
+        <Card>
+          <h2 className="font-bold">People ({people.length})</h2>
+          {people.length === 0 && <p className="text-sm text-gray-500 mt-1">Nobody found — check whether the name or ID is correct.</p>}
+          {people.map(personRow)}
+        </Card>
+      )}
+      {q.trim() !== '' && tab === 'posts' && (
+        <Card>
+          <h2 className="font-bold">Posts ({postResults.length})</h2>
+          {postResults.length === 0 && <p className="text-sm text-gray-500 mt-1">No posts found.</p>}
+          {postResults.map(postRow)}
+        </Card>
+      )}
+      {q.trim() !== '' && tab === 'communities' && (
+        <Card>
+          <h2 className="font-bold">Groups &amp; Pages ({communities.length})</h2>
+          {communities.length === 0 && <p className="text-sm text-gray-500 mt-1">No groups or pages found.</p>}
+          {communities.map(communityRow)}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ---------- ব্যবহারকারীর প্রোফাইল পেজ (/profile/:id) ----------
+// সার্চের ফল, চ্যাটের নাম, বন্ধু তালিকা থেকে এখানে আসা যায়। আসল ব্যবহারকারী
+// হলে publicProfiles থেকে নাম/ছবি/ID দেখায় (raw Firebase uid কখনো নয় —
+// শুধু referralCode থাকলে সেটাই ID); চ্যাট পারসোনা হলে তার প্রোফাইল ভিউ
+// (about + Chat)। নিজের প্রোফাইল হলে নিজের ID + কপি + Edit profile।
+// Add Friend / Request Sent / Chat / Call — Friends পেজের মতোই।
+export function UserProfilePage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const { uid, user, friends, sendFriendRequest, cancelFriendRequest, sentRequests, referralCode, profilePhoto, blockedUids, blockUser, unblockUser } = useStore()
+  const decodedId = id ? decodeURIComponent(id) : ''
+  const buddy = decodedId ? getBuddy(decodedId) : undefined
+  const [profiles, setProfiles] = useState<NewMember[] | null>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (buddy) return
+    let cancelled = false
+    fetchAllPublicProfiles(100).then(list => { if (!cancelled) setProfiles(list) })
+    return () => { cancelled = true }
+  }, [buddy])
+  const profile = !buddy && profiles ? profiles.find(p => p.id === decodedId) : undefined
+  const isSelf = !!uid && decodedId === uid
+  const friend = friends.find(f => f.id === decodedId)
+  const isFriend = !!friend
+  const isBlocked = blockedUids.includes(decodedId)
+  async function addFriend() {
+    const target = buddy
+      ? { id: buddy.id, name: buddy.name, color: buddy.color, online: buddy.online }
+      : profile
+        ? { id: profile.id, name: profile.displayName, color: profile.colour, online: true, ...(profile.photo ? { photo: profile.photo } : {}) }
+        : null
+    if (target) await sendFriendRequest(target)
+  }
+  async function copyId() {
+    try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
+  }
+  const name = buddy?.name ?? profile?.displayName ?? (isSelf ? (user?.name || 'You') : '')
+  const color = buddy?.color ?? profile?.colour ?? colourForUid(decodedId)
+  const photo = buddy ? undefined : (isSelf ? (profilePhoto || profile?.photo) : profile?.photo)
+  const showId = buddy ? buddy.id : (isSelf ? referralCode : (profile?.referralCode ?? ''))
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <button onClick={() => navigate(-1)} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium">← Back</button>
+      {!buddy && !profile && !isSelf && profiles === null && (
+        <Card><p className="text-sm text-gray-500">Loading profile…</p></Card>
+      )}
+      {!buddy && !profile && !isSelf && profiles !== null && (
+        <Card>
+          <p className="font-bold text-lg">This user could not be found.</p>
+          <p className="text-sm text-gray-500 mt-1">The profile may have been removed, or the link is wrong.</p>
+          <Btn className="mt-3" onClick={() => navigate('/feed')}>Back to Feed</Btn>
+        </Card>
+      )}
+      {(buddy || profile || isSelf) && (
+        <Card>
+          <div className="flex items-center gap-3">
+            <Avatar photo={photo} name={name} color={color} className="w-16 h-16 text-2xl" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-lg truncate">{name}</p>
+              {buddy && <p className="text-sm text-gray-500">{buddy.about}</p>}
+              {profile?.district && <p className="text-sm text-gray-500">{profile.district}</p>}
+              <p className="text-xs text-gray-400 mt-0.5">{buddy ? 'Chat friend' : isSelf ? 'Your profile' : 'PiCall user'}{!buddy && showId ? ` • ID: ${showId}` : ''}{buddy ? ` • ID: ${buddy.id}` : ''}{friend ? (friend.online ? ' • ● Online' : ' • ○ Offline') : ''}</p>
+            </div>
+          </div>
+          {isSelf && (
+            <div className="mt-3">
+              <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
+              <Btn variant="ghost" className="mt-2" onClick={() => navigate('/menu')}>Edit profile</Btn>
+            </div>
+          )}
+          {!isSelf && (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {isFriend
+                ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: name } })}>💬 Chat</Btn>
+                : sentRequests.some(s => s.toUid === decodedId)
+                  ? <Btn variant="ghost" onClick={() => cancelFriendRequest(decodedId)}>Request Sent</Btn>
+                  : <Btn onClick={addFriend}>Add Friend</Btn>}
+              {isFriend && !buddy && !isBlocked && <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(name)}`)}>📞 Call</Btn>}
+              {!buddy && !isSelf && (isBlocked
+                ? <Btn variant="ghost" onClick={() => unblockUser(decodedId)}>Unblock</Btn>
+                : <Btn variant="ghost" onClick={() => blockUser(decodedId, name)}>🚫 Block</Btn>)}
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  )
+}
+
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
   const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser, isBanned } = useStore()
@@ -2423,6 +2624,12 @@ export function ChatPage() {
     openedFromListRef.current = false
     setShowList(true)
   }
+  // চ্যাটের নামে ট্যাপ করলে তার প্রোফাইল খোলে (আসল ব্যবহারকারী হলে public
+  // প্রোফাইল, পারসোনা হলে তার প্রোফাইল ভিউ) — পূর্ণ-পর্দা চ্যাট বা ব্যাক-ধাপ
+  // ভাঙে না: প্রোফাইল নতুন হিস্ট্রি এন্ট্রি, সিস্টেম ব্যাক চ্যাটেই ফেরে।
+  function openProfile() {
+    if (activeFriend) navigate(`/profile/${encodeURIComponent(activeFriend.id)}`)
+  }
   function openIncoming(room: ChatRoomSummary) {
     addFriend({ id: room.otherUid, name: room.otherName, color: colourForUid(room.otherUid), online: true })
     openChat(room.otherName)
@@ -2467,7 +2674,7 @@ export function ChatPage() {
       <Card>
         <div className="flex items-center gap-2">
           <button onClick={backToList} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium shrink-0">← All chats</button>
-          <h2 className="font-bold flex-1 flex items-center gap-2 min-w-0">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9 shrink-0" online={activeFriend.online} />}<span className="truncate">{active}</span></h2>
+          <h2 className="font-bold flex-1 flex items-center gap-2 min-w-0">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9 shrink-0" online={activeFriend.online} />}<button onClick={openProfile} className="truncate text-left hover:underline" title={`View ${active}'s profile`}>{active}</button></h2>
           {isRealUser && !iBlockedThem && !blockedByThem && (
             <button onClick={() => navigate(`/call/friend/${encodeURIComponent(active)}`)} className="shrink-0 px-3 py-1.5 rounded-full bg-green-600 text-white text-xs font-bold" title={`Call ${active}`}>📞 Call</button>
           )}
@@ -2493,7 +2700,7 @@ export function ChatPage() {
         <div ref={msgListRef} className="h-64 overflow-y-auto space-y-2 mt-3">
           {(msgs[active] || []).map((m, i) => (
             <div key={i} className={`text-sm px-3 py-2 rounded-[17px] max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-pi-purple text-white ml-auto rounded-br-[5px]' : 'bg-white dark:bg-[#211a30] border border-[#e7e0f2] dark:border-[#372b52] rounded-bl-[5px]'}`}>
-              <p><b>{m.from}:</b> {m.text}</p>
+              <p>{m.from === (user?.name || 'You') ? <b>{m.from}:</b> : <button onClick={openProfile} className="font-bold hover:underline" title={`View ${m.from}'s profile`}>{m.from}:</button>} {m.text}</p>
               {m.localOnly && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">Only on this device — not sent</p>}
             </div>
           ))}

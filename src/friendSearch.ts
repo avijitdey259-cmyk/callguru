@@ -86,6 +86,27 @@ export function searchPosts(posts: SearchablePost[], query: string): SearchableP
   return posts.filter(p => p.text.toLowerCase().includes(q) || p.author.toLowerCase().includes(q))
 }
 
+// গ্রুপ + পেজ খোঁজা (Facebook-স্টাইল সার্চের Pages & Groups সেকশন) —
+// নাম/বিবরণ/ক্যাটাগরিতে কেস-ইনসেনসিটিভ সাবস্ট্রিং, বাংলা + ল্যাটিন।
+// খালি কোয়েরিতে কিছু ফেরে না।
+export interface SearchableCommunity {
+  id: string
+  name: string
+  description: string
+  kind: 'group' | 'page'
+  category?: string
+  memberCount?: number
+}
+
+export function searchGroupsPages(items: SearchableCommunity[], query: string): SearchableCommunity[] {
+  const q = normalizeQuery(query)
+  if (!q) return []
+  return items.filter(g =>
+    g.name.toLowerCase().includes(q)
+    || g.description.toLowerCase().includes(q)
+    || (g.category ?? '').toLowerCase().includes(q))
+}
+
 // বন্ধু + People You May Know + চ্যাট পারসোনা — এক তালিকায়, নাম দিয়ে ডুপ্লিকেট বাদ দিয়ে
 // (বন্ধু আগে, তারপর সাজেশন, তারপর পারসোনা — একই নাম দুবার দেখাবে না)।
 export function buildSearchablePeople(
