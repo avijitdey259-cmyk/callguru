@@ -1116,7 +1116,7 @@ export function ExpertProfile() {
   const { experts: liveExperts } = useExperts()
   const expert = liveExperts.find(e => e.id === id)
   const navigate = useNavigate()
-  if (!expert) return <Card>No expert found. <Link className="text-fb-blue" to="/marketplace">Go Back</Link></Card>
+  if (!expert) return <Card>No expert found. <Link className="text-fb-blue" to="/services">Go Back</Link></Card>
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card>
@@ -4231,15 +4231,23 @@ export function MenuPage() {
       : res.reason === 'unsupported' ? '❌ Push notifications do not work on this browser/device.'
       : '❌ Could not turn it on — please try again.')
   }
-  const tiles = [
-    { to: '/feed', label: 'Feed', icon: '📰', color: '#7C3AED' }, { to: '/marketplace', label: 'Marketplace', icon: '🛍️', color: '#27AE60' },
-    { to: '/friends', label: 'Friends', icon: '👥', color: '#8E44AD' }, { to: '/dating', label: 'Dating 18+', icon: '❤️', color: '#E91E63' },
-    { to: '/live-tv', label: 'Live TV', icon: '📺', color: '#C0392B' }, { to: '/services', label: 'Services', icon: '💼', color: '#16A085' },
-    { to: '/reels', label: 'Reels', icon: '🎬', color: '#E67E22' }, { to: '/wallet', label: 'Wallet', icon: '💰', color: '#2C3E50' },
-    { to: '/call-history', label: 'Call History', icon: '📞', color: '#2980B9' }, { to: '/ads', label: 'Ads', icon: '📢', color: '#D35400' },
-    { to: '/groups', label: 'Groups & Pages', icon: '👥', color: '#7F8C8D' },
-    // অ্যাডমিন টাইল শুধু অ্যাডমিনের মেনুতে দেখায় — সাধারণ ব্যবহারকারীর মেনুতে অ্যাডমিন থাকে না
-    ...(isAdmin ? [{ to: '/admin', label: 'Admin', icon: '🛡️', color: '#34495E' }] : [])
+  // মেনুর ছোট লিংক তালিকা — টাইল/কার্ড নয়, শুধু লাইন লিংক। সাইডবার শুধু
+  // কম্পিউটারে দেখায়, তাই মোবাইলে এই তালিকাই সব পেজে পৌঁছানোর রাস্তা।
+  // Marketplace আর Services একই জিনিস (মালিকের সিদ্ধান্ত ২০২৬-১১-২৪) —
+  // শুধু Services-ই আছে, Marketplace লিংক কোথাও নেই।
+  const moreLinks = [
+    { to: '/feed', label: 'Feed', icon: '📰' },
+    { to: '/friends', label: 'Friends', icon: '👥' },
+    { to: '/dating', label: 'Dating 18+', icon: '❤️' },
+    { to: '/live-tv', label: 'Live TV', icon: '📺' },
+    { to: '/services', label: 'Services', icon: '💼' },
+    { to: '/reels', label: 'Reels', icon: '🎬' },
+    { to: '/wallet', label: 'Wallet', icon: '💰' },
+    { to: '/call-history', label: 'Call History', icon: '📞' },
+    { to: '/ads', label: 'Ads', icon: '📢' },
+    { to: '/groups', label: 'Groups & Pages', icon: '👥' },
+    // অ্যাডমিন লিংক শুধু অ্যাডমিনের মেনুতে দেখায় — সাধারণ ব্যবহারকারীর মেনুতে অ্যাডমিন থাকে না
+    ...(isAdmin ? [{ to: '/admin', label: 'Admin', icon: '🛡️' }] : [])
   ]
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -4325,14 +4333,18 @@ export function MenuPage() {
           </div>
         </div>
       </Card>
-      <div className="grid grid-cols-2 gap-3">
-        {tiles.map(t => (
-          <button key={t.label} onClick={() => navigate(t.to)} className="bg-white dark:bg-fb-card rounded-xl border border-gray-100 dark:border-white/10 p-4 shadow-sm text-left">
-            <span className="w-10 h-10 rounded-lg text-white text-xl flex items-center justify-center" style={{ background: t.color }}>{t.icon}</span>
-            <p className="font-bold mt-2">{t.label}</p>
-          </button>
-        ))}
-      </div>
+      <Card>
+        <h2 className="font-bold">More</h2>
+        <div className="mt-1 divide-y divide-gray-100 dark:divide-white/10">
+          {moreLinks.map(l => (
+            <button key={l.to} onClick={() => navigate(l.to)} className="w-full flex items-center gap-2 py-2 text-left text-sm font-medium hover:text-violet-600">
+              <span className="w-5 text-center">{l.icon}</span>
+              {l.label}
+              <span className="ml-auto text-gray-300">›</span>
+            </button>
+          ))}
+        </div>
+      </Card>
       <Card><p className="text-xs text-gray-400">PiCall v6 • Chat free, calls prepaid • First call's first 1 minute free • Call recording admin-only (for appeals, 30 days) • Terms and Privacy Policy apply.</p></Card>
     </div>
   )

@@ -4,7 +4,7 @@ import { useStore } from './store'
 import { Avatar } from './avatar'
 import { HeaderSearch } from './searchUI'
 import { formatPi } from './data'
-import { IconBell, IconCall, IconChat, IconDating, IconDownload, IconFriends, IconHome, IconLiveTV, IconMegaphone, IconMoon, IconReels, IconSettings, IconShield, IconStore, IconSun, IconUser, IconWallet } from './icons'
+import { IconBell, IconBriefcase, IconCall, IconChat, IconDating, IconDownload, IconFriends, IconHome, IconLiveTV, IconMegaphone, IconMoon, IconReels, IconSettings, IconShield, IconSun, IconUser, IconWallet } from './icons'
 
 // হেডারের মাঝের নেভ — মোবাইলেও একই, কম্পিউটারেও একই (শুধু জায়গা বদলায়:
 // কম্পিউটারে হেডারের মাঝে, মোবাইলে নিচের BottomNav-এ)। Facebook-এর
@@ -72,7 +72,7 @@ export function Sidebar() {
     { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
     { to: '/dating', label: 'Dating 18+', icon: IconDating }, { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
     { to: '/wallet', label: 'Wallet', icon: IconWallet },
-    { to: '/services', label: 'Services', icon: IconStore }, { to: '/groups', label: 'Groups & Pages', icon: IconFriends },
+    { to: '/services', label: 'Services', icon: IconBriefcase }, { to: '/groups', label: 'Groups & Pages', icon: IconFriends },
     { to: '/reels', label: 'Reels', icon: IconReels }, { to: '/ads', label: 'Place an Ad', icon: IconMegaphone },
     { to: '/call-history', label: 'Call History', icon: IconCall },
     { to: '/menu', label: 'Settings', icon: IconSettings },

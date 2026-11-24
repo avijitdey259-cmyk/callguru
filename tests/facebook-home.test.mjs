@@ -8,7 +8,7 @@
 //   ৪) স্টোরি Facebook-এর মতো কার্ড, পোস্টের অ্যাকশন তিন সমান বোতাম
 //   ৫) হেডার নেভ মোবাইলেও কম্পিউটারেও একই; নিচে BottomNav আছে (মোবাইল-only)
 //   ৬) ওয়ালেট বোতাম সব স্ক্রিনে দেখায়; মোবাইলে সার্চ সারি সবসময় খোলা
-//   ৭) সাইডবারের সব লিংক মেনুতেও আছে (মোবাইলে পৌঁছায়)
+//   ৭) সাইডবারের সব লিংক মেনুতেও আছে — ছোট More লিংক তালিকায়, টাইলে নয় (মোবাইলে পৌঁছায়); Marketplace লিংক কোথাও নেই (Services-ই একমাত্র)
 //   ৮) Contacts/Sponsored দুই জায়গায় — ডেস্কটপ সাইডবার + মোবাইল ফিড
 //   ৯) স্টোরে ফিডের খোঁজা + পোস্ট (হেডার আর ফিড একই অবস্থা দেখে)
 //  ১০) চ্যাটে যাওয়া সব জায়গায় একই (হেডার চ্যাট আইকন, Contacts, ফলের সারি)
@@ -107,7 +107,7 @@ check('ওয়ালেট বোতাম সব স্ক্রিনে দ
   assert.ok(compSrc.includes('md:hidden px-3 pb-2'), 'মোবাইলে সবসময়-খোলা সার্চ সারি নেই')
 })
 
-check('সাইডবারের সব লিংক মেনুতেও আছে (মোবাইলে পৌঁছায়)', () => {
+check('সাইডবারের সব লিংক মেনুতেও আছে — ছোট More লিংক তালিকায়, টাইলে নয় (মোবাইলে পৌঁছায়)', () => {
   const sidebar = compSrc.slice(compSrc.indexOf('export function Sidebar()'), compSrc.indexOf('export function SponsoredCard'))
   const menu = pagesSrc.slice(pagesSrc.indexOf('export function MenuPage()'))
   const tos = (s) => [...s.matchAll(/to: '([^']+)'/g)].map(x => x[1])
@@ -117,6 +117,20 @@ check('সাইডবারের সব লিংক মেনুতেও আ
     if (to === '/menu') continue // সেটিংস = মেনু পেজ নিজেই; মোবাইলে প্রোফাইল অ্যাভাটারে চাপলে যায়
     assert.ok(tos(menu).includes(to), `মেনুতে ${to} নেই — মোবাইলে পৌঁছায় না`)
   }
+  // মেনুর নেভিগেশন ছোট লাইন-লিংকের More তালিকা — টাইল/কার্ড গ্রিড নয়
+  assert.ok(menu.includes('const moreLinks = ['), 'মেনুতে moreLinks তালিকা নেই')
+  assert.ok(menu.includes('<h2 className="font-bold">More</h2>'), 'মেনুতে More শিরোনাম নেই')
+  assert.ok(!menu.includes('grid grid-cols-2 gap-3'), 'মেনুতে পুরোনো টাইল গ্রিড এখনো আছে')
+  // Marketplace আর Services একই জিনিস — নেভিগেশনে শুধু Services, Marketplace লিংক কোথাও নেই
+  assert.ok(!tos(menu).includes('/marketplace'), 'মেনুতে Marketplace লিংক এখনো আছে')
+  assert.ok(!tos(sidebar).includes('/marketplace'), 'সাইডবারে Marketplace লিংক এখনো আছে')
+  assert.ok(tos(menu).includes('/services'), 'মেনুতে Services লিংক নেই')
+  // User product ads (self-serve): Ads link in Sidebar + Menu, real AdsPage form —
+  // photo, title, description, price, website link; submit saves PENDING for
+  // admin review. No invented reach, no payment yet. (Adsterra is separate.)
+  assert.ok(tos(menu).includes('/ads'), 'মেনুতে Ads লিংক নেই')
+  assert.ok(tos(sidebar).includes('/ads'), 'সাইডবারে Ads লিংক নেই')
+  assert.ok(pagesSrc.includes('export function AdsPage()'), 'AdsPage ফর্ম নেই')
   // মেনু পেজে যাওয়া: হেডারের প্রোফাইল অ্যাভাটার + সাইডবারের প্রোফাইল কার্ড
   assert.ok(compSrc.includes("navigate('/menu')"), 'হেডার অ্যাভাটার মেনুতে যায় না')
   assert.ok(compSrc.includes('to="/menu"'), 'সাইডবার প্রোফাইল মেনুতে যায় না')

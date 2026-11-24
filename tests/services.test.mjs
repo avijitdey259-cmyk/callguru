@@ -169,8 +169,17 @@ check('pages.tsx: Offer a service + virtual-only copy + empty state', () => {
   for (const s of ['Offer a service', 'No services yet. Offer the first one!', 'All services are virtual, by video call only', 'Virtual video call only — no in-person meeting.', 'Rate (Pi per minute)']) {
     assert.ok(pages.includes(s), `"${s}" নেই`)
   }
-  for (const s of ['Home visit', 'Meet in person', 'Price (Tk)']) {
+  for (const s of ['Home visit', 'Meet in person']) {
     assert.ok(!pages.includes(s), `"${s}" ফিরে এসেছে`)
+  }
+  // "Price (Tk)" is banned only inside the Services flow (services are Pi/min,
+  // never Tk) — the user product Ads form legitimately has a Tk price field.
+  for (const fn of ['export function ServicesPage()', 'export function ServicesSection()', 'export function CreateService()']) {
+    const start = pages.indexOf(fn)
+    assert.ok(start !== -1, `${fn} নেই`)
+    const end = pages.indexOf('export function ', start + 1)
+    const body = pages.slice(start, end === -1 ? undefined : end)
+    assert.ok(!body.includes('Price (Tk)'), `"Price (Tk)" ${fn}-এ ফিরে এসেছে`)
   }
 })
 
@@ -214,10 +223,16 @@ check('store.tsx + incomingCall.ts: Service call type + invite kind', () => {
   assert.ok(incoming.includes("'service'"), 'CallInvite kind-এ service নেই')
 })
 
-check('pages.tsx: Profile menu Services row links to the Services page', () => {
+check('pages.tsx: Profile menu Services row links to the Services page (More link list, no Marketplace)', () => {
   assert.ok(pages.includes("to: '/services', label: 'Services'"), 'মেনুতে Services সারি নেই')
+  assert.ok(pages.includes('const moreLinks = ['), 'মেনুতে moreLinks তালিকা নেই')
   assert.ok(components.includes("label: 'Services'"), 'সাইডবারে Services লেবেল নেই')
   assert.ok(!components.includes('Home Service'), 'সাইডবারে Home Service এখনো আছে')
+  // Marketplace আর Services একই — নেভিগেশনে Marketplace লিংক নেই, /marketplace রুট Services-এ যায়
+  const app = read('src/App.tsx')
+  assert.ok(!pages.includes("to: '/marketplace', label: 'Marketplace'"), 'মেনুতে Marketplace সারি এখনো আছে')
+  assert.ok(!components.includes("to: '/marketplace'"), 'সাইডবারে Marketplace লিংক এখনো আছে')
+  assert.ok(app.includes('<Route path="/marketplace" element={<Navigate to="/services" replace />} />'), '/marketplace রুট Services-এ রিডাইরেক্ট করে না')
 })
 
 check('pages.tsx: + Add Friend is unmissable — card button, top entry, guide line', () => {
@@ -244,7 +259,9 @@ check('Reels untouched — no service code leaked into ReelsPage', () => {
   const start = pages.indexOf('export function ReelsPage()')
   assert.ok(start !== -1, 'ReelsPage নেই')
   const end = pages.indexOf('export function ', start + 1)
-  const reelsBody = pages.slice(start, end === -1 ? undefined : end)
+  // strip comments — the AdsPage header comment sits between ReelsPage and
+  // the next export; comments are not code leaking into ReelsPage.
+  const reelsBody = pages.slice(start, end === -1 ? undefined : end).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
   assert.ok(!/service/i.test(reelsBody), 'সার্ভিস কোড Reels-এ ঢুকেছে')
   assert.ok(!/review/i.test(reelsBody), 'রিভিউ কোড Reels-এ ঢুকেছে')
 })

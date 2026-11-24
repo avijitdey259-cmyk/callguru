@@ -47,6 +47,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Landing />} />
         <Route path="/feed" element={<Feed />} />
+        <Route path="/marketplace" element={<Navigate to="/services" replace />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/expert/:id" element={<ExpertProfile />} />
         <Route path="/create-service" element={<CreateService />} />
