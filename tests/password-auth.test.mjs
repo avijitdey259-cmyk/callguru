@@ -81,6 +81,32 @@ await check('password forms: email + password inputs, confirm password on sign-u
   assert.ok(login.includes('Your account is created right away — no code needed.'), 'কোড লাগে না — এমন নোট নেই')
 })
 
+await check('mismatched passwords show an INLINE red error under Confirm password (live while typing + on submit)', () => {
+  // লাইভ: দুটো ঘর ভরা ও অমিল হলেই দেখায় — সাবমিটের অপেক্ষা করে না
+  assert.ok(login.includes('password.length > 0 && confirmPassword.length > 0 && password !== confirmPassword'), 'লাইভ অমিল শর্ত নেই')
+  // সাবমিটেও একই ইনলাইন ভুল (নিচের ধূসর বাক্সে নয়)
+  const caStart = login.indexOf('const createPasswordAccount')
+  const caEnd = login.indexOf('return (', caStart)
+  const createFn = login.slice(caStart, caEnd)
+  assert.ok(createFn.includes('setSignupMismatch(true)'), 'সাবমিটে অমিল ফ্ল্যাগ সেট হয় না')
+  assert.ok(!createFn.includes("setMsg('Passwords do not match.')"), 'অমিল বার্তা এখনো নিচের বাক্সে যাচ্ছে')
+  // ইনলাইন লাল লেখা Confirm password ঘরের ঠিক নিচে, Create account বোতামের আগে
+  const confirmIdx = login.indexOf('placeholder="Type the password again"')
+  const inlineIdx = login.indexOf('Passwords do not match.</p>')
+  const btnIdx = login.indexOf('>Create account<', confirmIdx)
+  assert.ok(confirmIdx > 0 && inlineIdx > confirmIdx, 'ইনলাইন ভুল Confirm password ঘরের নিচে নেই')
+  assert.ok(btnIdx > inlineIdx, 'ইনলাইন ভুল Create account বোতামের আগে নেই')
+  assert.ok(login.includes('text-red-600 dark:text-red-400'), 'ইনলাইন ভুল লাল নয়')
+  assert.ok(login.includes("passwordsMismatch ? ' !border-red-400"), 'অমিলে Confirm ঘরের বর্ডার লাল হয় না')
+  // ট্যাব বদলে ইনলাইন ভুল মুছে না — শুধু পাসওয়ার্ড ঘর সম্পাদনায় মুছে
+  assert.equal((login.match(/setSignupMismatch\(/g) || []).length, 3, 'setSignupMismatch শুধু সাবমিট + দুই ঘরের onChange-এ থাকার কথা')
+  assert.ok(!login.includes("setAuthMode('signup'); setSignupMismatch"), 'ট্যাব বদলে ইনলাইন ভুল মুছে যাচ্ছে')
+  // নিচের বার্তা বাক্স: ভুলে লাল, সাফল্যে ধূসর
+  assert.ok(login.includes("msgIsError ? 'bg-red-50 dark:bg-red-900/30 text-red-600"), 'ভুল বার্তা লাল নয়')
+  assert.ok(login.includes("'bg-gray-50 dark:bg-slate-800 text-gray-600"), 'সাফল্য/তথ্য বার্তার ধূসর রং নেই')
+  assert.ok(login.includes("setInfoMsg('Password reset link sent to your email — check your inbox.')"), 'রিসেট সাফল্য info বার্তা নয়')
+})
+
 await check('login with password asks NO OTP; sign-up asks NO OTP either', () => {
   const plStart = login.indexOf('const passwordLogin')
   const plEnd = login.indexOf('const createPasswordAccount', plStart)

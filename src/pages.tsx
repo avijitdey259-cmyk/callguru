@@ -260,13 +260,24 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [msg, setMsg] = useState('')
+  const [msgIsError, setMsgIsError] = useState(false)
   const [busy, setBusy] = useState(false)
+  // অমিল পাসওয়ার্ডের ইনলাইন ভুল — Confirm password ঘরের ঠিক নিচে, লাল
+  // লেখায়। লাইভে দেখায় (দুটো ঘর ভরা ও অমিল হলেই) + সাবমিটেও; ট্যাব বদলে
+  // মুছে না, পাসওয়ার্ড ঘর সম্পাদনা করলেই মুছে।
+  const [signupMismatch, setSignupMismatch] = useState(false)
+  const setErrorMsg = (t: string) => { setMsg(t); setMsgIsError(true) }
+  const setInfoMsg = (t: string) => { setMsg(t); setMsgIsError(false) }
+  const clearMsg = () => { setMsg(''); setMsgIsError(false) }
   // ইমেইল + পাসওয়ার্ড লগইন / অ্যাকাউন্ট তৈরি — Google 1-ক্লিক লগইনের
   // পাশাপাশি থাকে, ব্যবহারকারী নিজে বেছে নেন। SMS OTP বন্ধ (মালিকের
   // সিদ্ধান্ত ২০২৬-১১-২৪) — লগইন পেজে মোবাইল/SMS ট্যাব নেই।
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  // সাইন-আপে দুই পাসওয়ার্ড অমিল — টাইপ করার সময়ই (দুটো ঘর ভরা থাকলে)
+  // অথবা Create account চাপার পর; ট্যাব বদলে মুছে না।
+  const passwordsMismatch = authMode === 'signup' && ((password.length > 0 && confirmPassword.length > 0 && password !== confirmPassword) || signupMismatch)
 
   // সাইন-আপ সম্পূর্ণ হলে (প্রথমবারই শুধু — বারবার লগইনে নয়) Pixel-এ
   // CompleteRegistration + GA4-এ sign_up যায়। Google-এ Firebase-র isNewUser
@@ -284,17 +295,17 @@ export function LoginPage() {
   const googleLogin = async () => {
     // আসল Google Sign-In — Firebase সেটআপ না থাকলে ভুল বার্তা, ডেমো লগইন কখনো নয়
     if (!isFirebaseConfigured) {
-      setMsg('Login is not set up — contact the admin.')
+      setErrorMsg('Login is not set up — contact the admin.')
       return
     }
     setBusy(true)
-    setMsg('')
+    clearMsg()
     try {
       const u = await signInWithGoogle()
       if (u) { if (u.isNewUser) noteSignup('google', 'google:' + u.email.toLowerCase()); login(u.name, u.email); navigate('/feed'); return }
-      setMsg('Google login did not complete — please try again.')
+      setErrorMsg('Google login did not complete — please try again.')
     } catch {
-      setMsg('Google login failed — the pop-up was closed or there is a network problem. Please try again.')
+      setErrorMsg('Google login failed — the pop-up was closed or there is a network problem. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -320,17 +331,17 @@ export function LoginPage() {
   // পাসওয়ার্ড ভুলে গেলে — Firebase-র রিসেট মেইল (ইমেইলে লিংক আসে, SMS নয়)।
   const sendPasswordReset = async () => {
     const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
+    if (!mail.includes('@')) { setErrorMsg('Enter a valid email.'); return }
     if (!isFirebaseConfigured) {
-      setMsg('Login is not set up — contact the admin.')
+      setErrorMsg('Login is not set up — contact the admin.')
       return
     }
-    setBusy(true); setMsg('')
+    setBusy(true); clearMsg()
     try {
       await requestPasswordReset(mail)
-      setMsg('Password reset link sent to your email — check your inbox.')
+      setInfoMsg('Password reset link sent to your email — check your inbox.')
     } catch (err) {
-      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+      setErrorMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
     } finally {
       setBusy(false)
     }
@@ -339,19 +350,19 @@ export function LoginPage() {
   // ইমেইল + পাসওয়ার্ডে লগইন — ফিরে আসা ব্যবহারকারীর জন্য, OTP লাগে না।
   const passwordLogin = async () => {
     const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
-    if (password.length < PASSWORD_MIN_LENGTH) { setMsg('Enter your password (at least 6 characters).'); return }
+    if (!mail.includes('@')) { setErrorMsg('Enter a valid email.'); return }
+    if (password.length < PASSWORD_MIN_LENGTH) { setErrorMsg('Enter your password (at least 6 characters).'); return }
     if (!isFirebaseConfigured) {
-      setMsg('Login is not set up — contact the admin.')
+      setErrorMsg('Login is not set up — contact the admin.')
       return
     }
-    setBusy(true); setMsg('')
+    setBusy(true); clearMsg()
     try {
       const u = await signInWithPassword(mail, password)
       login(u.name, u.email)
       navigate('/feed')
     } catch (err) {
-      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+      setErrorMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
     } finally {
       setBusy(false)
     }
@@ -361,21 +372,23 @@ export function LoginPage() {
   // তখনই লগইন হয়ে যান (সাধারণ প্রথম-লগইন Firestore সিঙ্ক চলে)।
   const createPasswordAccount = async () => {
     const mail = email.trim().toLowerCase()
-    if (!mail.includes('@')) { setMsg('Enter a valid email.'); return }
-    if (password.length < PASSWORD_MIN_LENGTH) { setMsg('Password must be at least 6 characters.'); return }
-    if (password !== confirmPassword) { setMsg('Passwords do not match.'); return }
+    if (!mail.includes('@')) { setErrorMsg('Enter a valid email.'); return }
+    if (password.length < PASSWORD_MIN_LENGTH) { setErrorMsg('Password must be at least 6 characters.'); return }
+    // অমিল হলে নিচের ধূসর বাক্সে নয় — Confirm password ঘরের ঠিক নিচে লাল
+    // লেখায় দেখায় (passwordsMismatch), যাতে ফোনে চোখে পড়ে।
+    if (password !== confirmPassword) { setSignupMismatch(true); return }
     if (!isFirebaseConfigured) {
-      setMsg('Login is not set up — contact the admin.')
+      setErrorMsg('Login is not set up — contact the admin.')
       return
     }
-    setBusy(true); setMsg('')
+    setBusy(true); clearMsg()
     try {
       const u = await signUpWithPassword(mail, password, name.trim() || undefined)
       if (u.isNewUser) noteSignup('password', 'password:' + u.email.toLowerCase())
       login(u.name, u.email)
       navigate('/feed')
     } catch (err) {
-      setMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
+      setErrorMsg(passwordAuthMessage(err instanceof Error ? err.message : ''))
     } finally {
       setBusy(false)
     }
@@ -397,8 +410,8 @@ export function LoginPage() {
           <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Email + Password • Gmail 1-Click Login</p>
           <p className="text-xs text-center text-gray-400 mt-1">Email sign up only, mobile sign up is off for now.</p>
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 dark:bg-slate-800 p-1 mt-4" role="tablist" aria-label="Log in or create account">
-          <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'login' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Log in</button>
-          <button type="button" role="tab" aria-selected={authMode === 'signup'} onClick={() => { setAuthMode('signup'); setMsg('') }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'signup' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Create account</button>
+          <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); clearMsg() }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'login' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Log in</button>
+          <button type="button" role="tab" aria-selected={authMode === 'signup'} onClick={() => { setAuthMode('signup'); clearMsg() }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'signup' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Create account</button>
         </div>
         {authMode === 'login' ? (
           <>
@@ -434,13 +447,14 @@ export function LoginPage() {
             <label className="text-sm font-medium mt-3 block">Password</label>
             <div className="relative mt-1">
               <IconLock className={inputIconCls} />
-              <input className={inputCls + ' pl-10'} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters" autoComplete="new-password" />
+              <input className={inputCls + ' pl-10'} type="password" value={password} onChange={e => { setPassword(e.target.value); setSignupMismatch(false) }} placeholder="At least 6 characters" autoComplete="new-password" />
             </div>
             <label className="text-sm font-medium mt-3 block">Confirm password</label>
             <div className="relative mt-1">
               <IconLock className={inputIconCls} />
-              <input className={inputCls + ' pl-10'} type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Type the password again" autoComplete="new-password" />
+              <input className={inputCls + ' pl-10' + (passwordsMismatch ? ' !border-red-400 dark:!border-red-500' : '')} type="password" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setSignupMismatch(false) }} placeholder="Type the password again" autoComplete="new-password" />
             </div>
+            {passwordsMismatch && <p className="text-sm text-red-600 dark:text-red-400 mt-1">Passwords do not match.</p>}
             <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={createPasswordAccount}>Create account</Btn>
             <p className="text-xs text-center text-gray-400 mt-2">Your account is created right away — no code needed.</p>
           </>
@@ -452,7 +466,7 @@ export function LoginPage() {
           {busy ? 'Logging in…' : 'Continue with Google'}
         </button>
         <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
-        {msg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{msg}</p>}
+        {msg && <p className={`text-sm text-center mt-3 px-3 py-2 rounded-xl ${msgIsError ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300' : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300'}`}>{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy.</p>
         </Card>
       </div>
