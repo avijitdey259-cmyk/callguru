@@ -1,8 +1,23 @@
-// PiCall service worker — offline-first app shell, network-first API.
+// PiCall service worker — অ্যাপ শেল সবসময় টাটকা (network-first),
+// ব্যবহারকারীর মিডিয়া ক্যাশ থেকে (cache-first), API network-first।
 // + Web Push: ইনকামিং কলের নোটিফিকেশন (লক স্ক্রিনে ধরো/কাটো বোতাম সহ)।
 // সৎ সীমা: ওয়েব PWA লক স্ক্রিন নিজে থেকে জাগাতে পারে না — নোটিফিকেশনে
 // ট্যাপ করলে অ্যাপ খুলে কলে ঢোকে (notificationclick → /call/<code>)।
-const CACHE = 'picall-shell-v3'
+//
+// ক্যাশের ভাগাভাগি (দুটো আলাদা ক্যাশ, আলাদা নিয়ম):
+//   picall-shell-v4 — অ্যাপের নিজের জিনিস (/, /index.html, JS/CSS বান্ডল,
+//     ম্যানিফেস্ট, আইকন)। network-first: খুললেই নতুন ভার্সন/ডেটা আসে;
+//     নেট না থাকলে ক্যাশ থেকে চলে। ভার্সন বদলালে নাম বদলায় (v4) আর
+//     activate-এ পুরোনো শেল-ক্যাশ মুছে যায়।
+//   picall-media-v1 — ব্যবহারকারীর মিডিয়া (Firebase Storage-এর ছবি/
+//     ভিডিও — পোস্টের ভিডিও getDownloadURL থেকে আসে)। cache-first:
+//     একবার লোড হলে পরে ক্যাশ থেকেই দেখায়। শেল-ক্যাশ বদলালেও এই
+//     ক্যাশ কখনো মোছা হয় না। activate শুধু picall-shell-* মোছে।
+// version.json কখনো ক্যাশ হয় না (network-only, no-store) — নইলে
+// version-চেকটাই পুরোনো উত্তর দিত।
+const CACHE = 'picall-shell-v4'
+const MEDIA_CACHE = 'picall-media-v1'
+const MEDIA_HOST = 'firebasestorage.googleapis.com'
 const SHELL = [
   '/',
   '/index.html',
@@ -22,9 +37,20 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(
+        keys
+          // শুধু পুরোনো শেল-ক্যাশ মোছে — মিডিয়া-ক্যাশ (আর অন্য ক্যাশ) অটুট থাকে
+          .filter((k) => k !== CACHE && k !== MEDIA_CACHE && k.startsWith('picall-shell-'))
+          .map((k) => caches.delete(k))
+      )
     ).then(() => self.clients.claim())
   )
+})
+
+// অটো-আপডেট: নতুন SW অপেক্ষায় থাকলে অ্যাপ (appUpdate.ts) তাকে
+// SKIP_WAITING পাঠায় — তখনই সক্রিয় হয়ে নতুন শেল চালু হয়।
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 // ---------- Web Push: ইনকামিং কল ----------
@@ -87,7 +113,16 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
   const url = new URL(request.url)
 
+  // version.json: শুধু নেটওয়ার্ক, কখনো ক্যাশ নয়, ক্যাশ থেকে দেওয়াও নয়।
+  // নেট না থাকলে চাওয়াটা ফেল করে — অ্যাপ (appUpdate.ts) সেটা ধরে চুপচাপ
+  // ক্যাশ করা ভার্সনেই চলতে থাকে।
+  if (url.origin === self.location.origin && url.pathname === '/version.json') {
+    event.respondWith(fetch(new Request(request, { cache: 'no-store' })))
+    return
+  }
+
   // API calls: network first, fall back to cache, never cache failures.
+  // (অথেনটিকেটেড API/Firestore ট্রাফিক কখনো SW-ক্যাশে রাখা হয় না।)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -103,21 +138,46 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // App shell + static assets: cache first, update cache in the background.
+  // ব্যবহারকারীর মিডিয়া (Firebase Storage): cache-first — একবার লোড হলে
+  // পরে ক্যাশ থেকেই দেখায়, পেছনে নেটওয়ার্কে টাটকা করে রাখে। Range চাওয়া
+  // (ভিডিও সিক) ক্যাশে রাখা হয় না — সরাসরি নেটওয়ার্কে যায়।
+  if (url.hostname === MEDIA_HOST) {
+    if (request.headers.has('range')) return
+    event.respondWith(
+      caches.open(MEDIA_CACHE).then((cache) =>
+        cache.match(request).then((cached) => {
+          const network = fetch(request)
+            .then((res) => {
+              if (res.ok) cache.put(request, res.clone())
+              return res
+            })
+            .catch(() => cached)
+          return cached || network
+        })
+      )
+    )
+    return
+  }
+
+  // অ্যাপ শেল + নিজের অ্যাসেট: network-first, নেট না থাকলে ক্যাশ।
+  // খুললেই নতুন ভার্সন/ডেটা আসে; অফলাইনে ক্যাশ করা শেলই চলে।
   if (request.mode === 'navigate' || url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(request, { ignoreSearch: true }).then((cached) => {
-        const network = fetch(request)
-          .then((res) => {
-            if (res.ok) {
-              const copy = res.clone()
-              caches.open(CACHE).then((cache) => cache.put(request, copy))
-            }
-            return res
-          })
-          .catch(() => cached)
-        return cached || network
-      })
+      fetch(request)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((cache) => cache.put(request, copy))
+          }
+          return res
+        })
+        .catch(() =>
+          caches.match(request, { ignoreSearch: request.mode === 'navigate' })
+        )
     )
+    return
   }
+
+  // বাকি সব ক্রস-অরিজিন (লাইভ টিভির স্ট্রিম/লোগো ইত্যাদি): SW ছোঁয় না —
+  // ব্রাউজার যেমন চায় তেমনই লোড করে, কিছু ক্যাশ হয় না।
 })

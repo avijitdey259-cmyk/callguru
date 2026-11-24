@@ -3,14 +3,13 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { StoreProvider } from './store'
+import { initAppUpdate } from './appUpdate'
 import './index.css'
 
-// PWA: সার্ভিস ওয়ার্কার রেজিস্টার — অফলাইন অ্যাপ শেল + ইন্সটল প্রম্পটের জন্য লাগে
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* ডেমো/প্রিভিউতে SW না চললেও অ্যাপ চলবে */ })
-  })
-}
+// PWA অটো-আপডেট — অ্যাপ খুললেই + ফোরগ্রাউন্ডে ফিরলেই নতুন ভার্সন চেক,
+// নতুন থাকলে আপনা-আপনি চালু হয় (ব্যানার/বোতাম নেই); কল/লাইভ/রেকর্ডিং
+// চললে সুইচ পিছিয়ে যায়; অফলাইনে ক্যাশ করা ভার্সনই চলে।
+initAppUpdate()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

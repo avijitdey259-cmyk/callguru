@@ -28,6 +28,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers, sendChatMessage, subscribeChatMessages, chatRoomId } from './firestore'
 import { profileCompletion, type Gender } from './profile'
+import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 
@@ -533,7 +534,7 @@ function NewMembersSection() {
 
 // ---------- Feed ----------
 export function Feed() {
-  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
+  const { friends, user, addFriend, installBonusClaimed, posts, setPosts, addPost, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
   const [text, setText] = useState('')
   const [liked, setLiked] = useState<Record<string, boolean>>({})
   const [postTitle, setPostTitle] = useState('')
@@ -541,7 +542,12 @@ export function Feed() {
   const [postAudience, setPostAudience] = useState<'Public' | 'Friends'>('Public')
   const [boostPost, setBoostPost] = useState(false)
   const [feedFilter, setFeedFilter] = useState<'All' | 'Liked' | 'Mine'>('All')
-  const visiblePosts = posts.filter(p => feedFilter === 'All' ? true : feedFilter === 'Liked' ? !!liked[p.id] : p.author === 'You')
+  // ফিডের সাজানো — নতুন (এই সেশনে তৈরি) পোস্ট উপরে, ক্যাশ করা (আগে দেখা/
+  // পুরোনো) পোস্ট নিচে; একই পোস্ট দুই জায়গায় থাকলে নতুনের জায়গায়
+  // একবারই আসে। নিচের দিকে স্ক্রল করলে এই ক্যাশ করা তালিকা থেকেই আসে —
+  // একই আইটেমের জন্য সার্ভারে আবার চাওয়া হয় না।
+  const { fresh: freshPosts, cached: cachedPosts } = splitFeedPosts(posts, freshPostIds)
+  const visiblePosts = mergeFeedPosts(freshPosts, cachedPosts).filter(p => feedFilter === 'All' ? true : feedFilter === 'Liked' ? !!liked[p.id] : p.author === 'You')
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
@@ -724,7 +730,7 @@ export function Feed() {
                   if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
                   addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
                 }
-                setPosts([{ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined }, ...posts])
+                addPost({ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
                 resetComposer()
               }}>Post</Btn>
             </div>
@@ -1969,6 +1975,12 @@ function KycPage({ onComplete, onEnter }: { onComplete: () => void; onEnter: () 
   const [captured, setCaptured] = useState<string | null>(null)
   const [videoClip, setVideoClip] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
+  // রেকর্ডিং চললে অটো-আপডেটের রিলোড থামে — appUpdate.ts এই ফ্ল্যাগ দেখে
+  // সুইচ পিছিয়ে দেয় (রেকর্ডিং শেষ হলে ফ্ল্যাগ নামে, পরের চেকে সুইচ হয়)।
+  useEffect(() => {
+    (window as unknown as { __picallRecording?: boolean }).__picallRecording = recording
+    return () => { (window as unknown as { __picallRecording?: boolean }).__picallRecording = false }
+  }, [recording])
   const [videoNote, setVideoNote] = useState('')
   const [camError, setCamError] = useState('')
   const [camKey, setCamKey] = useState(0)
