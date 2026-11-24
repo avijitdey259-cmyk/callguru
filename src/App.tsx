@@ -23,9 +23,24 @@ function AdminBlocked() {
   )
 }
 
+// ব্যান হওয়া ব্যবহারকারী — অ্যাডমিন config/public-এর bannedUids-এ UID বসালে
+// এই অ্যাকাউন্টে অ্যাপের কিছুই (ফিড, চ্যাট, কল) খোলে না; শুধু ব্যান-বার্তা + লগআউট।
+// (Firebase Auth ব্যবহারকারী মোছা যায় না ক্লায়েন্ট থেকে — ব্যান মানেই অ্যাপ-স্তরে বন্ধ।)
+function BannedScreen() {
+  const { logout } = useStore()
+  return (
+    <div className="min-h-screen bg-[#faf8fc] dark:bg-[#16121f] flex flex-col items-center justify-center px-4 text-center">
+      <p className="text-4xl">⛔</p>
+      <p className="font-bold text-lg mt-3">Your account is banned</p>
+      <p className="text-sm text-gray-500 mt-2 max-w-md">The admin has banned this account — calls, chat and all other features are blocked. If you think this is a mistake, contact the admin.</p>
+      <button onClick={logout} className="mt-5 px-4 py-2 rounded-lg font-medium text-sm bg-fb-blue text-white">Log out</button>
+    </div>
+  )
+}
+
 export default function App() {
   // রেফার লিংকে (?ref=কোড) এসে থাকলে ওয়েলকাম বোনাস একবারই মেলে; ফ্রি মিনিটের নিয়ম অপরিবর্তিত থাকে
-  const { claimRefArrival, user, isAdmin } = useStore()
+  const { claimRefArrival, user, isAdmin, isBanned } = useStore()
   const loc = useLocation()
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('ref')
@@ -48,6 +63,8 @@ export default function App() {
   }, [user])
   // লগইন দেওয়াল — লগইন ছাড়া /login বাদে কোনো পেজই দেখা যায় না (ল্যান্ডিং পেজ সহ); লগইন না থাকলে /login-এ পাঠানো হয়
   if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
+  // ব্যান দেওয়াল — ব্যান হওয়া অ্যাকাউন্টে লগইন থাকলেও অ্যাপের কিছুই খোলে না
+  if (user && isBanned) return <BannedScreen />
   // ইনকামিং-কল হোস্ট — লগইন থাকলে সব পেজেই (হোম পেজ সহ) কল এলে ওভারলে ওঠে;
   // /login-এ নয়, আর /call/* পেজে থাকলে ওভারলে নিজে থেকেই বন্ধ থাকে
   const showCallHost = !!user && loc.pathname !== '/login'

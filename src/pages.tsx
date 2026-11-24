@@ -29,7 +29,7 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
 import { probeChannels, sortChannelsByPlayability, getCachedProbe, clearProbeCache, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
@@ -37,7 +37,7 @@ import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mer
 import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
-import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
+import { colourForUid, formatJoinTime, filterNewMembers, filterAdminUsers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, type AnalyticsIds, type SignupMethod } from './analytics'
 
@@ -1183,7 +1183,7 @@ export function CallPage() {
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -1480,6 +1480,8 @@ export function CallPage() {
   // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
   async function startCall() {
     if (!canStart) return
+    // ব্যান হওয়া অ্যাকাউন্টে কল শুরু হয় না (অ্যাপ-স্তরের ব্যান-স্ক্রিনের পাশাপাশি এখানেও গেট)
+    if (isBanned) { setCallError('Your account is banned — calls are blocked.'); return }
     // ব্লক চেক (কলকারী দিক) — ওই ব্যবহারকারী আমাকে ব্লক করলে কল শুরু হয়
     // না; শেয়ার করা রুম ডকের blockedBy থেকে দেখা হয়, ১.৫ সেকেন্ডে উত্তর
     // না এলে কল আগের মতোই চলবে (অফলাইনে/ধীর নেটে কল আটকে যাবে না)।
@@ -2165,7 +2167,7 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser } = useStore()
+  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser, isBanned } = useStore()
   const location = useLocation()
   const navigate = useNavigate()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
@@ -2301,6 +2303,8 @@ export function ChatPage() {
     // ব্লক করা ব্যবহারকারীকে মেসেজ যায় না; যিনি আমাকে ব্লক করেছেন, তাঁকেও নয় —
     // মেসেজটা সার্ভারে গিয়ে অদৃশ্য হয়ে যাওয়ার চেয়ে এখানেই আটকানো ভালো।
     if (iBlockedThem || blockedByThem) return
+    // ব্যান হওয়া অ্যাকাউন্টে মেসেজ যায় না (ব্যান-স্ক্রিনের পাশাপাশি এখানেও গেট)
+    if (isBanned) { setBan('Your account is banned — messaging is blocked.'); return }
     const err = contactBanCheck(draft)
     if (err) { setBan(err + ' Repeated attempts will raise more warnings.'); setWarn(w => w + 1); return }
     if (!draft.trim()) return
@@ -4307,7 +4311,7 @@ function AdminSettingsTab() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl, uid, bannedUids, setBannedUids } = useStore()
   // টপ-আপ আবেদনের গন্তব্য — গ্রাহককে যে নম্বর/ঠিকানা দেখানো হয়েছিল (অ্যাডমিন সেটিংসে বসানো থাকলে আসলটা)
   function topUpDestination(t: { method: string; network?: string }): string {
     if (t.method === 'bKash') return adminSettings.payments.bkash
@@ -4335,6 +4339,52 @@ export function AdminPage() {
     fetchAds(50).then(list => setAdminAds(list))
   }
   useEffect(() => { if (tab === 'ads') refreshAdminAds() }, [tab])
+  // Admin → Users: real list from publicProfiles (same loader as friend
+  // search / New Members — rules allow signed-in users to read it).
+  // Only public fields are shown: name, referral code, joined date, colour.
+  // No emails, no phones, no private users/{uid} reads.
+  const [adminUsers, setAdminUsers] = useState<NewMember[] | null>(null)
+  const [adminUsersQuery, setAdminUsersQuery] = useState('')
+  function refreshAdminUsers() {
+    fetchAllPublicProfiles(100).then(list => setAdminUsers(list)).catch(() => setAdminUsers([]))
+  }
+  useEffect(() => { if (tab === 'users') refreshAdminUsers() }, [tab])
+  const adminUsersFiltered = useMemo(() => filterAdminUsers(adminUsers ?? [], adminUsersQuery), [adminUsers, adminUsersQuery])
+  // Users ট্যাবে নাম বদল + ব্যান/আনব্যান — অ্যাডমিন শুধু। নাম বদল শুধু
+  // displayName বদলায়; নিয়ম publish না হওয়া পর্যন্ত সেভ ব্যর্থ হবে (ভুল দেখায়,
+  // চুপচাপ নয়)। নিজেকে ব্যান করা যায় না — নইলে অ্যাডমিন নিজেই আটকে যাবেন।
+  const [editingUid, setEditingUid] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [adminUsersMsg, setAdminUsersMsg] = useState('')
+  const [adminUsersErr, setAdminUsersErr] = useState('')
+  const [banBusyUid, setBanBusyUid] = useState<string | null>(null)
+  async function saveEditName(m: NewMember) {
+    const name = editName.trim()
+    if (!name) { setAdminUsersErr('Name cannot be empty.'); return }
+    if (name.length > 60) { setAdminUsersErr('Name must be 60 characters or less.'); return }
+    const ok = await updatePublicProfileName(m.id, name)
+    if (ok) {
+      setAdminUsers(prev => prev ? prev.map(x => x.id === m.id ? { ...x, displayName: name } : x) : prev)
+      setEditingUid(null)
+      setAdminUsersErr('')
+      setAdminUsersMsg(`✅ Name updated for ${name}.`)
+    } else {
+      setAdminUsersErr('Could not save the name — the admin-edit rules update may not be published yet. Publish the new firestore.rules, then try again.')
+    }
+  }
+  async function toggleBan(m: NewMember) {
+    const banning = !bannedUids.includes(m.id)
+    const next = banning ? [...bannedUids, m.id] : bannedUids.filter(x => x !== m.id)
+    setBanBusyUid(m.id)
+    const ok = await setBannedUids(next)
+    setBanBusyUid(null)
+    if (ok) {
+      setAdminUsersErr('')
+      setAdminUsersMsg(banning ? `🚫 ${m.displayName} banned — they will see a banned screen on next login.` : `✅ ${m.displayName} unbanned.`)
+    } else {
+      setAdminUsersErr('Could not update the ban — check the connection and try again.')
+    }
+  }
   async function reviewAd(id: string, status: 'approved' | 'rejected') {
     const ok = await updateAdStatus(id, status)
     setAdminAdsMsg(ok ? (status === 'approved' ? '✅ Ad approved — now showing in the Feed as Sponsored.' : '❌ Ad rejected.') : 'Could not update the ad — check the connection and try again.')
@@ -4546,7 +4596,42 @@ export function AdminPage() {
           )}
         </div>
       </Card>}
-      {tab === 'users' && <Card><h2 className="font-bold">Users</h2><p className="text-sm text-gray-500 mt-2">No user totals yet — live user counts are not tracked.</p><p className="text-sm mt-2">Dating KYC: {kycStatus === 'approved' ? `✅ Approved (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('en-GB') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, last 4 of ID: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ Under review — waiting for admin approval' : kycStatus === 'rejected' ? `❌ Rejected — ${kycRejectReason || 'No reason given'}` : '⏳ Not yet'}</p></Card>}
+      {tab === 'users' && <Card>
+        <h2 className="font-bold">Users</h2>
+        <p className="text-sm text-gray-500 mt-2">{adminUsers === null ? 'Loading users…' : adminUsers.length >= 100 ? 'Showing 100 users' : `${adminUsers.length} user${adminUsers.length === 1 ? '' : 's'}`}</p>
+        <input className="w-full border rounded-lg px-3 py-2 mt-3 dark:bg-slate-800 dark:border-slate-600" value={adminUsersQuery} onChange={e => setAdminUsersQuery(e.target.value)} placeholder="Search by name or referral code" />
+        {adminUsersMsg && <p className="text-sm text-green-600 mt-2">{adminUsersMsg}</p>}
+        {adminUsersErr && <p className="text-sm text-red-600 mt-2">{adminUsersErr}</p>}
+        {adminUsers === null ? <p className="text-sm text-gray-500 mt-3">Loading users…</p>
+          : adminUsersFiltered.length === 0 ? <p className="text-sm text-gray-500 mt-3">No users found.</p>
+          : <div className="space-y-2 mt-3">{adminUsersFiltered.map(m => (
+            <div key={m.id} className="flex items-center gap-3 border rounded-lg px-3 py-2 flex-wrap">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: m.colour }}>{m.displayName.charAt(0).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                {editingUid === m.id ? (
+                  <input className="w-full border rounded-lg px-2 py-1 text-sm dark:bg-slate-800 dark:border-slate-600" value={editName} onChange={e => setEditName(e.target.value)} maxLength={60} placeholder="Display name" />
+                ) : (
+                  <p className="font-medium truncate">{m.displayName}</p>
+                )}
+                <p className="text-xs text-gray-500">ID: {m.referralCode ?? '—'} • Joined {m.createdAtMs ? new Date(m.createdAtMs).toLocaleDateString('en-GB') : 'Recently'}{bannedUids.includes(m.id) ? ' • 🚫 Banned' : ''}</p>
+              </div>
+              {editingUid === m.id ? (
+                <div className="flex gap-2">
+                  <Btn onClick={() => saveEditName(m)}>Save</Btn>
+                  <Btn variant="ghost" onClick={() => { setEditingUid(null); setAdminUsersErr('') }}>Cancel</Btn>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Btn variant="ghost" onClick={() => { setEditingUid(m.id); setEditName(m.displayName); setAdminUsersMsg(''); setAdminUsersErr('') }}>✏️ Edit</Btn>
+                  {m.id !== uid && (bannedUids.includes(m.id)
+                    ? <Btn variant="ghost" disabled={banBusyUid === m.id} onClick={() => toggleBan(m)}>✅ Unban</Btn>
+                    : <Btn variant="ghost" disabled={banBusyUid === m.id} onClick={() => toggleBan(m)}>🚫 Ban</Btn>)}
+                </div>
+              )}
+            </div>
+          ))}</div>}
+        <p className="text-sm mt-3">Dating KYC: {kycStatus === 'approved' ? `✅ Approved (${kycInfo?.verifiedAt ? new Date(kycInfo.verifiedAt).toLocaleDateString('en-GB') : ''}) — ${kycInfo?.name ?? ''} (${kycInfo?.idType ?? ''}, last 4 of ID: ${kycInfo?.idLast4 ?? ''})` : kycStatus === 'pending' ? '⏳ Under review — waiting for admin approval' : kycStatus === 'rejected' ? `❌ Rejected — ${kycRejectReason || 'No reason given'}` : '⏳ Not yet'}</p>
+      </Card>}
       {tab === 'recordings' && <Card><h2 className="font-bold">Call Recording — Admin Only</h2><p className="text-sm mt-2">Only the admin can view recordings, for appeal/dispute resolution. Regular users have no record button. Stored: 30 days (Cloudflare R2 free tier). Stored on the server, not on the user's phone.</p><p className="text-sm text-gray-500 mt-1">No recordings yet.</p></Card>}
       {tab === 'livetv' && <Card><h2 className="font-bold">Live TV — IPTV Playlist</h2>
         <p className="text-xs text-gray-500 mt-1">Paste ONE playlist link (M3U). The app loads it and shows every channel inside it in Live TV — no code change needed to change channels.</p>

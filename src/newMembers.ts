@@ -90,3 +90,14 @@ export function filterNewMembers(members: NewMember[], selfUid: string | null): 
   if (!selfUid) return members
   return members.filter(m => m.id !== selfUid)
 }
+
+// অ্যাডমিন Users তালিকার খোঁজা — নাম বা referral code দিয়ে (case-insensitive)।
+// ফাঁকা খোঁজায় পুরো তালিকাই ফেরে। Pure — পেজ/ফায়ারবেস ছাড়া পরীক্ষা করা যায়।
+export function filterAdminUsers(members: NewMember[], query: string): NewMember[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return members
+  return members.filter(m =>
+    m.displayName.toLowerCase().includes(q) ||
+    (m.referralCode ?? '').toLowerCase().includes(q),
+  )
+}

@@ -65,7 +65,10 @@ check('pages.tsx: real empty states where demo lists went empty', () => {
   // Groups & Pages empty states (2026-11-24): the old single placeholder
   // "No groups or pages yet." is gone — the page now has separate real
   // empty states for groups and pages, each pointing at its create form.
-  for (const s of ['No services yet.', 'No profiles yet', 'No groups yet', 'No pages yet', 'No reviews yet.', 'No user totals yet', 'No recordings yet.', 'No attempts logged yet.', 'No reported profiles.']) {
+  // Admin → Users (2026-11-24): the old placeholder "No user totals yet"
+  // is gone — the Users tab now has a real list, its honest empty state
+  // is "No users found." (admin-users.test.mjs দেখে)।
+  for (const s of ['No services yet.', 'No profiles yet', 'No groups yet', 'No pages yet', 'No reviews yet.', 'No users found.', 'No recordings yet.', 'No attempts logged yet.', 'No reported profiles.']) {
     assert.ok(pages.includes(s), `খালি অবস্থা নেই: "${s}"`)
   }
 })

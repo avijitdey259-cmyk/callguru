@@ -9,7 +9,9 @@
 //                    (KYC অনুমোদন/বাতিলের জন্য — তৈরি/মুছে ফেলা নয়)।
 //   publicProfiles/{uid} — নতুন সদস্য: শুধু displayName + createdAt + colour
 //                    (ইমেইল/ফোন/আইডি/KYC/ব্যালেন্স এখানে নেই); লগইন করা সবাই
-//                    পড়তে পারেন, লিখতে পারেন শুধু সেই ব্যবহারকারী নিজে।
+//                    পড়তে পারেন, লিখতে পারেন শুধু সেই ব্যবহারকারী নিজে;
+//                    অ্যাডমিন শুধু displayName/colour বদলাতে পারেন (নাম এডিট)।
+//                    ⚠️ নিয়ম কনসোলে publish না হওয়া পর্যন্ত অ্যাডমিন-এডিট ব্যর্থ হবে।
 //   config/public — লগইন করা সবাই পড়তে পারেন (দর + পেমেন্টের বিবরণ);
 //                    লিখতে পারেন শুধু অ্যাডমিন (avijitdey259@gmail.com)।
 //   topups/{id}   — ব্যবহারকারী শুধু নিজের আবেদন তৈরি/পড়তে পারেন;
@@ -61,9 +63,11 @@ service cloud.firestore {
 
     // নতুন সদস্যের পাবলিক প্রোফাইল — শুধু নাম + যোগদানের সময় + রং।
     // ব্যক্তিগত ডেটা (users/{uid}) খোলা হয়নি — এই কালেকশনেই শুধু পাবলিক ক্ষেত্র থাকে।
+    // অ্যাডমিন নাম বদলাতে পারেন, তবে শুধু displayName/colour — অন্য ক্ষেত্র নয়।
     match /publicProfiles/{uid} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'colour']);
       allow delete: if false;
     }
 

@@ -95,6 +95,19 @@ export async function writePublicProfile(uid: string, displayName: string, refer
   } catch { return false }
 }
 
+// অ্যাডমিনের নাম বদল — শুধু displayName বদলায় (createdAt/colour/অন্য ক্ষেত্র ছোঁয়া হয় না)।
+// Firestore নিয়মে অ্যাডমিন-আপডেট অনুমোদিত না হলে false ফেরে — নিয়ম publish না
+// হওয়া পর্যন্ত এডিট ব্যর্থ হবে; সেভ কখনো চুপচাপ ব্যর্থ হয় না, UI-তে ভুল দেখায়।
+export async function updatePublicProfileName(uid: string, displayName: string): Promise<boolean> {
+  const d = getDb()
+  const name = displayName.trim()
+  if (!d || !uid || !name || name.length > 60) return false
+  try {
+    await updateDoc(doc(d, 'publicProfiles', uid), { displayName: name })
+    return true
+  } catch { return false }
+}
+
 // ---------- chats/{roomId}/messages/{msgId} — আসল বন্ধুদের মধ্যে চ্যাট ----------
 // রুমের চাবি দুই UID-র সাজানো জোড়া (chatRoomId) — দুই দিক থেকে একই রুম মেলে।
 // শুধু আসল বন্ধুদের চ্যাট এখানে যায়; ৫ চ্যাট পারসোনা আগের মতোই শুধু এই ডিভাইসে থাকে।

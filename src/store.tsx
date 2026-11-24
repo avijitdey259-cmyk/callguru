@@ -85,6 +85,12 @@ type Store = {
   uid: string | null
   // লগইন করা ব্যবহারকারী অ্যাডমিন কি না (ইমেইল অ্যাডমিনের ইমেইলের সঙ্গে মিললে তবেই true)
   isAdmin: boolean
+  // অ্যাডমিন-নিয়ন্ত্রিত ব্যান — config/public-এর bannedUids তালিকা (UID)।
+  // ব্যান হওয়া ব্যবহারকারী লগইনে ব্যান-স্ক্রিন দেখেন; কল/চ্যাট বন্ধ থাকে।
+  // OTP লগইনে Firebase সেশন নেই (uid null) — সেখানে ব্যান লাগে না।
+  bannedUids: string[]
+  isBanned: boolean
+  setBannedUids: (list: string[]) => Promise<boolean>
   login: (name: string, email: string) => void
   logout: () => void
   freeFirstMinuteUsed: boolean
@@ -396,8 +402,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ব্লক করা ব্যবহারকারী (UID) — localStorage ক্যাশ + users/{uid} ডকে সিঙ্ক;
   // নাম শুধু এই ডিভাইসে ব্লক তালিকায় দেখানোর সাহায্য (ব্লকের সত্য UID-ই)।
   const [blockedUids, setBlockedUids] = useState<string[]>(() => cleanUidList(load<string[]>('blockedUids', [])))
+  // অ্যাডমিন-নিয়ন্ত্রিত ব্যান তালিকা — config/public-ই সত্য; localStorage শুধু
+  // ক্যাশ, যাতে ব্যান হওয়া ব্যবহারকারী পরের লগইনেই ব্যান-স্ক্রিন দেখেন।
+  const [bannedUids, setBannedUidsState] = useState<string[]>(() => cleanUidList(load<string[]>('bannedUids', [])))
   const [blockedNames, setBlockedNames] = useState<Record<string, string>>(() => load('blockedNames', {}))
   useEffect(() => save('blockedUids', blockedUids), [blockedUids])
+  useEffect(() => save('bannedUids', bannedUids), [bannedUids])
   useEffect(() => save('blockedNames', blockedNames), [blockedNames])
   // পুরোনো সংরক্ষিত "Demo" লেখা থাকলে নিরবে নতুন লেখায় বদলে যায় (ইতিহাস থাকে, লেখা থাকে না)
   const sanitizePiTx = (list: PiTx[]): PiTx[] => list.map(t => ({
@@ -614,7 +624,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
-  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds; adRates: AdRateSettings }>) => {
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds; adRates: AdRateSettings; bannedUids: string[] }>) => {
     if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
     if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
     if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
@@ -624,6 +634,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments, enabled: normalizePaymentEnabled({ ...prev.payments.enabled, ...(c.payments?.enabled ?? {}) }) } }))
     if (c.analytics !== undefined) setAdminSettingsState((prev) => ({ ...prev, analytics: { ...prev.analytics, ...c.analytics } }))
     if (c.adRates !== undefined) setAdminSettingsState((prev) => ({ ...prev, ads: { ...prev.ads, ...c.adRates } }))
+    if (c.bannedUids !== undefined) { const clean = cleanUidList(c.bannedUids); setBannedUidsState(clean); save('bannedUids', clean) }
   }
 
   // অন্য ব্যবহারকারীর ক্যাশে লগইন করলে — আগের ব্যবহারকারীর ডেটা নতুন ব্যবহারকারীর
@@ -738,7 +749,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           applyPublicConfig(fromPublicConfig(cfg))
         } else if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
           // অ্যাডমিন প্রথমবার — নিজের দর + পেমেন্টের বিবরণ ক্লাউডে ওঠে (গোপন অংশ ছাড়া)
-          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads))
+          await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids))
           if (cancelled) return
         }
         if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
@@ -789,12 +800,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fsWriteTimer.current = setTimeout(() => {
       writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
-        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads)).catch(() => { /* ignore */ })
+        writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids)).catch(() => { /* ignore */ })
       }
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids, bannedUids])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -1225,7 +1236,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds])
+    bannedUids,
+    isBanned: !!uid && bannedUids.includes(uid),
+    // অ্যাডমিন-নিয়ন্ত্রিত ব্যান — শুধু অ্যাডমিন বদলাতে পারেন; config/public-এ
+    // লেখা হয় (সব ডিভাইসে সিঙ্ক হয়)। Firebase Auth ব্যবহারকারী মোছা যায় না
+    // ক্লায়েন্ট থেকে — ব্যান মানেই অ্যাপ-স্তরে বন্ধ, ডিলিট নয়।
+    setBannedUids: async (list) => {
+      if (!user || user.email.trim().toLowerCase() !== ADMIN_EMAIL) return false
+      const next = cleanUidList(list)
+      setBannedUidsState(next)
+      save('bannedUids', next)
+      try {
+        return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
+      } catch { return false }
+    },
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

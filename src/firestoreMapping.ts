@@ -179,6 +179,10 @@ export type PublicConfigDoc = {
   // User product ads billing rates — CPM (per 1000 views) + CPC (per click),
   // Tk. 0 = unset: ads show free until the admin sets real numbers.
   adRates: { cpmRateBDT: number; cpcRateBDT: number }
+  // অ্যাডমিন-নিয়ন্ত্রিত ব্যান — ব্যান হওয়া ব্যবহারকারীর UID তালিকা।
+  // ব্যান হওয়া ব্যবহারকারী লগইনে ব্যান-স্ক্রিন দেখেন; কল/চ্যাট বন্ধ থাকে।
+  // (Firebase Auth ব্যবহারকারী মোছা যায় না ক্লায়েন্ট থেকে — ব্যান মানেই অ্যাপ-স্তরে বন্ধ।)
+  bannedUids: string[]
 }
 
 export type TopUpDoc = {
@@ -355,7 +359,7 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
 }
 
 // অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID; sms/smtp গোপন অংশ বাদ যায়)।
-export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS, adRates: { cpmRateBDT: number; cpcRateBDT: number } = { cpmRateBDT: 50, cpcRateBDT: 3 }): PublicConfigDoc {
+export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS, adRates: { cpmRateBDT: number; cpcRateBDT: number } = { cpmRateBDT: 50, cpcRateBDT: 3 }, bannedUids: string[] = []): PublicConfigDoc {
   return {
     schemaVersion: SCHEMA_VERSION,
     piRateBDT: rates.piRateBDT,
@@ -367,11 +371,12 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
     payments: { ...payments, enabled: normalizePaymentEnabled(payments.enabled) },
     analytics: { ...analytics },
     adRates: { cpmRateBDT: Number(adRates.cpmRateBDT) || 0, cpcRateBDT: Number(adRates.cpcRateBDT) || 0 },
+    bannedUids: [...new Set((Array.isArray(bannedUids) ? bannedUids : []).filter((x): x is string => typeof x === 'string' && x.trim() !== ''))].slice(0, 500),
   }
 }
 
 // config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID (যা ঘর ডকে নেই, সেটা বদলায় না)।
-export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number } }> {
+export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }> {
   if (!doc || typeof doc !== 'object') return {}
   const d = doc as Record<string, unknown>
   const out: Record<string, unknown> = {}
@@ -412,7 +417,12 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
     const cpc = typeof r.cpcRateBDT === 'number' && Number.isFinite(r.cpcRateBDT) && r.cpcRateBDT >= 0 ? r.cpcRateBDT : 0
     out.adRates = { cpmRateBDT: cpm, cpcRateBDT: cpc }
   }
-  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number } }>
+  // অ্যাডমিন-নিয়ন্ত্রিত ব্যান তালিকা — অ্যারে থাকলে (খালি হলেও) সেটাই সত্য;
+  // খালি অ্যারে মানে সব আনব্যান। ঘর না থাকলে (পুরোনো ডক) কিছু বদলায় না।
+  if (Array.isArray(d.bannedUids)) {
+    out.bannedUids = [...new Set(d.bannedUids.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))].slice(0, 500)
+  }
+  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds; adRates: { cpmRateBDT: number; cpcRateBDT: number }; bannedUids: string[] }>
 }
 
 // ম্যানুয়াল টপ-আপ আবেদন → topups/{id} ডক।
