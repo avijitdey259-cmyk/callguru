@@ -153,4 +153,24 @@ check('Bottom nav: Live TV মাঝখানে (ডেমোর মতো)', (
   }
 })
 
-console.log(`\n${passed}/11 passed`)
+check('App entry: অ্যাপে ঢুকলেই (লগইন থাকলে) যাচাই হয় — ক্যাশ মুছে + probeChannels', () => {
+  const app = read('src/App.tsx')
+  assert.ok(app.includes('clearProbeCache'), 'App-এ clearProbeCache নেই')
+  assert.ok(app.includes('probeChannels'), 'App-এ probeChannels নেই')
+  assert.ok(app.includes('TV_CHANNELS'), 'App-এ TV_CHANNELS নেই')
+  const entry = app.slice(app.indexOf('লাইভ টিভি যাচাই'))
+  assert.ok(entry.includes('if (!user) return'), 'লগইন ছাড়া যাচাই চলার কথা নয়')
+  assert.ok(entry.includes('clearProbeCache()'), 'যাচাইয়ের আগে ক্যাশ মোছার কথা')
+})
+
+check('LiveTV entry: খুললেই ক্যাশ মুছে নতুন করে যাচাই হয়', () => {
+  const start = pages.indexOf('export function LiveTV()')
+  const end = pages.indexOf('// ---------- Home services', start)
+  const body = pages.slice(start, end)
+  const probeAt = body.indexOf('probeChannels')
+  assert.ok(probeAt > -1, 'probeChannels ডাক নেই')
+  const clearAt = body.indexOf('clearProbeCache()')
+  assert.ok(clearAt > -1 && clearAt < probeAt, 'যাচাইয়ের আগে clearProbeCache() ডাকার কথা')
+})
+
+console.log(`\n${passed}/13 passed`)

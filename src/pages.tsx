@@ -31,7 +31,7 @@ import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile }
 import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
-import { probeChannels, sortChannelsByPlayability, getCachedProbe, type ProbeStatus } from './tvProbe'
+import { probeChannels, sortChannelsByPlayability, getCachedProbe, clearProbeCache, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
 import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
@@ -1169,7 +1169,7 @@ export function CallPage() {
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -1472,6 +1472,12 @@ export function CallPage() {
     if ((type === 'friend' || type === 'dating') && uid) {
       const peerUid = type === 'friend' ? friends.find((f) => f.name === name)?.id : id
       if (peerUid) {
+        // আমি ওই ব্যবহারকারীকে ব্লক করে থাকলে আমিও তাকে কল করতে পারব না —
+        // ব্লক মানে দুই দিকেই যোগাযোগ বন্ধ।
+        if (blockedUids.includes(peerUid)) {
+          setCallError('You have blocked this user — unblock them to call.')
+          return
+        }
         const room = await Promise.race([
           fetchChatRoomDoc(chatRoomId(uid, peerUid)),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
@@ -2117,7 +2123,7 @@ export function FriendsPage() {
             <Avatar photo={f.photo} name={f.name} color={f.color} className="w-10 h-10" online={f.online} />
             <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● Online' : '○ Offline'}</span></span>
             <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: f.name } })}>💬 Chat</Btn>
-            <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 Call</Btn>
+            {!blockedUids.includes(f.id) && <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 Call</Btn>}
             {!isBuddyId(f.id) && (blockedUids.includes(f.id)
               ? <Btn variant="ghost" onClick={() => unblockUser(f.id)}>Unblock</Btn>
               : <Btn variant="ghost" onClick={() => blockUser(f.id, f.name)}>🚫 Block</Btn>)}
@@ -2366,7 +2372,7 @@ export function ChatPage() {
           {contacts.map(f => {
             const thread = msgs[f.name] || []
             const last = thread[thread.length - 1]
-            const canCall = !!uid && !isBuddyId(f.id) && f.id !== uid
+            const canCall = !!uid && !isBuddyId(f.id) && f.id !== uid && !blockedUids.includes(f.id)
             return (
               <div key={f.id} className={`flex items-center gap-1 rounded-lg text-sm ${active === f.name ? 'bg-violet-50 dark:bg-slate-700' : ''}`}>
                 <button onClick={() => openChat(f.name)} className="flex items-center gap-2 flex-1 min-w-0 text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800"><Avatar photo={f.photo} name={f.name} color={f.color} className="w-8 h-8 text-sm shrink-0" online={f.online} /><span className="flex-1 min-w-0"><span className={`block truncate ${active === f.name ? 'font-bold' : ''}`}>{f.name}</span><span className="block text-xs text-gray-400 truncate">{last ? `${last.from}: ${last.text}` : 'No messages yet'}</span></span></button>
@@ -3441,6 +3447,9 @@ export function LiveTV() {
   const [playStatus, setPlayStatus] = useState<Record<string, ProbeStatus>>({})
   const [probing, setProbing] = useState(false)
   useEffect(() => {
+    // Live TV খুললেই নতুন করে যাচাই — সেশন-ক্যাশ মুছে ফেলা হয়, যাতে
+    // একই সেশনে আবার ঢুকলেও চ্যানেলগুলো নতুন করে চালিয়ে দেখা হয়।
+    clearProbeCache()
     const urls = channels.map(c => c.streamUrl).filter(Boolean) as string[]
     if (urls.length === 0) return
     let alive = true
@@ -4893,7 +4902,7 @@ export function MenuPage() {
       </Card>
       <Card>
         <h2 className="font-bold">🚫 Blocked users</h2>
-        <p className="text-xs text-gray-500 mt-1">Blocked people cannot message or call you. They cannot see that they are blocked — their messages and calls simply do not reach you.</p>
+        <p className="text-xs text-gray-500 mt-1">Blocked people cannot message or call you — their messages and calls simply do not reach you. They will see that you are not accepting messages or calls from them right now.</p>
         {blockedUids.length === 0
           ? <p className="text-sm text-gray-500 mt-2">No blocked users.</p>
           : blockedUids.map(id => (

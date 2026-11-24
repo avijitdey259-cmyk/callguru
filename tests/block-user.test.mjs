@@ -166,4 +166,29 @@ check('store + firestore: ব্লক দুই জায়গায় লে
   assert.ok(firestore.includes('fetchChatRoomDoc'), 'firestore-এ fetchChatRoomDoc নেই')
 })
 
-console.log(`\n${passed}/12 passed`)
+check('CallPage: আমি ব্লক করলেও কল শুরু হয় না (দুই দিকেই বন্ধ)', () => {
+  const start = pages.indexOf('export function CallPage()')
+  const end = pages.indexOf('// ---------- Wallet ----------', start)
+  const body = pages.slice(start, end)
+  assert.ok(body.includes('blockedUids.includes(peerUid)'), 'আমি-ব্লক-করেছি চেক নেই')
+  assert.ok(body.includes('You have blocked this user — unblock them to call.'), 'আমি-ব্লক-করেছি বার্তা নেই')
+})
+
+check('FriendsPage + ChatPage: ব্লক করা বন্ধুর পাশে Call বোতাম লুকানো', () => {
+  const fStart = pages.indexOf('export function FriendsPage()')
+  const fEnd = pages.indexOf('export function ChatPage()', fStart)
+  const friendsBody = pages.slice(fStart, fEnd)
+  assert.ok(friendsBody.includes('!blockedUids.includes(f.id) && <Btn variant="green"'), 'Friends-এ ব্লক করা বন্ধুর Call লুকানো নেই')
+  const cStart = pages.indexOf('export function ChatPage()')
+  const chatBody = pages.slice(cStart)
+  assert.ok(chatBody.includes('!blockedUids.includes(f.id)'), 'চ্যাট তালিকায় ব্লক চেক নেই')
+})
+
+check('MenuPage: ব্লক কপি — ব্লক করা পক্ষ বুঝতে পারে', () => {
+  const start = pages.indexOf('export function MenuPage()')
+  const body = pages.slice(start)
+  assert.ok(!body.includes('They cannot see that they are blocked'), 'ভুল কপি এখনো আছে')
+  assert.ok(body.includes('They will see that you are not accepting messages or calls from them right now.'), 'সঠিক কপি নেই')
+})
+
+console.log(`\n${passed}/15 passed`)

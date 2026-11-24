@@ -4,6 +4,8 @@ import { Layout } from './components'
 import { useStore } from './store'
 import { installAudioUnlock } from './sounds'
 import { IncomingCallHost } from './IncomingCallOverlay'
+import { TV_CHANNELS } from './data'
+import { clearProbeCache, probeChannels } from './tvProbe'
 import {
   AdminPage, AdsPage, CallHistory, CallPage, ChatPage, CreateService, DatingGoLivePage, DatingLivePage, DatingPage,
   ExpertProfile, Feed, FriendsPage, GroupsPage, GroupDetailPage, Landing, LiveTV, LoginPage,
@@ -33,6 +35,17 @@ export default function App() {
   // অডিও আনলক — মোবাইল ব্রাউজার প্রথম ট্যাপের আগে সাউন্ড বন্ধ রাখে; প্রথম
   // pointer/touch-এ AudioContext চালু হয়, মোবাইল/কম্পিউটার দুটোতেই একইভাবে
   useEffect(() => installAudioUnlock(), [])
+  // লাইভ টিভি যাচাই — অ্যাপে ঢুকলেই (লগইন থাকলে, প্রতি সেশনে একবার)
+  // সব চ্যানেল চালিয়ে দেখা হয়; চলে এমন উপরে, না-চলা নিচে। ব্যাকগ্রাউন্ডে
+  // চলে, UI আটকায় না; ফল সেশন-ক্যাশে থাকে, হোমের TV প্রিভিউ আর Live TV
+  // পেজ সেটাই পড়ে। রিলোড/নতুন সেশন = নতুন যাচাই।
+  useEffect(() => {
+    if (!user) return
+    clearProbeCache()
+    const urls = TV_CHANNELS.map(c => c.streamUrl).filter(Boolean) as string[]
+    if (urls.length > 0) void probeChannels(urls)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
   // লগইন দেওয়াল — লগইন ছাড়া /login বাদে কোনো পেজই দেখা যায় না (ল্যান্ডিং পেজ সহ); লগইন না থাকলে /login-এ পাঠানো হয়
   if (!user && loc.pathname !== '/login') return <Navigate to="/login" replace />
   // ইনকামিং-কল হোস্ট — লগইন থাকলে সব পেজেই (হোম পেজ সহ) কল এলে ওভারলে ওঠে;
