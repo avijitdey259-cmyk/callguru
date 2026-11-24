@@ -29,6 +29,16 @@
 //     call-chat  {roomId, text}  relayed to the other peer
 //     call-end   {roomId}        the other peer gets 'call-ended'
 //   Peer disconnect -> the other peer gets 'peer-left'. Max 2 peers per room.
+//   Call-failure reasons (the caller sees EXACTLY why a call did not go
+//   through — src/callFailure.ts has the same vocabulary on the client):
+//     call-invite: callee busy (already in a call room) -> caller gets
+//       'call-invite-sent' {delivered:false, pushed:false, reason:'busy'};
+//       callee offline (no presence socket, push not delivered) ->
+//       {delivered:false, pushed:false, reason:'offline'}.
+//     call-invite-response: the callee's gate/decline reason is relayed
+//       ('declined' | 'busy' | 'not-friend' | 'not-accepting').
+//     POST /api/call-invite/decline (service-worker Decline) -> the caller
+//       gets 'call-declined' {reason:'declined'}.
 //   Media is WebRTC peer-to-peer — STUN + free shared TURN (OpenRelay,
 //   public test credentials, testing only; paid TURN needed for production).
 import express from 'express'
@@ -87,7 +97,7 @@ const experts = [
   { id: 'exp-4', name: 'Mehjabin Chowdhury', rate: 10, online: true }
 ]
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.0.0' }))
+app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.1.0' }))
 app.get('/api/experts', (_req, res) => res.json(experts))
 app.post('/api/topup', (req, res) => {
   const { amount, method } = req.body || {}
@@ -375,7 +385,14 @@ app.post('/api/admin/settings', adminIpLimit, requireAdmin, (req, res) => {
 //   Peer disconnect -> the other peer gets 'peer-left' and the room is deleted
 //   when empty. A room holds at most 2 peers; a callee joining a missing
 //   room gets {type:'call-error', error:'call-not-found'}.
-const callRooms = new Map() // 'call-<code>' -> { id, peers: Map<peerId, {ws, name, role}>, createdAt }
+const callRooms = new Map() // 'call-<code>' -> { id, peers: Map<peerId, {ws, name, role, uid}>, createdAt }
+
+// 1-to-1 কলে কে ব্যস্ত — uid -> roomId; ইনভাইট এলে ব্যস্ত থাকলে রিং না
+// বাজিয়ে কলকারীকে 'busy' জানানো হয় (অন্য ডিভাইসে কলে থাকলেও ধরা পড়ে)।
+// call-join-এ টোকেন থাকলেই uid বাঁধা হয়; অতিথি (লিংক-কল) ধরা পড়ে না।
+const inCallByUser = new Map() // uid -> roomId
+function markInCall(uid, roomId) { if (uid) inCallByUser.set(uid, roomId) }
+function clearInCall(uid, roomId) { if (uid && inCallByUser.get(uid) === roomId) inCallByUser.delete(uid) }
 
 app.get('/api/call/:code', (req, res) => {
   const code = String(req.params.code || '').trim()
@@ -446,13 +463,14 @@ app.post('/api/push/subscribe', pushIpLimit, requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
-// সার্ভিস ওয়ার্কার থেকে Decline — কলারকে জানানো (রুমে থাকলে 'call-declined' যায়)
+// সার্ভিস ওয়ার্কার থেকে Decline — কলারকে জানানো (রুমে থাকলে 'call-declined'
+// যায়, সঙ্গে কারণ 'declined' — কলার "declined" দেখবেন, জেনেরিক ভুল নয়)
 app.post('/api/call-invite/decline', (req, res) => {
   const code = String(req.body?.code || '').trim()
   const room = callRooms.get(`call-${code}`)
   if (room) {
     for (const p of room.peers.values()) {
-      if (p.role === 'caller') send(p.ws, { type: 'call-declined', roomId: `call-${code}` })
+      if (p.role === 'caller') send(p.ws, { type: 'call-declined', roomId: `call-${code}`, reason: 'declined' })
     }
   }
   res.json({ ok: true })
@@ -547,6 +565,10 @@ wss.on('connection', (ws) => {
     }
 
     // ---- 1-to-1 কল ইনভাইট: বন্ধুর হোম পেজে ওভারলে উঠবে ----
+    // কলারকে সঙ্গে সঙ্গে জানানো হয় ইনভাইট পৌঁছাল কি না — পৌঁছায়নি +
+    // পুশও যায়নি মানে গ্রহণকারী অফলাইন ('offline'); ব্যস্ত থাকলে ('busy')
+    // রিং বাজানো হয় না, কলার "busy" দেখবেন। পুশ গেলে উত্তর অপেক্ষা করা
+    // হয় — লক স্ক্রিন থেকে ধরতে পারেন, তাই 'offline' বলা হয় না।
     if (m.type === 'call-invite') {
       const to = typeof m.to === 'string' ? m.to.trim() : ''
       const code = String(m.code || '').trim()
@@ -567,24 +589,34 @@ wss.on('connection', (ws) => {
       }
       const target = presence.get(to)
       if (target) {
+        if (inCallByUser.has(to)) {
+          send(ws, { type: 'call-invite-sent', to, delivered: false, pushed: false, reason: 'busy' })
+          return
+        }
         send(target, payload)
         send(ws, { type: 'call-invite-sent', to, delivered: true, pushed: false })
         return
       }
       // অনলাইনে নেই — লক স্ক্রিনের পুশ নোটিফিকেশন চেষ্টা (VAPID থাকলে)
       sendCallPush(to, payload)
-        .then((pushed) => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed }) })
-        .catch(() => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed: false }) })
+        .then((pushed) => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed, reason: pushed ? undefined : 'offline' }) })
+        .catch(() => { send(ws, { type: 'call-invite-sent', to, delivered: false, pushed: false, reason: 'offline' }) })
       return
     }
 
     // ---- ইনভাইটের উত্তর: ধরলেন না কাটলেন — কলকারীকে ফেরত পাঠানো ----
+    // কারণসহ ('declined' | 'busy' | 'not-friend' | 'not-accepting') —
+    // গ্রহণকারীর গেট (বন্ধু নয়/ব্যস্ত/কল নেন না) বা Decline বোতাম থেকে
+    // আসে; ভুল কারণ এলে বাদ দেওয়া হয় — তখন ক্লায়েন্ট সাধারণ 'declined'
+    // দেখায় (কোনো অজানা কারণ কলারকে দেখানো হয় না)।
     if (m.type === 'call-invite-response') {
       const to = typeof m.to === 'string' ? m.to.trim() : ''
       const code = String(m.code || '').trim()
       if (!to || !code || typeof m.accepted !== 'boolean') return
+      const VALID_DECLINE_REASONS = new Set(['declined', 'busy', 'not-friend', 'not-accepting'])
+      const reason = !m.accepted && typeof m.reason === 'string' && VALID_DECLINE_REASONS.has(m.reason) ? m.reason : undefined
       const target = presence.get(to)
-      if (target) send(target, { type: 'call-invite-response', code, accepted: m.accepted, fromId: ws._presence.userId || '' })
+      if (target) send(target, { type: 'call-invite-response', code, accepted: m.accepted, fromId: ws._presence.userId || '', ...(reason ? { reason } : {}) })
       return
     }
 
@@ -611,7 +643,9 @@ wss.on('connection', (ws) => {
       const peerId = `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       const name = joinAuth?.name || (typeof m.name === 'string' ? m.name.slice(0, 60) : 'Guest')
       const role = m.role === 'callee' ? 'callee' : 'caller'
-      room.peers.set(peerId, { ws, name, role })
+      room.peers.set(peerId, { ws, name, role, uid: joinAuth?.uid ?? null })
+      // লগইন থাকা পিয়ার কলে ঢুকলেন — এই uid-তে ইনভাইট এলে 'busy' যাবে
+      if (joinAuth) markInCall(joinAuth.uid, code)
       ws._call = { roomId: code, peerId, name, role }
       const others = [...room.peers.entries()].filter(([pid]) => pid !== peerId).map(([pid, p]) => ({ peerId: pid, name: p.name, role: p.role }))
       send(ws, { type: 'call-joined', roomId: code, peerId, peers: others })
@@ -639,6 +673,7 @@ wss.on('connection', (ws) => {
       const room = callRooms.get(String(m.roomId || ''))
       if (room) {
         for (const p of room.peers.values()) {
+          if (p.uid) clearInCall(p.uid, m.roomId)
           if (p.ws !== ws) send(p.ws, { type: 'call-ended', roomId: m.roomId })
         }
         callRooms.delete(m.roomId)
@@ -734,6 +769,8 @@ wss.on('connection', (ws) => {
     if (c && c.roomId) {
       const room = callRooms.get(c.roomId)
       if (room) {
+        const peer = room.peers.get(c.peerId)
+        if (peer?.uid) clearInCall(peer.uid, c.roomId)
         room.peers.delete(c.peerId)
         for (const p of room.peers.values()) send(p.ws, { type: 'peer-left', roomId: c.roomId, peerId: c.peerId })
         if (room.peers.size === 0) callRooms.delete(c.roomId)

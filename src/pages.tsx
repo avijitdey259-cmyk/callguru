@@ -6,7 +6,8 @@ import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, 
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
-import { sendCallInvite, onInviteResponse } from './presence'
+import { sendCallInvite, onInviteResponse, onInviteSent } from './presence'
+import { callFailureMessage, inviteResponseToFailureReason, inviteSentToFailureReason, callErrorToFailureReason, parseFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
@@ -1183,6 +1184,30 @@ export function CallPage() {
   const endedRef = useRef(false)
   const secondsRef = useRef(0)
   const connectedRef = useRef(false)
+  // কল-ব্যর্থতার কারণ — একবার দেখানো হলে আর বদলানো হয় না (পরে আসা
+  // জেনেরিক সার্ভার-ভুল ঠিক কারণটা মুছে দেবে না); উত্তর না এলে
+  // NO_ANSWER_TIMEOUT_MS পরে "No answer" দেখানো হয়।
+  const noAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const failureShownRef = useRef(false)
+  function clearNoAnswerTimer() {
+    if (noAnswerTimerRef.current !== null) { clearTimeout(noAnswerTimerRef.current); noAnswerTimerRef.current = null }
+  }
+  /** কলকারীকে ঠিক কারণটা দেখানো — কল স্ক্রিনের লাল বাক্সে। */
+  function showCallFailure(reason: CallFailureReason) {
+    if (endedRef.current || connectedRef.current || failureShownRef.current) return
+    failureShownRef.current = true
+    clearNoAnswerTimer()
+    setCallError(callFailureMessage(reason, name))
+  }
+  function armNoAnswerTimer() {
+    clearNoAnswerTimer()
+    noAnswerTimerRef.current = setTimeout(() => {
+      noAnswerTimerRef.current = null
+      showCallFailure('no-answer')
+    }, NO_ANSWER_TIMEOUT_MS)
+  }
+  // পেজ ছাড়লে উত্তর-অপেক্ষার টাইমারও থামে — আনমাউন্টের পর setState নয়
+  useEffect(() => () => clearNoAnswerTimer(), [])
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned } = useStore()
   const navigate = useNavigate()
@@ -1431,6 +1456,7 @@ export function CallPage() {
     const ws = connectCall(code, role, user?.name || 'You', {
       onJoined: (_peerId, peers) => {
         if (peers.length > 0) {
+          clearNoAnswerTimer()
           peerPeerIdRef.current = peers[0].peerId
           peerNameRef.current = peers[0].name
           setPeerName(peers[0].name)
@@ -1438,6 +1464,7 @@ export function CallPage() {
         }
       },
       onPeerJoined: (peer) => {
+        clearNoAnswerTimer()
         peerPeerIdRef.current = peer.peerId
         peerNameRef.current = peer.name
         setPeerName(peer.name)
@@ -1457,22 +1484,37 @@ export function CallPage() {
       onChat: (_from, text) => { setChat(c => [...c, { from: peerNameRef.current || 'The other person', text }]); playChatSound(soundSettings) },
       onPeerLeft: () => { endCallLocal('The other person got disconnected') },
       onCallEnded: () => { endCallLocal('The other person ended the call') },
-      onCallDeclined: () => { if (!endedRef.current && !connectedRef.current) setCallError('The call was declined — please try again.') },
+      onCallDeclined: (reason) => { showCallFailure(parseFailureReason(reason) ?? 'declined') },
       onError: (err) => {
-        setCallError(err === 'call-not-found' ? 'The call was not found or has ended.' : err === 'room-full' ? 'There are already 2 people on this call.' : 'Could not connect to the server — please try again.')
+        showCallFailure(callErrorToFailureReason(err))
       },
-      onClose: () => { if (!endedRef.current && !connectedRef.current) setCallError('Could not connect to the server — please try again.') },
+      onClose: () => { showCallFailure('server') },
     })
     wsRef.current = ws
-    if (!ws) setCallError('Could not connect to the server — please try again.')
+    if (!ws) showCallFailure('server')
   }
 
-  // গ্রহণকারী কলটি কাটলে কলকারীকে জানানো — অপেক্ষার স্ক্রিনেই দেখাবে
+  // গ্রহণকারী কলটি কাটলে / গেটে আটকালে কলকারীকে কারণসহ জানানো —
+  // অপেক্ষার স্ক্রিনেই ঠিক কারণটা দেখাবে (বন্ধু নয়/ব্যস্ত/কাটা)
   useEffect(() => {
     const off = onInviteResponse((res) => {
-      if (res.code === callCodeRef.current && !res.accepted && !endedRef.current) {
-        setCallError('The call was declined — please try again.')
+      if (res.code === callCodeRef.current && !endedRef.current) {
+        const reason = inviteResponseToFailureReason(res.accepted, res.reason)
+        if (reason) showCallFailure(reason)
       }
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ইনভাইট পৌঁছাল কি না — অফলাইন/ব্যস্ত হলে সঙ্গে সঙ্গে কারণ দেখানো;
+  // পৌঁছালে (বা পুশ গেলে) উত্তর-অপেক্ষার টাইমার চলতে থাকে
+  useEffect(() => {
+    const off = onInviteSent((res) => {
+      if (!callCodeRef.current || endedRef.current || connectedRef.current) return
+      const reason = inviteSentToFailureReason(res.delivered, res.pushed, res.reason)
+      if (reason) showCallFailure(reason)
+      else if (res.delivered || res.pushed) armNoAnswerTimer()
     })
     return off
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1512,12 +1554,14 @@ export function CallPage() {
     ensurePc()
     joinCallRoom(code, 'caller')
     // বন্ধুর কল: বন্ধু অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল ওভারলে যাবে
-    // (presence ইনভাইট); না পৌঁছালেও শেয়ার লিংক আগের মতোই কাজ করে
+    // (presence ইনভাইট); না পৌঁছালেও শেয়ার লিংক আগের মতোই কাজ করে।
+    // ইনভাইটের উত্তর না এলে ৬৫ সেকেন্ডে "No answer" দেখাবে (টাইমার)।
     if (type === 'friend') {
       const target = friends.find((f) => f.name === name)
       if (target) {
         sendCallInvite(target.id, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'friend' })
       }
+      armNoAnswerTimer()
     }
     // সার্ভিস কল: প্রোভাইডার অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল
     // ওভারলে যাবে (presence ইনভাইট, kind 'service'); না পৌঁছালে শেয়ার
@@ -1525,6 +1569,7 @@ export function CallPage() {
     // অপরিচিত কলকারীর ইনভাইট ওভারলেতে উঠবে না — তখন লিংকই পথ।
     if (type === 'service' && service) {
       sendCallInvite(service.providerUid, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'service' })
+      armNoAnswerTimer()
     }
   }
 
@@ -1566,6 +1611,7 @@ export function CallPage() {
   function endCallLocal(reason: string) {
     if (endedRef.current) return
     endedRef.current = true
+    clearNoAnswerTimer()
     closeCallResources()
     setEnded(true); setEndReason(reason || 'Call ended')
     // লিংক-কলে গ্রহণকারী দেন না — খরচ ০, ফ্রি মিনিটও খরচ হয় না; কলকারী আগের মতোই দেবেন

@@ -23,6 +23,7 @@ import {
 } from './incomingCall'
 import { shouldPlayRingtone, startRingtone } from './sounds'
 import { colourForUid } from './newMembers'
+import { gateReasonToFailureReason } from './callFailure'
 
 /** এই পাথগুলোতে থাকলে ব্যবহারকারী কলে আছেন — নতুন ইনভাইটে ওভারলে নয়। */
 function isInCallPath(pathname: string): boolean {
@@ -115,9 +116,10 @@ export function IncomingCallHost() {
           isBlocked: bl.includes(invite.fromId),
         })
         if (!gate.show) {
-          // ব্যস্ত/ব্লক থাকলে কলকারীকে সঙ্গে সঙ্গে জানিয়ে দেওয়া — উনি অপেক্ষায় থাকেন না
+          // ব্যস্ত/ব্লক/কল-প্রাইভেসি থাকলে কলকারীকে সঙ্গে সঙ্গে কারণসহ
+          // জানিয়ে দেওয়া — উনি "কল যাচ্ছে না কেন" না বুঝে অপেক্ষায় থাকেন না
           if (gate.reason === 'in-call' || gate.reason === 'privacy-nobody' || gate.reason === 'privacy-friends' || gate.reason === 'blocked') {
-            sendInviteResponse(invite.fromId, invite.code, false)
+            sendInviteResponse(invite.fromId, invite.code, false, gateReasonToFailureReason(gate.reason) ?? undefined)
           }
           return
         }
@@ -154,7 +156,7 @@ export function IncomingCallHost() {
   const decline = () => {
     stopRingtone()
     clearExpireTimer()
-    sendInviteResponse(invite.fromId, invite.code, false)
+    sendInviteResponse(invite.fromId, invite.code, false, 'declined')
     setOverlay((prev) => reduceInviteDeclined(prev))
     setOverlay(idleOverlayState())
   }

@@ -6,12 +6,20 @@
 // ব্যাকএন্ড না থাকলে সব ফাংশন চুপচাপ null/false ফেরে — অ্যাপ কখনো ভাঙে না।
 import { getWsBase, sendSignal } from './live'
 import { buildInviteMessage, parseInviteMessage, type CallInvite } from './incomingCall'
+import { parseFailureReason, type CallFailureReason } from './callFailure'
 import { getIdToken } from './firebase'
+
+/** সার্ভার থেকে আসা ইনভাইট-উত্তরে কারণ — কলারকে ঠিক কী হয়েছে জানানো হয়। */
+export type InviteResponse = { code: string; accepted: boolean; fromId: string; reason?: CallFailureReason }
+/** সার্ভার থেকে আসা ইনভাইট-পৌঁছানোর খবর — ব্যস্ত/অফলাইন এখানেই ধরা পড়ে। */
+export type InviteSent = { to: string; delivered: boolean; pushed: boolean; reason?: CallFailureReason }
 
 export type PresenceHandlers = {
   onInvite?: (invite: CallInvite) => void
   /** কলকারী পান: গ্রহণকারী ধরলেন না কাটলেন (code মিলিয়ে দেখা হয়)। */
-  onInviteResponse?: (res: { code: string; accepted: boolean; fromId: string }) => void
+  onInviteResponse?: (res: InviteResponse) => void
+  /** কলকারী পান: ইনভাইট পৌঁছাল কি না — ব্যস্ত/অফলাইন এখানে জানানো হয়। */
+  onInviteSent?: (res: InviteSent) => void
   onOpen?: () => void
   onClose?: () => void
 }
@@ -23,7 +31,7 @@ export function buildPresenceRegister(userId: string, name: string, idToken?: st
 }
 
 /** সার্ভার থেকে আসা presence মেসেজের ধরন চেনা (pure)। */
-export function parsePresenceMessage(raw: unknown): { kind: 'invite'; invite: CallInvite } | { kind: 'invite-response'; code: string; accepted: boolean; fromId: string } | { kind: 'registered' } | { kind: 'unauthorized' } | { kind: 'invite-sent'; to: string; delivered: boolean; pushed: boolean } | { kind: 'unknown' } {
+export function parsePresenceMessage(raw: unknown): { kind: 'invite'; invite: CallInvite } | { kind: 'invite-response'; code: string; accepted: boolean; fromId: string; reason?: CallFailureReason } | { kind: 'registered' } | { kind: 'unauthorized' } | { kind: 'invite-sent'; to: string; delivered: boolean; pushed: boolean; reason?: CallFailureReason } | { kind: 'unknown' } {
   if (!raw || typeof raw !== 'object') return { kind: 'unknown' }
   const m = raw as Record<string, unknown>
   if (m.type === 'presence-error') return { kind: 'unauthorized' }
@@ -33,11 +41,13 @@ export function parsePresenceMessage(raw: unknown): { kind: 'invite'; invite: Ca
   }
   if (m.type === 'call-invite-response') {
     if (typeof m.code !== 'string' || typeof m.accepted !== 'boolean') return { kind: 'unknown' }
-    return { kind: 'invite-response', code: m.code, accepted: m.accepted, fromId: typeof m.fromId === 'string' ? m.fromId : '' }
+    const reason = parseFailureReason(m.reason)
+    return { kind: 'invite-response', code: m.code, accepted: m.accepted, fromId: typeof m.fromId === 'string' ? m.fromId : '', ...(reason ? { reason } : {}) }
   }
   if (m.type === 'presence-registered') return { kind: 'registered' }
   if (m.type === 'call-invite-sent') {
-    return { kind: 'invite-sent', to: typeof m.to === 'string' ? m.to : '', delivered: m.delivered === true, pushed: m.pushed === true }
+    const reason = parseFailureReason(m.reason)
+    return { kind: 'invite-sent', to: typeof m.to === 'string' ? m.to : '', delivered: m.delivered === true, pushed: m.pushed === true, ...(reason ? { reason } : {}) }
   }
   return { kind: 'unknown' }
 }
@@ -48,12 +58,19 @@ let sharedWs: WebSocket | null = null
 let sharedUserId: string | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let wantConnected = false
-const inviteResponseListeners = new Set<(res: { code: string; accepted: boolean; fromId: string }) => void>()
+const inviteResponseListeners = new Set<(res: InviteResponse) => void>()
+const inviteSentListeners = new Set<(res: InviteSent) => void>()
 
 /** CallPage (কলকারী) এখানে শোনেন — গ্রহণকারী ধরলেন না কাটলেন। */
-export function onInviteResponse(cb: (res: { code: string; accepted: boolean; fromId: string }) => void): () => void {
+export function onInviteResponse(cb: (res: InviteResponse) => void): () => void {
   inviteResponseListeners.add(cb)
   return () => { inviteResponseListeners.delete(cb) }
+}
+
+/** CallPage (কলকারী) এখানে শোনেন — ইনভাইট পৌঁছাল কি না (ব্যস্ত/অফলাইন)। */
+export function onInviteSent(cb: (res: InviteSent) => void): () => void {
+  inviteSentListeners.add(cb)
+  return () => { inviteSentListeners.delete(cb) }
 }
 
 /**
@@ -67,11 +84,14 @@ export function sendCallInvite(to: string, invite: Omit<CallInvite, 'at'>): bool
   return true
 }
 
-/** ইনভাইটের উত্তর পাঠানো — ধরলে accepted=true, কাটলে false। */
-export function sendInviteResponse(to: string, code: string, accepted: boolean): boolean {
+/** ইনভাইটের উত্তর পাঠানো — ধরলে accepted=true, কাটলে false + কারণ
+ * ('declined' | 'busy' | 'not-friend' | 'not-accepting') — কলকারীকে ঠিক
+ * কারণটা জানানো হয়; ভুল কারণ এলে পাঠানো হয় না (সার্ভারও যাচাই করে)। */
+export function sendInviteResponse(to: string, code: string, accepted: boolean, reason?: CallFailureReason): boolean {
   if (!sharedWs || sharedWs.readyState !== WebSocket.OPEN) return false
   if (!to || !to.trim() || !code) return false
-  sendSignal(sharedWs, { type: 'call-invite-response', to, code, accepted })
+  const r = parseFailureReason(reason)
+  sendSignal(sharedWs, { type: 'call-invite-response', to, code, accepted, ...(r && !accepted ? { reason: r } : {}) })
   return true
 }
 
@@ -127,6 +147,9 @@ export function connectPresence(
       else if (parsed.kind === 'invite-response') {
         for (const cb of inviteResponseListeners) { try { cb(parsed) } catch { /* ignore */ } }
         h.onInviteResponse?.(parsed)
+      } else if (parsed.kind === 'invite-sent') {
+        for (const cb of inviteSentListeners) { try { cb(parsed) } catch { /* ignore */ } }
+        h.onInviteSent?.(parsed)
       }
     }
     ws.onclose = () => {
