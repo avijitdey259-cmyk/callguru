@@ -268,6 +268,9 @@ type Store = {
   // UID দিয়ে প্রাপক খোঁজা + Pi পাঠানো (ট্রানজ্যাকশনে; ব্যর্থ হলে কিছুই যায় না)
   lookupUserByUid: (numericUid: number) => Promise<{ uid: string; displayName: string; colour: string; photo?: string; numericUid: number } | null>
   sendPi: (to: { uid: string; name: string; numericUid?: number }, amount: number) => Promise<{ ok: true } | { ok: false; error: string }>
+  // অ্যাডমিনের ম্যানুয়াল পাঠানো — ফি নেই, প্রাপক পুরোটাই পায়; অ্যাডমিনের
+  // নিজের ব্যালেন্স থেকে যায় (কোনো Pi বানানো হয় না); শুধু অ্যাডমিন পারেন
+  sendPiAsAdmin: (to: { uid: string; name: string; numericUid?: number }, amount: number, note?: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // Live TV — ONE IPTV playlist URL (M3U) from config/public; empty = default playlist.
   tvPlaylistUrl: string
   setTvPlaylistUrl: (u: string) => void
@@ -1371,6 +1374,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) return res
       // সফল — স্থানীয় ব্যালেন্স ট্রানজ্যাকশনের ফলে বসানো হয়; খতিয়ানের
       // সারি ট্রানজ্যাকশনেই ক্লাউডে গেছে, এখানে একই সারি স্থানীয়ভাবে বসে
+      setPiBalance(res.newBalance)
+      const row = buildTransferApplication(res.transfer, 'sent').row
+      setPiLedger(prev => prev.some(r => r.id === row.id) ? prev : [row, ...prev].slice(0, 200))
+      return { ok: true }
+    },
+    sendPiAsAdmin: async (to, amount, note) => {
+      // অ্যাডমিনের ম্যানুয়াল পাঠানো — ফি নেই, প্রাপক পুরোটাই পায়; যায়
+      // অ্যাডমিনের নিজের ব্যালেন্স থেকে (কোনো Pi বানানো হয় না)। শুধু অ্যাডমিন।
+      if (!uid || !user) return { ok: false, error: 'Log in again and try.' }
+      if (user.email.trim().toLowerCase() !== ADMIN_EMAIL) return { ok: false, error: 'Only the admin can send Pi from the Admin Wallet.' }
+      if (fsState !== 'on') return { ok: false, error: 'No connection — try again.' }
+      const m = roundPi(Number(amount))
+      if (!Number.isFinite(m) || m <= 0) return { ok: false, error: 'Enter a valid amount.' }
+      if (m < piMinTransfer) return { ok: false, error: `Minimum transfer: ${formatPi(piMinTransfer)}.` }
+      if (to.uid === uid) return { ok: false, error: 'You cannot send Pi to yourself.' }
+      if (m > balRef.current.pi) return { ok: false, error: 'Not enough Pi balance in the Admin Wallet — the admin cannot send more than the wallet holds.' }
+      try { await writeUserDoc(uid, toUserDoc(collectSnapshot())) } catch { /* ট্রানজ্যাকশন ক্লাউড ব্যালেন্স যাচাই করেই */ }
+      const res = await createPiTransfer({ fromUid: uid, toUid: to.uid, fromName: user.name || 'Admin', toName: to.name, ...(numericUid !== null ? { fromNumericUid: numericUid } : {}), ...(to.numericUid !== undefined ? { toNumericUid: to.numericUid } : {}), amount: m, feePct: 0, kind: 'admin', ...(typeof note === 'string' && note.trim() ? { note: note.trim().slice(0, 200) } : {}), skipKycCheck: true })
+      if (res.ok === false) return res
       setPiBalance(res.newBalance)
       const row = buildTransferApplication(res.transfer, 'sent').row
       setPiLedger(prev => prev.some(r => r.id === row.id) ? prev : [row, ...prev].slice(0, 200))

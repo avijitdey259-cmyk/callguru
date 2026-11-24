@@ -4805,7 +4805,7 @@ function AdminSettingsTab() {
 }
 
 export function AdminPage() {
-  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, piTransferFeePct, setPiTransferFeePct, piMinTransfer, setPiMinTransfer, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl, uid, bannedUids, setBannedUids } = useStore()
+  const { datingRate, setDatingRate, liveRate, setLiveRate, kycInfo, kycStatus, kycRejectReason, approveKyc, rejectKyc, piRateBDT, setPiRateBDT, usdtRateBDT, setUsdtRateBDT, piWithdrawFeePct, setPiWithdrawFeePct, piMinWithdraw, piTransferFeePct, setPiTransferFeePct, piMinTransfer, setPiMinTransfer, piBalance, numericUid, lookupUserByUid, sendPiAsAdmin, pendingTopUps, approveTopUp, rejectTopUp, adminSettings, tvPlaylistUrl, setTvPlaylistUrl, uid, bannedUids, setBannedUids } = useStore()
   // টপ-আপ আবেদনের গন্তব্য — গ্রাহককে যে নম্বর/ঠিকানা দেখানো হয়েছিল (অ্যাডমিন সেটিংসে বসানো থাকলে আসলটা)
   function topUpDestination(t: { method: string; network?: string }): string {
     if (t.method === 'bKash') return adminSettings.payments.bkash
@@ -4818,6 +4818,41 @@ export function AdminPage() {
   const [tab, setTab] = useState('revenue')
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
+  // অ্যাডমিন ওয়ালেট — অ্যাডমিনের নিজের ব্যালেন্স থেকে যেকোনো ব্যবহারকারীকে
+  // ম্যানুয়ালি Pi পাঠানো (ফি নেই, প্রাপক পুরোটাই পায়; কোনো Pi বানানো হয় না)।
+  const [awUid, setAwUid] = useState('')
+  const [awFound, setAwFound] = useState<{ uid: string; displayName: string; colour: string; photo?: string; numericUid?: number } | null>(null)
+  const [awLookupMsg, setAwLookupMsg] = useState('')
+  const [awLookupBusy, setAwLookupBusy] = useState(false)
+  const [awAmount, setAwAmount] = useState('')
+  const [awNote, setAwNote] = useState('')
+  const [awMsg, setAwMsg] = useState('')
+  const [awBusy, setAwBusy] = useState(false)
+  const [awConfirm, setAwConfirm] = useState(false)
+  async function doAwLookup() {
+    const n = Number(awUid.replace(/\D/g, ''))
+    if (!Number.isInteger(n) || n < 100000 || n > 999999) { setAwLookupMsg('Enter a 6-digit UID (e.g. 100001).'); setAwFound(null); return }
+    if (numericUid !== null && n === numericUid) { setAwLookupMsg('That is your own UID — pick a customer.'); setAwFound(null); return }
+    setAwLookupBusy(true); setAwLookupMsg('')
+    const found = await lookupUserByUid(n)
+    setAwLookupBusy(false)
+    if (!found) { setAwFound(null); setAwLookupMsg('No user found with this UID — check the number and try again.'); return }
+    setAwFound(found); setAwLookupMsg('')
+  }
+  async function doAwSend() {
+    if (!awFound || awBusy) return
+    const m = Number(awAmount)
+    if (!Number.isFinite(m) || m <= 0) { setAwMsg('Enter a valid amount.'); return }
+    if (m < piMinTransfer) { setAwMsg(`Minimum transfer: ${formatPi(piMinTransfer)}.`); return }
+    if (m > piBalance) { setAwMsg('Not enough Pi balance in the Admin Wallet — the admin cannot send more than the wallet holds.'); return }
+    if (!awConfirm) { setAwConfirm(true); setAwMsg(''); return }
+    setAwBusy(true); setAwMsg('')
+    const res = await sendPiAsAdmin({ uid: awFound.uid, name: awFound.displayName, numericUid: awFound.numericUid }, m, awNote)
+    setAwBusy(false); setAwConfirm(false)
+    if (res.ok === false) { setAwMsg(res.error); return }
+    setAwMsg(`✅ Sent ${formatPi(m)} to ${awFound.displayName} — no fee, they get the full amount.`)
+    setAwAmount(''); setAwNote(''); setAwFound(null); setAwUid('')
+  }
   // অ্যাডমিন লাইভ মনিটরিং — ডেটিং পেজের মতো একই সার্ভার থেকে (GET /api/live) চলমান লাইভের তালিকা
   const [adminRooms, setAdminRooms] = useState<LiveRoom[] | null>(null)
   const [adminLiveOk, setAdminLiveOk] = useState(false)
@@ -4983,7 +5018,7 @@ export function AdminPage() {
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold">🛡️ Admin Panel</h1>
-      <div className="flex gap-2 flex-wrap">{['revenue', 'users', 'kyc', 'ads', 'recordings', 'livetv', 'moderation', 'settings'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC Verification' : t === 'settings' ? '⚙️ Settings' : t}</button>)}</div>
+      <div className="flex gap-2 flex-wrap">{['revenue', 'wallet', 'users', 'kyc', 'ads', 'recordings', 'livetv', 'moderation', 'settings'].map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm capitalize ${tab === t ? 'bg-fb-blue text-white' : 'bg-white dark:bg-fb-card'}`}>{t === 'kyc' ? 'KYC Verification' : t === 'settings' ? '⚙️ Settings' : t === 'wallet' ? '💰 Wallet' : t}</button>)}</div>
       {tab === 'revenue' && <Card>
         <h2 className="font-bold">Revenue & Fee Calculator</h2>
         <label className="text-sm block mt-3">Commission %</label><input type="number" className="border rounded-lg px-3 py-2 w-32 dark:bg-slate-800" value={rate} onChange={e => setRate(Number(e.target.value))} />
@@ -5065,6 +5100,49 @@ export function AdminPage() {
             )}
           </div>
         ))}
+      </Card>}
+      {tab === 'wallet' && <Card>
+        <h2 className="font-bold">💰 Admin Wallet</h2>
+        <p className="text-sm text-gray-500 mt-1">Send Pi manually to any user/customer. The full amount comes out of <b>your own Pi balance</b> — no Pi is created. No fee on admin sends; the receiver gets the full amount.</p>
+        <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-3 mt-3 text-center">
+          <p className="text-xs text-gray-500">Your Pi Balance (fees + platform earnings accrue here)</p>
+          <p className="text-2xl font-extrabold">{formatPi(piBalance)}</p>
+          <p className="text-sm text-gray-500">≈ {formatBDT(piBalance * piRateBDT)}</p>
+        </div>
+        <label className="text-sm block mt-3">Recipient UID (6 digits)</label>
+        <div className="flex gap-2 mt-1">
+          <input className="flex-1 min-w-0 border rounded-lg px-3 py-2 dark:bg-slate-800 dark:border-slate-600" value={awUid} onChange={e => { setAwUid(e.target.value.replace(/\D/g, '').slice(0, 6)); setAwFound(null); setAwConfirm(false); setAwMsg('') }} placeholder="e.g. 100001" inputMode="numeric" />
+          <Btn onClick={doAwLookup} disabled={awLookupBusy}>{awLookupBusy ? 'Finding…' : 'Find'}</Btn>
+        </div>
+        {awLookupMsg && <p className="text-sm text-red-600 mt-2">{awLookupMsg}</p>}
+        {awFound && (
+          <div className="flex items-center gap-3 mt-3 border rounded-lg px-3 py-2">
+            <Avatar photo={awFound.photo} name={awFound.displayName} color={awFound.colour} className="w-10 h-10" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium truncate">{awFound.displayName}</p>
+              <p className="text-xs text-gray-400">{awFound.numericUid !== undefined ? `ID: ${awFound.numericUid}` : 'Customer'}</p>
+            </div>
+            <Btn variant="ghost" onClick={() => { setAwFound(null); setAwUid(''); setAwConfirm(false) }}>Change</Btn>
+          </div>
+        )}
+        {awFound && (<>
+          <label className="text-sm block mt-3">Amount (Pi)</label>
+          <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={awAmount} onChange={e => { setAwAmount(e.target.value); setAwConfirm(false); setAwMsg('') }} placeholder={`Minimum ${formatPi(piMinTransfer)}`} />
+          <label className="text-sm block mt-3">Note / reason (optional)</label>
+          <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={awNote} onChange={e => { setAwNote(e.target.value); setAwConfirm(false) }} placeholder="e.g. Refund for order #1234" maxLength={200} />
+          {(Number(awAmount) || 0) > 0 && <p className="text-sm mt-2">Send {formatPi(Number(awAmount))} • Fee: {formatPi(0)} • {awFound.displayName} gets {formatPi(Number(awAmount))} (full amount, no fee)</p>}
+          {awConfirm && (Number(awAmount) || 0) >= piMinTransfer && (
+            <div className="mt-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+              <p className="text-sm font-bold">Confirm send to {awFound.displayName}{awFound.numericUid !== undefined ? ` (ID ${awFound.numericUid})` : ''}?</p>
+              <p className="text-sm mt-1">Send {formatPi(Number(awAmount))} • No fee • Receiver gets {formatPi(Number(awAmount))}</p>
+              <p className="text-xs text-gray-500 mt-1">This comes out of your own Pi balance — your balance will decrease by {formatPi(Number(awAmount))}.</p>
+            </div>
+          )}
+          <Btn variant="green" className="w-full mt-3" disabled={awBusy || !awFound || (Number(awAmount) || 0) < piMinTransfer} onClick={doAwSend}>{awBusy ? 'Sending…' : awConfirm ? 'Confirm Send' : 'Send Pi'}</Btn>
+          {awConfirm && <Btn variant="ghost" className="w-full mt-2" onClick={() => setAwConfirm(false)}>Cancel</Btn>}
+        </>)}
+        {awMsg && <p className="text-sm mt-2">{awMsg}</p>}
+        <p className="text-xs text-gray-400 mt-3">Recorded on both sides in the Pi Report — "Sent by Admin" with your note, and "Received from Admin" for the customer.</p>
       </Card>}
       {tab === 'kyc' && <Card>
         <h2 className="font-bold">🛡️ Dating KYC Verification — Admin</h2>

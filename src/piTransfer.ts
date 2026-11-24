@@ -67,6 +67,8 @@ export function validateTransferInput(input: {
 export type PiTransferRole = 'sent' | 'received' | 'fee'
 
 // piTransfers ডক — একবার লেখা হলে আর বদলায় না (নিয়মে update/delete বন্ধ)।
+// kind 'admin' মানে অ্যাডমিনের ম্যানুয়াল পাঠানো — ফি ০%, প্রাপক পুরোটাই
+// পায়, পাঠানো হয় অ্যাডমিনের নিজের ব্যালেন্স থেকে (কোনো Pi বানানো হয় না)।
 export type PiTransferDoc = {
   id: string
   fromUid: string
@@ -80,6 +82,8 @@ export type PiTransferDoc = {
   fee: number
   net: number
   feePct: number
+  kind?: 'admin'
+  note?: string
   participants: string[]
   status: 'completed'
   createdAtMs: number
@@ -116,6 +120,8 @@ export function mapPiTransferDoc(id: string, data: unknown): PiTransferDoc | nul
     : [d.fromUid as string, d.toUid as string]
   const fromNumericUid = isValidNumericUid(d.fromNumericUid) ? (d.fromNumericUid as number) : undefined
   const toNumericUid = isValidNumericUid(d.toNumericUid) ? (d.toNumericUid as number) : undefined
+  const kind = d.kind === 'admin' ? ('admin' as const) : undefined
+  const note = typeof d.note === 'string' && d.note.trim() ? d.note.trim().slice(0, 200) : undefined
   return {
     id,
     fromUid: d.fromUid as string,
@@ -129,6 +135,8 @@ export function mapPiTransferDoc(id: string, data: unknown): PiTransferDoc | nul
     fee: roundPi(d.fee as number),
     net: roundPi(d.net as number),
     feePct,
+    ...(kind !== undefined ? { kind } : {}),
+    ...(note !== undefined ? { note } : {}),
     participants,
     status: 'completed',
     createdAtMs: toCreatedAtMs(d.createdAt),
@@ -154,15 +162,21 @@ export function transferLedgerRowId(transferId: string, role: PiTransferRole): s
 export function buildTransferApplication(t: PiTransferDoc, role: PiTransferRole): { delta: number; row: { id: string; date: string; type: string; label: string; amount: number } } {
   const date = t.createdAtMs ? new Date(t.createdAtMs).toLocaleString('en-GB') : new Date().toLocaleString('en-GB')
   if (role === 'sent') {
+    const label = t.kind === 'admin'
+      ? `Sent by Admin to ${t.toName}${t.toNumericUid !== undefined ? ` (ID ${t.toNumericUid})` : ''}${t.note ? ` — ${t.note}` : ''}`
+      : `Sent to ${t.toName}${t.toNumericUid !== undefined ? ` (ID ${t.toNumericUid})` : ''} — fee π ${t.fee} • they get π ${t.net}`
     return {
       delta: -t.amount,
-      row: { id: transferLedgerRowId(t.id, 'sent'), date, type: 'Transfer Sent', label: `Sent to ${t.toName}${t.toNumericUid !== undefined ? ` (ID ${t.toNumericUid})` : ''} — fee π ${t.fee} • they get π ${t.net}`, amount: -t.amount },
+      row: { id: transferLedgerRowId(t.id, 'sent'), date, type: 'Transfer Sent', label, amount: -t.amount },
     }
   }
   if (role === 'received') {
+    const label = t.kind === 'admin'
+      ? `Received from Admin${t.note ? ` — ${t.note}` : ''}`
+      : `Received from ${t.fromName}${t.fromNumericUid !== undefined ? ` (ID ${t.fromNumericUid})` : ''}`
     return {
       delta: t.net,
-      row: { id: transferLedgerRowId(t.id, 'received'), date, type: 'Transfer Received', label: `Received from ${t.fromName}${t.fromNumericUid !== undefined ? ` (ID ${t.fromNumericUid})` : ''}`, amount: t.net },
+      row: { id: transferLedgerRowId(t.id, 'received'), date, type: 'Transfer Received', label, amount: t.net },
     }
   }
   return {

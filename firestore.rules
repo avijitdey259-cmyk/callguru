@@ -168,7 +168,10 @@ service cloud.firestore {
         && request.resource.data.feePct is number && request.resource.data.feePct >= 0 && request.resource.data.feePct <= 10
         && request.resource.data.status == 'completed'
         && request.resource.data.fromName is string
-        && request.resource.data.toName is string;
+        && request.resource.data.toName is string
+        // kind 'admin' শুধু অ্যাডমিনই লিখতে পারেন; note থাকলে স্ট্রিং, ২০০ অক্ষর পর্যন্ত
+        && (!('kind' in request.resource.data) || request.resource.data.kind != 'admin' || isAdmin())
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200));
       allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid || resource.data.adminUid == request.auth.uid || isAdmin());
       allow update, delete: if false;
     }

@@ -484,6 +484,11 @@ export async function createPiTransfer(input: {
   toNumericUid?: number
   amount: number
   feePct: number
+  // অ্যাডমিনের ম্যানুয়াল পাঠানো — ফি ০%, note থাকে, KYC যাচাই বাদ যায়
+  // (অ্যাডমিনের পাঠানো অনুমোদন-নির্ভর নয় — অ্যাডমিন নিজেই অনুমোদনকারী)।
+  kind?: 'admin'
+  note?: string
+  skipKycCheck?: boolean
 }): Promise<{ ok: true; transfer: PiTransferDoc; newBalance: number } | { ok: false; error: string }> {
   const d = getDb()
   if (!d) return { ok: false, error: 'No connection — try again.' }
@@ -505,6 +510,8 @@ export async function createPiTransfer(input: {
     fee,
     net,
     feePct: input.feePct,
+    ...(input.kind === 'admin' ? { kind: 'admin' as const } : {}),
+    ...(typeof input.note === 'string' && input.note.trim() ? { note: input.note.trim().slice(0, 200) } : {}),
     participants: [...new Set([input.fromUid, input.toUid, ADMIN_UID])],
     status: 'completed',
     createdAtMs: Date.now(),
@@ -519,7 +526,7 @@ export async function createPiTransfer(input: {
       // ক্লাউডে তুলে দেয়, তাই এখানে পুরোনো অঙ্ক থাকে না।
       const bal = typeof data.piBalance === 'number' && Number.isFinite(data.piBalance) ? data.piBalance : 0
       const kycStatus = (data.kyc as Record<string, unknown> | undefined)?.status
-      if (kycStatus !== 'approved') throw new Error('kyc')
+      if (!input.skipKycCheck && kycStatus !== 'approved') throw new Error('kyc')
       if (roundPi(bal) < amount) throw new Error('balance')
       const ledger = Array.isArray(data.piLedger) ? (data.piLedger as { id: string; date: string; type: string; label: string; amount: number }[]) : []
       const row = buildTransferApplication(transfer, 'sent').row
