@@ -86,6 +86,10 @@ export async function writePublicProfile(uid: string, displayName: string, refer
     const code = typeof referralCode === 'string' && referralCode.trim() ? referralCode.trim() : undefined
     const extra: Record<string, unknown> = {}
     if (code) extra.referralCode = code
+    // সংখ্যার UID আলাদা রাখা হয় — create-এ অন্য ক্ষেত্রের সঙ্গে একসাথে
+    // লেখা যায় না (নিয়ম: numericUid থাকলে create-এ শুধু numericUid-ই
+    // থাকতে পারে); তাই প্রথমে numericUid ছাড়া তৈরি, তারপর merge-এ বসে।
+    let numericUid: number | undefined
     if (extraFields) {
       if (extraFields.gender === 'Male' || extraFields.gender === 'Female') extra.gender = extraFields.gender
       if (typeof extraFields.district === 'string' && extraFields.district.trim()) extra.district = extraFields.district.trim()
@@ -96,14 +100,20 @@ export async function writePublicProfile(uid: string, displayName: string, refer
       if (typeof extraFields.photo === 'string' && (extraFields.photo.startsWith('data:image/') || extraFields.photo.startsWith('https://'))) extra.photo = extraFields.photo
       // Photo removed (empty string) — delete the field, otherwise the old
       // photo would stay in publicProfiles forever and keep showing everywhere.
-      if (extraFields.photo === '') extra.photo = deleteField()
+      // deleteField() শুধু update/merge লেখায় চলে — create (merge ছাড়া
+      // setDoc) -এ দিলে SDK-ই throw করে ("deleteField() cannot be used
+      // with set() unless you pass {merge:true}"), তাই নতুন প্রোফাইলে
+      // ছবি না থাকলে ক্ষেত্রটা একেবারে বাদ দেওয়া হয় — নইলে নতুন
+      // ব্যবহারকারীর publicProfiles ডক কোনোদিনই তৈরি হতো না।
+      if (extraFields.photo === '' && snap.exists()) extra.photo = deleteField()
       // সংখ্যার UID — বৈধ হলেই লেখা হয় (বরাদ্দ ensureNumericUid থেকে আসে)
-      if (extraFields.numericUid !== undefined && isValidNumericUid(extraFields.numericUid)) extra.numericUid = extraFields.numericUid
+      if (extraFields.numericUid !== undefined && isValidNumericUid(extraFields.numericUid)) numericUid = extraFields.numericUid
     }
     if (snap.exists()) {
-      await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra }, { merge: true })
+      await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra, ...(numericUid !== undefined ? { numericUid } : {}) }, { merge: true })
     } else {
       await setDoc(ref, { displayName: displayName || 'User', createdAt: serverTimestamp(), colour: colourForUid(uid), ...extra })
+      if (numericUid !== undefined) await setDoc(ref, { numericUid }, { merge: true })
     }
     return true
   } catch { return false }

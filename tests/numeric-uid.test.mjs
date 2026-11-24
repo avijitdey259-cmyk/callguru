@@ -18,6 +18,14 @@
 //       কাঁচা Firebase uid কোথাও ID হিসেবে দেখায় না
 //   ১১) firestore.rules — কাউন্টার শুধু +১, UID একবার বসলে আর বদলায় না
 //   ১২) রেফারেল অটুট — ?ref= লিংক ও referralCode আগের মতোই চলে
+//   ১৩) BUG 1 — আগের ব্যবহারকারীর UID নতুন অ্যাকাউন্টে লাগে না:
+//       resetSyncableState numericUid শূন্য করে; বরাদ্দ ব্যর্থ হলেও
+//       state null হয় (শুধু সফল হলেই বসে না) — নইলে write-through
+//       sync পুরোনো ১০০০০১ নতুন users ডকে লিখে দিত
+//   ১৪) BUG 2 — writePublicProfile create-এ deleteField()/numericUid নয়:
+//       ছবি না থাকলে create-এ photo ক্ষেত্রই থাকে না (deleteField শুধু
+//       merge/update পথে); numericUid create-এর পর আলাদা merge-এ বসে —
+//       নইলে নতুন ব্যবহারকারীর publicProfiles ডক তৈরি হতো না
 import { build } from 'esbuild'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -191,6 +199,30 @@ check('রেফারেল অটুট — ?ref= লিংক ও referralCod
   assert.ok(firestoreSrc.includes('referralCode'), 'writePublicProfile-এ referralCode নেই')
   assert.ok(storeSrc.includes('referralCode'), 'store-এ referralCode নেই')
   assert.ok(U.UID_START !== 0, 'UID_START বসেনি')
+})
+
+check('BUG 1 — আগের ব্যবহারকারীর UID নতুন অ্যাকাউন্টে লাগে না', () => {
+  // resetSyncableState-এ numericUid শূন্য করা হয় — অন্য ব্যবহারকারী একই
+  // ডিভাইসে লগইন করলে আগের নম্বর state-এ থেকে যায় না।
+  const resetStart = storeSrc.indexOf('const resetSyncableState = () => {')
+  assert.ok(resetStart >= 0, 'resetSyncableState নেই')
+  const resetEnd = storeSrc.indexOf('  // প্রথম সিঙ্ক', resetStart)
+  assert.ok(resetEnd > resetStart, 'resetSyncableState-এর শেষ খুঁজে পাওয়া যায়নি')
+  assert.ok(storeSrc.slice(resetStart, resetEnd).includes('setNumericUidState(null)'), 'resetSyncableState numericUid শূন্য করে না')
+  // বরাদ্দ ব্যর্থ হলেও state null হয় — শুধু সফল হলেই বসে না।
+  assert.ok(storeSrc.includes('setNumericUidState(myNumericUid)'), 'বরাদ্দের ফল state-এ বসে না')
+  assert.ok(!storeSrc.includes('if (myNumericUid !== null) setNumericUidState(myNumericUid)'), 'বরাদ্দ ব্যর্থ হলে পুরোনো UID state-এ থেকে যায়')
+})
+
+check('BUG 2 — writePublicProfile create-এ deleteField()/numericUid নয়', () => {
+  // deleteField() শুধু merge/update পথে — create (merge ছাড়া setDoc)
+  // -এ দিলে SDK throw করে, ডক তৈরি হয় না।
+  assert.ok(!firestoreSrc.includes("if (extraFields.photo === '') extra.photo = deleteField()"), 'create পথে deleteField() এখনো আছে')
+  assert.ok(firestoreSrc.includes("if (extraFields.photo === '' && snap.exists()) extra.photo = deleteField()"), 'deleteField শুধু বিদ্যমান প্রোফাইলে নয়')
+  // numericUid create-এর পর আলাদা merge-এ বসে (নিয়ম: create-এ numericUid
+  // থাকলে শুধু numericUid-ই থাকতে পারে)।
+  assert.ok(firestoreSrc.includes('if (numericUid !== undefined) await setDoc(ref, { numericUid }, { merge: true })'), 'create-এর পর numericUid আলাদা merge-এ বসে না')
+  assert.ok(firestoreSrc.includes('let numericUid: number | undefined'), 'numericUid আলাদা রাখা হয় না')
 })
 
 console.log(`\n${passed} passed`)

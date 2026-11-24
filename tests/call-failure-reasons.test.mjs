@@ -144,6 +144,12 @@ check('callErrorToFailureReason — call-not-found / room-full ঠিক থা�
   assert.equal(CF.callErrorToFailureReason('unauthorized'), 'server')
   assert.equal(CF.callErrorToFailureReason(''), 'server')
 })
+check('closeWhileWaitingToFailureReason — উত্তর অপেক্ষায় সকেট মরলে no-answer, আগে মরলে server', () => {
+  assert.equal(CF.closeWhileWaitingToFailureReason(true), 'no-answer')
+  assert.equal(CF.closeWhileWaitingToFailureReason(false), 'server')
+  assert.equal(CF.callFailureMessage(CF.closeWhileWaitingToFailureReason(true), 'রিমা'), "No answer — রিমা didn't pick up")
+  assert.equal(CF.callFailureMessage(CF.closeWhileWaitingToFailureReason(false), 'রিমা'), 'Could not connect to the server — please try again.')
+})
 
 // ---------- ভাগ ১ঘ: presence মেসেজে কারণ পার্স ----------
 check('parsePresenceMessage — invite-sent-এ busy/offline কারণ মেলে, ভুল কারণ বাদ যায়', () => {
@@ -196,6 +202,11 @@ check('CallPage: কারণ দেখানো হয় (showCallFailure), in
   assert.ok(pagesSrc.includes('inviteResponseToFailureReason'))
   assert.ok(pagesSrc.includes('armNoAnswerTimer()'))
   assert.ok(pagesSrc.includes('NO_ANSWER_TIMEOUT_MS'))
+})
+check('CallPage: onClose — উত্তর অপেক্ষায় সকেট মরলে no-answer, আগে মরলে server', () => {
+  assert.ok(pagesSrc.includes('closeWhileWaitingToFailureReason(noAnswerTimerRef.current !== null)'), 'onClose টাইমারের অবস্থা দেখে কারণ বেছে নেয় না')
+  assert.ok(!pagesSrc.includes("onClose: () => { showCallFailure('server') }"), 'onClose এখনো সব বন্ধেই server দেখায়')
+  assert.ok(pagesSrc.includes('noAnswerTimerRef.current !== null'), 'টাইমার চলছে কি না দেখা হয় না')
 })
 check('CallPage: কল শুরুর আগের পর্দায় ক্রেডিট না থাকলে বার্তা আছে (no-credit)', () => {
   assert.ok(pagesSrc.includes('You cannot call without a Pi balance'))

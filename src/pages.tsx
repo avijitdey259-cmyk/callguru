@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore, type Friend } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, ADMIN_TIMEOUT_MS } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
 import { sendCallInvite, onInviteResponse, onInviteSent } from './presence'
-import { callFailureMessage, inviteResponseToFailureReason, inviteSentToFailureReason, callErrorToFailureReason, parseFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
+import { callFailureMessage, inviteResponseToFailureReason, inviteSentToFailureReason, callErrorToFailureReason, parseFailureReason, closeWhileWaitingToFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
@@ -1393,6 +1393,12 @@ export function CallPage() {
   const [muted, setMuted] = useState(false)
   const [camOff, setCamOff] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [shareError, setShareError] = useState('')
+  // স্ক্রিন শেয়ার — ক্যামেরার ভিডিও ট্র্যাকের বদলে স্ক্রিনের ট্র্যাক পিয়ারে
+  // যায় (replaceTrack — নতুন করে সংযোগ নয়); থামালে ক্যামেরা ফেরে।
+  const screenStreamRef = useRef<MediaStream | null>(null)
+  const cameraVideoRef = useRef<MediaStreamTrack | null>(null)
+  const sharingRef = useRef(false)
   // Camera facing: 'user' = সামনের (ফ্রন্ট) ক্যামেরা, 'environment' = পেছনের (ব্যাক) ক্যামেরা
   const [facing, setFacing] = useState<'user' | 'environment'>('user')
   const [camCount, setCamCount] = useState<number | null>(null)
@@ -1483,8 +1489,10 @@ export function CallPage() {
   }, [started])
 
   // সামনের ↔ পেছনের ক্যামেরা বদলান — কল, টাইমার বা বিলিং থামবে না; অডিও ট্র্যাক চালু থাকবে
+  // স্ক্রিন শেয়ার চলাকালীন ক্যামেরা বদলানো যায় না — পিয়ারে তখন স্ক্রিনের
+  // ট্র্যাক যাচ্ছে, ক্যামেরা বদলালে শেয়ার ভেঙে যেত।
   async function switchCamera() {
-    if (switching || camCount === 1) return
+    if (switching || camCount === 1 || sharing) return
     const next = facingRef.current === 'user' ? 'environment' : 'user'
     setSwitching(true); setCamError('')
     let newStream: MediaStream | null = null
@@ -1518,6 +1526,54 @@ export function CallPage() {
     setSwitching(false)
   }
 
+  // স্ক্রিন শেয়ার চালু/বন্ধ — ১-টু-১ কলে পিয়ার স্ক্রিন দেখে; থামালে ক্যামেরা ফেরে।
+  // অনুমতি না দিলে (বা পিকার বাতিল করলে) চুপচাপ বন্ধ থাকে — ক্র্যাশ নয়, বোতাম অফই থাকে।
+  async function toggleShare() {
+    if (sharingRef.current) { stopShare(); return }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setShareError('Screen sharing is not supported in this browser.')
+      return
+    }
+    let screen: MediaStream
+    try {
+      screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+    } catch {
+      // Denied or cancelled — graceful: button stays off, no crash, no error shown.
+      return
+    }
+    const screenTrack = screen.getVideoTracks()[0]
+    if (!screenTrack) { screen.getTracks().forEach(t => t.stop()); return }
+    // ক্যামেরার ভিডিও ট্র্যাক মনে রাখা — শেয়ার থামালে এটাই ফেরানো হয়
+    cameraVideoRef.current = streamRef.current?.getVideoTracks()[0] ?? null
+    screenStreamRef.current = screen
+    sharingRef.current = true
+    setSharing(true)
+    setShareError('')
+    // পিয়ারে স্ক্রিনের ট্র্যাক — সংযোগ নতুন করে নয়, শুধু ট্র্যাক বদল
+    const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === 'video')
+    if (sender) { try { await sender.replaceTrack(screenTrack) } catch { /* keep camera on the peer side */ } }
+    // নিজের ছোট ভিউয়ে স্ক্রিন দেখা যায় (আয়না নয় — স্ক্রিন উল্টানো যাবে না)
+    if (selfRef.current) selfRef.current.srcObject = screen
+    // ব্রাউজারের নিজের Stop বোতামে (বা OS পিকারে) ট্র্যাক শেষ হলে ক্যামেরায় ফেরা
+    screenTrack.onended = () => { stopShare() }
+  }
+
+  function stopShare() {
+    if (!sharingRef.current && !screenStreamRef.current) return
+    sharingRef.current = false
+    setSharing(false)
+    const screen = screenStreamRef.current
+    screenStreamRef.current = null
+    screen?.getTracks().forEach(t => t.stop())
+    const camTrack = cameraVideoRef.current
+    cameraVideoRef.current = null
+    if (camTrack) {
+      const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === 'video')
+      if (sender) sender.replaceTrack(camTrack).catch(() => {})
+      if (selfRef.current && streamRef.current) selfRef.current.srcObject = streamRef.current
+    }
+  }
+
   // ---------- আসল 1-to-1 কল: সিগন্যালিং + WebRTC (কল-বাই-লিংক) ----------
   function closeCallResources() {
     try { pcRef.current?.close() } catch { /* ignore */ }
@@ -1526,6 +1582,11 @@ export function CallPage() {
     wsRef.current = null
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
+    // স্ক্রিন শেয়ার চলতে থাকলে তার ট্র্যাকও বন্ধ — নইলে ব্রাউজারে শেয়ার আইকন থেকে যেত
+    screenStreamRef.current?.getTracks().forEach(t => t.stop())
+    screenStreamRef.current = null
+    cameraVideoRef.current = null
+    sharingRef.current = false
   }
 
   function ensurePc() {
@@ -1555,7 +1616,15 @@ export function CallPage() {
     const pc = pcRef.current
     const stream = streamRef.current
     if (!pc || !stream || tracksAddedRef.current) return
-    stream.getTracks().forEach(t => { try { pc.addTrack(t, stream) } catch { /* ignore */ } })
+    stream.getTracks().forEach(t => {
+      // শেয়ার চালু থাকলে পিয়ারে ক্যামেরার বদলে স্ক্রিনের ভিডিও ট্র্যাক যায়
+      // (শেয়ার বোতাম সংযোগের আগেই চাপা থাকলে এটাই পথ)
+      if (t.kind === 'video' && sharingRef.current && screenStreamRef.current) {
+        const st = screenStreamRef.current.getVideoTracks()[0]
+        if (st) { try { pc.addTrack(st, screenStreamRef.current) } catch { /* ignore */ } return }
+      }
+      try { pc.addTrack(t, stream) } catch { /* ignore */ }
+    })
     tracksAddedRef.current = true
   }
 
@@ -1624,7 +1693,10 @@ export function CallPage() {
       onError: (err) => {
         showCallFailure(callErrorToFailureReason(err))
       },
-      onClose: () => { showCallFailure('server') },
+      // সকেট বন্ধ হলে — উত্তর-অপেক্ষার টাইমার চলতে থাকলে আসল পরিস্থিতি
+      // "কেউ ধরেনি" (মোবাইল/NAT বা Railway নিষ্ক্রিয় সকেট কেটে দেয়);
+      // ইনভাইট যাওয়ার আগেই সকেট মরলে তবেই সার্ভার-ভুল।
+      onClose: () => { showCallFailure(closeWhileWaitingToFailureReason(noAnswerTimerRef.current !== null)) },
     })
     wsRef.current = ws
     if (!ws) showCallFailure('server')
@@ -1959,8 +2031,8 @@ export function CallPage() {
             {camOff && <p className="text-xs mt-2">📷 Camera Off</p>}
           </div>
         )}
-        {/* সামনের ক্যামেরায় সেলফ-ভিউ আয়নার মতো (mirror), পেছনের ক্যামেরায় নয় */}
-        <video ref={(el) => { selfRef.current = el; if (el && streamRef.current) el.srcObject = streamRef.current }} style={{ transform: facing === 'user' ? 'scaleX(-1)' : 'none' }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
+        {/* সামনের ক্যামেরায় সেলফ-ভিউ আয়নার মতো (mirror), পেছনের ক্যামেরায় নয়; স্ক্রিন শেয়ারে আয়না নয় */}
+        <video ref={(el) => { selfRef.current = el; if (el && streamRef.current) el.srcObject = streamRef.current }} style={{ transform: sharing ? 'none' : (facing === 'user' ? 'scaleX(-1)' : 'none') }} className="absolute bottom-24 right-4 w-28 h-36 rounded-xl object-cover border-2 border-white bg-slate-700" autoPlay playsInline muted />
       </div>
       <div className="px-3 pb-3">
         <div className="max-w-md mx-auto glass rounded-xl p-2 mb-3 max-h-32 overflow-y-auto">
@@ -1975,11 +2047,13 @@ export function CallPage() {
         <div className="flex justify-center gap-3 pb-2">
           <button onClick={toggleMute} className="w-14 h-14 rounded-full glass text-2xl" title="Mic">{muted ? '🔇' : '🎤'}</button>
           <button onClick={toggleCam} className="w-14 h-14 rounded-full glass text-2xl" title="Camera">{camOff ? '📷' : '📹'}</button>
-          <button onClick={() => setSharing(s => !s)} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'pb-gradient' : 'glass'}`} title="Screen Share">🖥️</button>
-          <button onClick={switchCamera} disabled={switching || camCount === 1} className="h-14 px-3 rounded-full glass text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
+          <button onClick={toggleShare} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'pb-gradient' : 'glass'}`} title="Screen Share">🖥️</button>
+          <button onClick={switchCamera} disabled={switching || camCount === 1 || sharing} className="h-14 px-3 rounded-full glass text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
           <button onClick={() => hangUp('You ended the call')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="Call ended">📞</button>
         </div>
         {camCount === 1 && <p className="text-center text-xs text-yellow-300 mb-1">This device has 1 camera — you cannot switch cameras.</p>}
+        {sharing && <p className="text-center text-xs text-violet-300 mb-1">🖥️ Sharing your screen — the other person sees your screen, not your camera.</p>}
+        {shareError && <p className="text-center text-xs text-red-300 mb-1">{shareError}</p>}
         {camError && <p className="text-center text-xs text-red-300 mb-1">{camError}</p>}
         {callError && <p className="text-center text-xs text-red-300 mb-1">{callError}</p>}
         <p className="text-center text-xs text-gray-400">{isLinkCall ? 'The caller will pay for this call' : `Call will auto-cut when balance ends${maxSeconds > 0 ? ` • Max ${fmt(maxSeconds)}` : ''}`}</p>
@@ -4752,24 +4826,33 @@ function AdminSettingsTab() {
   const [serverStatus, setServerStatus] = useState<{ smtpConfigured: boolean; smsConfigured: boolean } | null>(null)
   useEffect(() => { getAdminSettingsStatus().then(s => { if (s) setServerStatus(s) }) }, [])
 
+  // সেভের বার্তার রং — সাফল্য সবুজ, অনিশ্চিত (সার্ভারে গেল কি না জানা
+  // যায়নি) হলুদ, ব্যর্থ লাল; ব্যর্থ বার্তা কখনো সবুজে দেখায় না।
+  function adminMsgCls(msg: string) { return `text-sm mt-2 ${msg.startsWith('❌') ? 'text-red-600' : msg.startsWith('⚠️') ? 'text-amber-600' : 'text-green-600'}` }
+
   async function saveSms() {
     const cleaned = { provider: sms.provider || 'Nishchit', apiKey: sms.apiKey, senderId: sms.senderId.trim() }
     setSms(cleaned)
     setAdminSettings({ ...adminSettings, sms: cleaned })
     setSmsMsg('Saving…')
     const ok = await saveAdminSms(cleaned)
-    const st = await getAdminSettingsStatus()
+    const st = await getAdminSettingsStatus(ADMIN_TIMEOUT_MS)
     if (st) setServerStatus(st)
-    setSmsMsg(ok
+    // সত্যি বার্তা — সার্ভার না পেলে "✅ saved" দিয়ে শুরু হয় না; সাফল্য
+    // শুধু তখনই, যখন সার্ভার নিজে smsConfigured নিশ্চিত করে।
+    const confirmed = ok && st?.smsConfigured === true
+    setSmsMsg(confirmed
       ? '✅ SMS key saved — also sent to the server, SMS OTP will now go through Nishchit.'
-      : '✅ SMS info saved on this device — it did not reach the server (backend not reachable), save again later.')
+      : ok
+        ? '⚠️ SMS key sent to the server, but the confirmation check did not come back — check Server Status above; if it still says SMS off, save again.'
+        : '❌ SMS key not saved — it did not reach the server (timed out or backend not reachable). SMS OTP will not be sent until it saves. Try again.')
   }
   async function clearSms() {
     const cleared = { provider: 'Nishchit', apiKey: '', senderId: '' }
     setSms(cleared)
     setAdminSettings({ ...adminSettings, sms: cleared })
     await saveAdminSms(cleared)
-    const st = await getAdminSettingsStatus()
+    const st = await getAdminSettingsStatus(ADMIN_TIMEOUT_MS)
     if (st) setServerStatus(st)
     setSmsMsg('SMS info deleted.')
   }
@@ -4782,18 +4865,23 @@ function AdminSettingsTab() {
     setAdminSettings({ ...adminSettings, smtp: cleaned })
     setSmtpMsg('Saving…')
     const ok = await saveAdminSmtp(cleaned)
-    const st = await getAdminSettingsStatus()
+    const st = await getAdminSettingsStatus(ADMIN_TIMEOUT_MS)
     if (st) setServerStatus(st)
-    setSmtpMsg(ok
+    // সত্যি বার্তা — সার্ভার না পেলে "✅ SMTP saved" দিয়ে শুরু হয় না;
+    // সাফল্য শুধু তখনই, যখন সার্ভার নিজে smtpConfigured নিশ্চিত করে।
+    const confirmed = ok && st?.smtpConfigured === true
+    setSmtpMsg(confirmed
       ? '✅ SMTP saved — also sent to the server, OTP mail will now go through this SMTP.'
-      : '✅ SMTP saved on this device — it did not reach the server (backend not reachable), save again later.')
+      : ok
+        ? '⚠️ SMTP sent to the server, but the confirmation check did not come back — check Server Status above; if it still says SMTP off, save again.'
+        : '❌ SMTP not saved — it did not reach the server (timed out or backend not reachable). OTP mail will not be sent until it saves. Try again.')
   }
   async function clearSmtp() {
     const cleared = { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' }
     setSmtp(cleared)
     setAdminSettings({ ...adminSettings, smtp: cleared })
     await saveAdminSmtp(cleared)
-    const st = await getAdminSettingsStatus()
+    const st = await getAdminSettingsStatus(ADMIN_TIMEOUT_MS)
     if (st) setServerStatus(st)
     setSmtpMsg('SMTP info deleted.')
   }
@@ -4873,14 +4961,14 @@ function AdminSettingsTab() {
       </select>
       <label className="text-sm block mt-2">API Key</label>
       <input type="password" className={inputCls} value={sms.apiKey} onChange={e => { setSms({ ...sms, apiKey: e.target.value }); setSmsMsg('') }} placeholder="Gateway API Key" autoComplete="off" />
-      {sms.apiKey && <p className="text-xs text-green-600 mt-1">✅ API Key saved</p>}
+      {serverStatus?.smsConfigured && sms.apiKey && <p className="text-xs text-green-600 mt-1">✅ API Key saved</p>}
       <label className="text-sm block mt-2">Sender ID</label>
       <input className={inputCls} value={sms.senderId} onChange={e => { setSms({ ...sms, senderId: e.target.value }); setSmsMsg('') }} placeholder="e.g. PiCall" />
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={saveSms}>Save</Btn>
         <Btn variant="ghost" onClick={clearSms}>Delete</Btn>
       </div>
-      {smsMsg && <p className="text-sm text-green-600 mt-2">{smsMsg}</p>}
+      {smsMsg && <p className={adminMsgCls(smsMsg)}>{smsMsg}</p>}
       <p className="text-xs text-amber-600 mt-2">The server copy will be deleted on a Railway restart — then you must save again. Permanent way: set the NISHCHIT_API_KEY env var in Railway.</p>
 
       <h3 className="font-bold mt-6 pt-4 border-t">✉️ Email SMTP (for OTP mail)</h3>
@@ -4893,7 +4981,7 @@ function AdminSettingsTab() {
       <input className={inputCls} value={smtp.user} onChange={e => { setSmtp({ ...smtp, user: e.target.value }); setSmtpMsg('') }} placeholder="you@gmail.com" inputMode="email" />
       <label className="text-sm block mt-2">App Password</label>
       <input type="password" className={inputCls} value={smtp.pass} onChange={e => { setSmtp({ ...smtp, pass: e.target.value }); setSmtpMsg('') }} placeholder="Gmail App Password (16 characters)" autoComplete="off" />
-      {smtp.pass && <p className="text-xs text-green-600 mt-1">✅ App Password saved</p>}
+      {serverStatus?.smtpConfigured && smtp.pass && <p className="text-xs text-green-600 mt-1">✅ App Password saved</p>}
       <label className="text-sm block mt-2">Sender's Email Address (From)</label>
       <input className={inputCls} value={smtp.from} onChange={e => { setSmtp({ ...smtp, from: e.target.value }); setSmtpMsg('') }} placeholder="e.g. noreply@your-domain.com" inputMode="email" />
       <p className="text-xs text-gray-400 mt-1">If empty, your Gmail address will be the sender. After buying your own domain, put noreply@yourdomain here — then that domain's SMTP must also be set here.</p>
@@ -4901,7 +4989,7 @@ function AdminSettingsTab() {
         <Btn onClick={saveSmtp}>Save</Btn>
         <Btn variant="ghost" onClick={clearSmtp}>Delete</Btn>
       </div>
-      {smtpMsg && <p className="text-sm text-green-600 mt-2">{smtpMsg}</p>}
+      {smtpMsg && <p className={adminMsgCls(smtpMsg)}>{smtpMsg}</p>}
       <p className="text-xs text-amber-600 mt-2">The server copy will be deleted on a Railway restart — then you must save again. Permanent way: set SMTP_* env vars in Railway.</p>
 
       <h3 className="font-bold mt-6 pt-4 border-t">💰 Real Payment Details</h3>

@@ -619,10 +619,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   userRef.current = user
 
   // Firebase সেশন ফিরে এলে UID ধরা হয় (রিলোডের পর সেশন async ফেরে)।
+  // বেনামি (anonymous) সেশন শুধু টোকেনের জন্য হতে পারে — এতে কখনো UID
+  // বসে না, Firestore সিঙ্কও চলে না; আসল পরিচয় সবসময় লোকাল
+  // ব্যবহারকারীর (Google/পাসওয়ার্ড লগইনের) UID-ই থাকে।
   useEffect(() => {
     const unsub = onFirebaseAuthUser((fbUser) => {
       setAuthReady(true)
-      if (fbUser && userRef.current) setUid((prev) => (prev === fbUser.uid ? prev : fbUser.uid))
+      if (fbUser && !fbUser.isAnonymous && userRef.current) setUid((prev) => (prev === fbUser.uid ? prev : fbUser.uid))
     })
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -778,6 +781,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setKycInfo(null)
     setKycRejectReason('')
     setReferralCodeState(randomCode())
+    // সংখ্যার UID-ও শূন্য করা হয় — আগের ব্যবহারকারীর নম্বর নতুন
+    // ব্যবহারকারীর state-এ থেকে গেলে write-through sync সেটা নতুন
+    // ব্যবহারকারীর users ডকে লিখে দিত (১০০০০১ ডুপ্লিকেটের কারণ)।
+    setNumericUidState(null)
     setReferrer(null)
     setRefWelcomeClaimed(false)
     setRefNotice(null)
@@ -841,8 +848,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return
         // সংখ্যার UID — আগে থেকে থাকলে সেটাই, না থাকলে কাউন্টার থেকে নতুন
         // বরাদ্দ (১০০০০১ থেকে); ব্যর্থ হলে null — পরের লগইনে আবার চেষ্টা হয়।
+        // ব্যর্থ হলেও state শূন্য করা হয় — আগের ব্যবহারকারীর নম্বর যেন এই
+        // অ্যাকাউন্টে না লাগে (write-through sync-এ ডুপ্লিকেট উঠত)।
         const myNumericUid = await ensureNumericUid(uid)
-        if (myNumericUid !== null) setNumericUidState(myNumericUid)
+        setNumericUidState(myNumericUid)
         if (cancelled) return
         const profileExtra = { gender, district, interests, photo: profilePhoto, ...(myNumericUid !== null ? { numericUid: myNumericUid } : {}) }
         if (docData) {

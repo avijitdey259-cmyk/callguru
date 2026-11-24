@@ -25,15 +25,20 @@ import { getIdToken } from './firebase'
 
 export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) || 'https://callguru-production.up.railway.app').trim().replace(/\/+$/, '')
 export const API_TIMEOUT_MS = 5000
+// Admin settings save — slow mobile connections need longer than the 5s
+// default: the POST to Railway aborted before the server ever saw it,
+// while the UI still claimed the save worked. 30s for the save itself
+// and for the status check right after it.
+export const ADMIN_TIMEOUT_MS = 30000
 
 export type ApiExpert = { id: string; name: string; rate: number; online: boolean }
 export type ApiHealth = { ok: boolean; app: string; version: string }
 export type BackendSource = 'live' | 'demo'
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs: number = API_TIMEOUT_MS): Promise<T | null> {
   if (!API_BASE) return null
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...init, signal: ctrl.signal })
     if (!res.ok) return null
@@ -192,7 +197,7 @@ export async function authHeaders(): Promise<Record<string, string>> {
 export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
   if (!API_BASE) return false
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), ADMIN_TIMEOUT_MS)
   try {
     const res = await fetch(`${API_BASE}/api/admin/settings`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
@@ -206,9 +211,10 @@ export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
   }
 }
 
-/** GET /api/admin/settings — শুধু অবস্থা (চালু/বন্ধ) ফেরে, কোনো গোপন মান নয়। */
-export function getAdminSettingsStatus(): Promise<{ smtpConfigured: boolean; smsConfigured: boolean } | null> {
-  return fetchJson('/api/admin/settings')
+/** GET /api/admin/settings — শুধু অবস্থা (চালু/বন্ধ) ফেরে, কোনো গোপন মান নয়।
+ *  সেভের ঠিক পরের চেক ৩০ সেকেন্ড পায় (ধীর মোবাইলে ৫ সেকেন্ডে মরে যেত)। */
+export function getAdminSettingsStatus(timeoutMs: number = API_TIMEOUT_MS): Promise<{ smtpConfigured: boolean; smsConfigured: boolean } | null> {
+  return fetchJson('/api/admin/settings', undefined, timeoutMs)
 }
 
 export type AdminSmsPayload = { provider: string; apiKey: string; senderId: string }
@@ -218,7 +224,7 @@ export type AdminSmsPayload = { provider: string; apiKey: string; senderId: stri
 export async function saveAdminSms(sms: AdminSmsPayload): Promise<boolean> {
   if (!API_BASE) return false
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), ADMIN_TIMEOUT_MS)
   try {
     const res = await fetch(`${API_BASE}/api/admin/settings`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },

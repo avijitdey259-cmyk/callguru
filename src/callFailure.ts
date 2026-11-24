@@ -108,6 +108,18 @@ export function callErrorToFailureReason(err: string): CallFailureReason {
 }
 
 /**
+ * Room socket closed before connecting — which reason the caller sees.
+ * The no-answer timer is armed only while the caller is still waiting for
+ * an answer (invite sent, nobody picked up yet): a socket dying then is
+ * almost always an idle mobile/NAT socket or Railway cutting it — the real
+ * situation is "nobody answered", not a dead server. Only when the socket
+ * fails before any invite went out (timer never armed) is it a server error.
+ */
+export function closeWhileWaitingToFailureReason(waitingForAnswer: boolean): CallFailureReason {
+  return waitingForAnswer ? 'no-answer' : 'server'
+}
+
+/**
  * No-answer wait — the callee's ringtone stops after the 60-second invite
  * TTL (src/incomingCall.ts INVITE_TTL_MS); 5 seconds of grace cover the
  * last signalling round-trip before the caller sees "No answer".
