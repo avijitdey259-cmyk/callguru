@@ -16,7 +16,7 @@
 // source once set) — never put secrets here.
 export type AnalyticsIds = { pixelId: string; ga4Id: string; clarityId: string }
 
-export type SignupMethod = 'google' | 'email_link' | 'email_otp' | 'sms_otp'
+export type SignupMethod = 'google' | 'email_link' | 'email_otp' | 'sms_otp' | 'password'
 
 export const EMPTY_ANALYTICS_IDS: AnalyticsIds = { pixelId: '', ga4Id: '', clarityId: '' }
 
