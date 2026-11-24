@@ -23,6 +23,10 @@ export type KycInfo = { name: string; dob: string; idType: string; idNumber?: st
 export type TopUpRequest = { id: string; method: string; network?: string; amount: number; currency: 'BDT' | 'USDT'; trxId: string; date: string; status: 'pending' | 'approved' | 'rejected' }
 // Pi জমা/তোলার হিসাব — Pi নেটওয়ার্কে আসল ব্লকচেইন লেনদেন নয় (অফিসিয়াল Pi SDK
 // যুক্ত না হওয়া পর্যন্ত স্থানীয় হিসাব); chain বলে দেয় কোন নেটওয়ার্কের জন্য রেকর্ডটি।
+// পুনরুদ্ধার + দুই ধাপের যাচাই — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক, সম্পাদনাযোগ্য);
+// শুধু users/{uid} ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
+export type SecuritySettings = { recoveryEmail: string; recoveryPhone: string; recoveryEmailVerified: boolean; recoveryPhoneVerified: boolean; twoFactorEnabled: boolean }
+export const DEFAULT_SECURITY_SETTINGS: SecuritySettings = { recoveryEmail: '', recoveryPhone: '', recoveryEmailVerified: false, recoveryPhoneVerified: false, twoFactorEnabled: false }
 export type PiTx = { id: string; amount: number; ref?: string; address?: string; fee?: number; received?: number; date: string; status: string; chain?: string }
 // π Pi রিপোর্টের লেনদেন খতিয়ান — প্রতিটি Pi ওঠানামা এক লাইনে (আয় +, খরচ −); localStorage-এ থাকে
 export type PiLedgerRow = { id: string; date: string; type: string; label: string; amount: number }
@@ -185,6 +189,15 @@ type Store = {
   interests: string[]
   updateProfile: (p: Partial<ProfileFields>) => void
   profileCompletion: number
+  // পুনরুদ্ধার + দুই ধাপের যাচাই — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক, সম্পাদনাযোগ্য);
+  // শুধু users/{uid} ব্যক্তিগত ডকে থাকে, publicProfiles-এ কখনো নয়।
+  // মোবাইল নম্বর অন্য ব্যবহারকারীর কাছে দেখানো হয় না।
+  recoveryEmail: string
+  recoveryPhone: string
+  recoveryEmailVerified: boolean
+  recoveryPhoneVerified: boolean
+  twoFactorEnabled: boolean
+  updateSecurity: (p: Partial<SecuritySettings>) => void
   // π Pi রিপোর্ট — সব Pi লেনদেনের খতিয়ান (নতুনতম আগে), ওয়ালেটে দেখায়
   piLedger: PiLedgerRow[]
   piRateBDT: number
@@ -336,6 +349,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [profilePhoto, setProfilePhoto] = useState<string>(() => load('profilePhoto', ''))
   const [galleryPhotos, setGalleryPhotos] = useState<string[]>(() => load('galleryPhotos', []))
   const [interests, setInterests] = useState<string[]>(() => load('interests', []))
+  // পুনরুদ্ধার + দুই ধাপের যাচাই — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক); যাচাইয়ের
+  // অবস্থাসহ localStorage-এ থাকে, users/{uid} ব্যক্তিগত ডকেও সিঙ্ক হয়।
+  const [recoveryEmail, setRecoveryEmail] = useState<string>(() => load('recoveryEmail', ''))
+  const [recoveryPhone, setRecoveryPhone] = useState<string>(() => load('recoveryPhone', ''))
+  const [recoveryEmailVerified, setRecoveryEmailVerified] = useState<boolean>(() => load('recoveryEmailVerified', false))
+  const [recoveryPhoneVerified, setRecoveryPhoneVerified] = useState<boolean>(() => load('recoveryPhoneVerified', false))
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(() => load('twoFactorEnabled', false))
   // পুরোনো সংরক্ষিত "Demo" লেখা থাকলে নিরবে নতুন লেখায় বদলে যায় (ইতিহাস থাকে, লেখা থাকে না)
   const sanitizePiTx = (list: PiTx[]): PiTx[] => list.map(t => ({
     ...t,
@@ -419,6 +439,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('profilePhoto', profilePhoto), [profilePhoto])
   useEffect(() => save('galleryPhotos', galleryPhotos), [galleryPhotos])
   useEffect(() => save('interests', interests), [interests])
+  useEffect(() => save('recoveryEmail', recoveryEmail), [recoveryEmail])
+  useEffect(() => save('recoveryPhone', recoveryPhone), [recoveryPhone])
+  useEffect(() => save('recoveryEmailVerified', recoveryEmailVerified), [recoveryEmailVerified])
+  useEffect(() => save('recoveryPhoneVerified', recoveryPhoneVerified), [recoveryPhoneVerified])
+  useEffect(() => save('twoFactorEnabled', twoFactorEnabled), [twoFactorEnabled])
   useEffect(() => save('piDeposits', piDeposits), [piDeposits])
   useEffect(() => save('piWithdrawals', piWithdrawals), [piWithdrawals])
   useEffect(() => save('piLedger', piLedger), [piLedger])
@@ -473,6 +498,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     totalShares, reelShares, giftsSentPi,
     piWalletAddress, piDeposits, piWithdrawals, piLedger,
     profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests,
+    recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled,
   })
 
   // ক্লাউডের ডক → স্টোরে বসানো (যা ঘর ডকে নেই, সেটা বদলায় না)।
@@ -523,6 +549,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (h.profilePhoto !== undefined) setProfilePhoto(h.profilePhoto)
     if (h.galleryPhotos !== undefined) setGalleryPhotos(h.galleryPhotos)
     if (h.interests !== undefined) setInterests(h.interests)
+    if (h.recoveryEmail !== undefined) setRecoveryEmail(h.recoveryEmail)
+    if (h.recoveryPhone !== undefined) setRecoveryPhone(h.recoveryPhone)
+    if (h.recoveryEmailVerified !== undefined) setRecoveryEmailVerified(h.recoveryEmailVerified)
+    if (h.recoveryPhoneVerified !== undefined) setRecoveryPhoneVerified(h.recoveryPhoneVerified)
+    if (h.twoFactorEnabled !== undefined) setTwoFactorEnabled(h.twoFactorEnabled)
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
@@ -588,6 +619,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setProfilePhoto('')
     setGalleryPhotos([])
     setInterests([])
+    setRecoveryEmail('')
+    setRecoveryPhone('')
+    setRecoveryEmailVerified(false)
+    setRecoveryPhoneVerified(false)
+    setTwoFactorEnabled(false)
     setPiLedger([{ id: 'open-mig', date: '—', type: 'Adjustment', label: 'Adjustment for earlier transactions', amount: 20 }])
     setPiRateBDTState(DEFAULT_PI_RATE_BDT)
     setUsdtRateBDTState(DEFAULT_USDT_RATE_BDT)
@@ -699,7 +735,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -978,6 +1014,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (p.interests !== undefined) setInterests(p.interests.slice(0, 16))
     },
     profileCompletion: profileCompletion(user?.name ?? '', { profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests }),
+    recoveryEmail,
+    recoveryPhone,
+    recoveryEmailVerified,
+    recoveryPhoneVerified,
+    twoFactorEnabled,
+    updateSecurity: (p) => {
+      if (p.recoveryEmail !== undefined) setRecoveryEmail(p.recoveryEmail)
+      if (p.recoveryPhone !== undefined) setRecoveryPhone(p.recoveryPhone)
+      if (p.recoveryEmailVerified !== undefined) setRecoveryEmailVerified(p.recoveryEmailVerified)
+      if (p.recoveryPhoneVerified !== undefined) setRecoveryPhoneVerified(p.recoveryPhoneVerified)
+      if (p.twoFactorEnabled !== undefined) setTwoFactorEnabled(p.twoFactorEnabled)
+    },
     piRateBDT,
     setPiRateBDT: (v) => { const n = roundPi(Number(v)); if (Number.isFinite(n) && n >= 1) setPiRateBDTState(n) },
     usdtRateBDT,
@@ -1026,7 +1074,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     adminSettings,
     setAdminSettings: (s) => setAdminSettingsState(s),
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

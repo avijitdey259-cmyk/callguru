@@ -10,7 +10,7 @@ import { sendCallInvite, onInviteResponse } from './presence'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
-import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconPhoto, IconPlus, IconReels, IconSearch, IconSettings, IconShare, IconShield, IconSparkle, IconVideo, IconWallet } from './icons'
+import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
@@ -235,7 +235,7 @@ export function Landing() {
 
 // ---------- Login ----------
 export function LoginPage() {
-  const { login } = useStore()
+  const { login, dark, toggleDark } = useStore()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -256,6 +256,9 @@ export function LoginPage() {
   const [completingLink, setCompletingLink] = useState(false)
 
   const displayName = (mail: string) => name.trim() || mail.split('@')[0] || 'PiCall User'
+  // লগইন ইনপুটের একই চেহারা — আইকনসহ, গোল কোণা, ফোকাসে Pi purple রিং (দুই থিমেই)
+  const inputCls = 'w-full border border-gray-200 dark:border-slate-600 rounded-xl px-3 py-2.5 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500'
+  const inputIconCls = 'w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none'
 
   // ইমেইল লিংকে ট্যাপ করে ফিরে এলে লগইন সম্পূর্ণ করা হয় (যাচাই ছাড়া কেউ ঢুকতে পারে না)
   useEffect(() => {
@@ -410,57 +413,85 @@ export function LoginPage() {
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      <Card>
-        <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
-        <p className="text-center text-sm text-gray-500 mt-1">Gmail 1-Click Login • Email Link • Email OTP • Mobile OTP</p>
-        <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-lg border font-medium flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-800 disabled:opacity-60">
-          <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
-          {busy ? 'Logging in…' : '1-Click Login with Gmail'}
-        </button>
-        <p className="text-xs text-center text-gray-400 mt-1">Real Gmail login is on — log in with your Google account.</p>
-        <div className="my-4 border-t" />
+    <div className="min-h-screen bg-gray-50 dark:bg-fb-dark flex flex-col items-center px-4 py-6 sm:py-10">
+      <div className="w-full h-1.5 pb-gradient rounded-full max-w-md" />
+      <div className="w-full max-w-md">
+        <div className="flex justify-end mt-3">
+          <button onClick={toggleDark} title="Dark mode" className="w-9 h-9 rounded-full bg-white dark:bg-fb-card border border-gray-200 dark:border-white/10 shadow-sm flex items-center justify-center text-gray-600 dark:text-gray-200">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
+        </div>
+        <div className="text-center mt-2">
+          <span className="mx-auto w-16 h-16 rounded-full pb-gradient text-white text-3xl font-extrabold flex items-center justify-center shadow-lg shadow-violet-500/30">π</span>
+          <p className="text-3xl font-extrabold mt-3 pb-gradient-text leading-none">PiCall</p>
+        </div>
+        <Card className="mt-5 !p-5 sm:!p-6 !shadow-md">
+          <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Gmail 1-Click Login • Email Link • Email OTP • Mobile OTP</p>
+          <button disabled={busy || completingLink} onClick={googleLogin} className="w-full mt-5 py-3 rounded-xl border border-gray-200 dark:border-slate-600 font-semibold flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-100 disabled:opacity-60 shadow-sm transition">
+            <span className="font-extrabold text-lg"><span className="text-blue-500">G</span><span className="text-red-500">o</span><span className="text-yellow-500">o</span><span className="text-blue-500">g</span><span className="text-green-500">l</span><span className="text-red-500">e</span></span>
+            {busy ? 'Logging in…' : '1-Click Login with Gmail'}
+          </button>
+          <p className="text-xs text-center text-gray-400 mt-2">Real Gmail login is on — log in with your Google account.</p>
+          <div className="my-5 border-t border-gray-100 dark:border-white/10" />
         {completingLink && <p className="text-sm text-center text-gray-600 dark:text-gray-300">Verifying link…</p>}
         {linkEmailNeeded && (
-          <div className="mb-4">
+          <div className="mb-4 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
             <p className="text-sm text-center mb-2">Enter your email to complete login — it must be the email the link was sent to.</p>
-            <input className="w-full border rounded-lg px-3 py-2 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
-            <Btn className="w-full mt-2" disabled={busy} onClick={finishLinkWithEmail}>Complete Login</Btn>
+            <div className="relative">
+              <IconMail className={inputIconCls} />
+              <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+            </div>
+            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={finishLinkWithEmail}>Complete Login</Btn>
           </div>
         )}
         <label className="text-sm font-medium">Name <span className="text-gray-400 font-normal">(will be shown after verification)</span></label>
-        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={name} onChange={e => setName(e.target.value)} placeholder="Your Name" />
+        <div className="relative mt-1">
+          <IconUser className={inputIconCls} />
+          <input className={inputCls + ' pl-10'} value={name} onChange={e => setName(e.target.value)} placeholder="Your Name" />
+        </div>
         <label className="text-sm font-medium mt-3 block">Email</label>
-        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
-        <Btn className="w-full mt-4" disabled={busy} onClick={sendLink}>Send Login Link by Email</Btn>
+        <div className="relative mt-1">
+          <IconMail className={inputIconCls} />
+          <input className={inputCls + ' pl-10'} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" inputMode="email" />
+        </div>
+        <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={sendLink}>Send Login Link by Email</Btn>
         {linkSent && <p className="text-sm text-center mt-2 text-green-700 dark:text-green-400">Check your email — tap the link to log in.</p>}
-        <div className="my-4 border-t" />
-        <p className="text-sm font-medium text-center">Or log in with email OTP</p>
-        <Btn variant="ghost" className="w-full mt-2" disabled={busy} onClick={sendOtp}>{otpSent ? 'Send OTP again' : 'Send OTP'}</Btn>
+        <div className="my-5 border-t border-gray-100 dark:border-white/10" />
+        <p className="text-sm font-semibold text-center flex items-center justify-center gap-2"><IconMail className="w-4 h-4 text-violet-500" />Or log in with email OTP</p>
+        <Btn variant="ghost" className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={sendOtp}>{otpSent ? 'Send OTP again' : 'Send OTP'}</Btn>
         {otpSent && (
-          <div className="mt-3">
+          <div className="mt-3 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
             <label className="text-sm font-medium">6-digit code</label>
-            <input className="w-full border rounded-lg px-3 py-2 mt-1 text-center tracking-[0.5em] dark:bg-slate-800 dark:border-slate-600" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            <div className="relative mt-1">
+              <IconLock className={inputIconCls} />
+              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            </div>
             <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
-            <Btn className="w-full mt-2" disabled={busy} onClick={verifyOtp}>Verify the code to log in</Btn>
+            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={verifyOtp}>Verify the code to log in</Btn>
           </div>
         )}
-        <div className="my-4 border-t" />
-        <p className="text-sm font-medium text-center">Or log in with mobile number</p>
+        <div className="my-5 border-t border-gray-100 dark:border-white/10" />
+        <p className="text-sm font-semibold text-center flex items-center justify-center gap-2"><IconCall className="w-4 h-4 text-violet-500" />Or log in with mobile number</p>
         <label className="text-sm font-medium mt-3 block">Mobile Number</label>
-        <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={phone} onChange={e => setPhone(e.target.value)} placeholder="01XXXXXXXXX" inputMode="tel" />
-        <Btn variant="ghost" className="w-full mt-2" disabled={busy} onClick={sendSms}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
+        <div className="relative mt-1">
+          <IconCall className={inputIconCls} />
+          <input className={inputCls + ' pl-10'} value={phone} onChange={e => setPhone(e.target.value)} placeholder="01XXXXXXXXX" inputMode="tel" />
+        </div>
+        <Btn variant="ghost" className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={sendSms}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
         {smsOtpSent && (
-          <div className="mt-3">
+          <div className="mt-3 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
             <label className="text-sm font-medium">6-digit code</label>
-            <input className="w-full border rounded-lg px-3 py-2 mt-1 text-center tracking-[0.5em] dark:bg-slate-800 dark:border-slate-600" value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            <div className="relative mt-1">
+              <IconLock className={inputIconCls} />
+              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            </div>
             <p className="text-xs text-center text-gray-400 mt-1">The code is valid for 10 minutes.</p>
-            <Btn className="w-full mt-2" disabled={busy} onClick={verifySms}>Verify the code to log in</Btn>
+            <Btn className="w-full mt-2 !py-3 !rounded-xl" disabled={busy} onClick={verifySms}>Verify the code to log in</Btn>
           </div>
         )}
-        {msg && <p className="text-sm text-center mt-2 text-gray-600 dark:text-gray-300">{msg}</p>}
+        {msg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{msg}</p>}
         <p className="text-xs text-gray-400 mt-4 text-center">By logging in, you agree to the Terms and Privacy Policy. Only the admin can view call recordings (for appeals/disputes, stored 30 days).</p>
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -3494,7 +3525,7 @@ export function AdminPage() {
 // জেলা ১০%, থানা+ঠিকানা ১০%, গ্যালারি ১৫% (৬+ ছবিতে পুরো), ইন্টারেস্ট ১৫%।
 // ঠিকানা + জন্মতারিখ শুধু users/{uid} ডকে থাকে — publicProfiles-এ যায় না।
 function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
-  const { user, login, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, updateProfile: saveProfile, kycInfo } = useStore()
+  const { user, login, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, updateProfile: saveProfile, kycInfo, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, updateSecurity } = useStore()
   const [name, setName] = useState(user?.name ?? '')
   const [dob, setDob] = useState(profileDob || kycInfo?.dob || '')
   const [gen, setGen] = useState<Gender>(gender)
@@ -3506,6 +3537,16 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
   const [gallery, setGallery] = useState<string[]>(galleryPhotos)
   const [ints, setInts] = useState<string[]>(interests)
   const [saved, setSaved] = useState('')
+  // পুনরুদ্ধার + দুই ধাপ — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক); যাচাইয়ের কোড
+  // আগের মতোই আসল OTP পথে যায় (ইমেইল OTP এখনো চালু নয়, SMS গেটওয়ে এখনো
+  // বসানো হয়নি — সেগুলো চালু না হওয়া পর্যন্ত 'not_configured' বার্তাই আসে)।
+  const [recEmail, setRecEmail] = useState(recoveryEmail)
+  const [recPhone, setRecPhone] = useState(recoveryPhone)
+  const [emailOtpSent, setEmailOtpSent] = useState(false)
+  const [emailOtp, setEmailOtp] = useState('')
+  const [smsOtpSent, setSmsOtpSent] = useState(false)
+  const [smsOtp, setSmsOtp] = useState('')
+  const [secMsg, setSecMsg] = useState('')
   const photoRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
   const pct = profileCompletion(name, { profileDob: dob, gender: gen, district: dist, thana: th, address: addr, hideAddress: hide, profilePhoto: photo, galleryPhotos: gallery, interests: ints })
@@ -3541,7 +3582,68 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
       login(n, user.email)
     }
     saveProfile({ profileDob: dob, gender: gen, district: dist, thana: th, address: addr, hideAddress: hide, profilePhoto: photo, galleryPhotos: gallery, interests: ints })
+    // পুনরুদ্ধার যোগাযোগ — বদলালে যাচাই আবার করতে হয় (আগের যাচাই বাতিল)।
+    const re = recEmail.trim().toLowerCase()
+    const rp = normalizeBdPhone(recPhone) || recPhone.trim()
+    updateSecurity({
+      recoveryEmail: re,
+      recoveryPhone: rp,
+      recoveryEmailVerified: re !== '' && re === recoveryEmail ? recoveryEmailVerified : false,
+      recoveryPhoneVerified: rp !== '' && rp === recoveryPhone ? recoveryPhoneVerified : false,
+    })
     setSaved('✅ Profile saved.')
+  }
+  const sendRecoveryEmailOtp = async () => {
+    const mail = recEmail.trim().toLowerCase()
+    if (!mail.includes('@')) { setSecMsg('Enter a valid email.'); return }
+    setSecMsg('')
+    const r = await sendEmailOtp(mail)
+    if (!r || !r.ok) { setSecMsg('Email OTP is not on yet — the admin is setting it up.'); return }
+    setEmailOtpSent(true)
+    setSecMsg('A 6-digit code has been sent to your email — valid for 10 minutes.')
+  }
+  const verifyRecoveryEmailOtp = async () => {
+    const code = emailOtp.trim()
+    if (!/^\d{6}$/.test(code)) { setSecMsg('Enter the 6-digit code.'); return }
+    const mail = recEmail.trim().toLowerCase()
+    const r = await verifyEmailOtp(mail, code)
+    if (r && r.ok) {
+      updateSecurity({ recoveryEmail: mail, recoveryEmailVerified: true })
+      setSecMsg('Recovery email verified.')
+      return
+    }
+    if (r && r.error === 'expired') setSecMsg('The code has expired — send OTP again.')
+    else if (r && r.error === 'not_configured') setSecMsg('Email OTP is not on yet — the admin is setting it up.')
+    else setSecMsg('The code is wrong — check and enter it again.')
+  }
+  const sendRecoverySmsOtp = async () => {
+    const ph = normalizeBdPhone(recPhone)
+    if (!ph) { setSecMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
+    setSecMsg('')
+    const r = await sendSmsOtp(ph)
+    if (!r || !r.ok) {
+      if (r && r.error === 'not_configured') setSecMsg('SMS login is not set up yet — please use email login for now.')
+      else if (!r) setSecMsg('Could not reach the server — check your connection and try again.')
+      else setSecMsg('Could not send the code — please try again.')
+      return
+    }
+    setSmsOtpSent(true)
+    setSecMsg('A 6-digit code has been sent to your mobile — valid for 10 minutes.')
+  }
+  const verifyRecoverySmsOtp = async () => {
+    const code = smsOtp.trim()
+    if (!/^\d{6}$/.test(code)) { setSecMsg('Enter the 6-digit code.'); return }
+    const ph = normalizeBdPhone(recPhone)
+    if (!ph) { setSecMsg('Enter a valid Bangladeshi mobile number (11 digits, starting with 01).'); return }
+    const r = await verifySmsOtp(ph, code)
+    if (r && r.ok) {
+      updateSecurity({ recoveryPhone: ph, recoveryPhoneVerified: true })
+      setSecMsg('Recovery mobile verified.')
+      return
+    }
+    if (r && r.error === 'expired') setSecMsg('The code has expired — send OTP again.')
+    else if (r && r.error === 'not_configured') setSecMsg('SMS login is not set up yet — please use email login for now.')
+    else setSecMsg('The code is wrong — check and enter it again.')
   }
   const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
   return (
@@ -3603,6 +3705,55 @@ function ProfileSettingsForm({ onClose }: { onClose: () => void }) {
       <div className="flex gap-2 flex-wrap mt-2">{INTERESTS.map(i => (
         <button key={i} onClick={() => setInts(v => v.includes(i) ? v.filter(x => x !== i) : [...v, i])} className={`px-3 py-1.5 rounded-full text-xs font-medium ${ints.includes(i) ? 'pb-gradient text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>{i}</button>
       ))}</div>
+      {/* পুনরুদ্ধার + দুই ধাপের যাচাই — ইমেইল + মোবাইল দুটোই (ঐচ্ছিক, সম্পাদনাযোগ্য)।
+          শুধু users/{uid} ব্যক্তিগত ডকে থাকে — publicProfiles-এ কখনো নয়, অন্য
+          ব্যবহারকারীর কাছে মোবাইল নম্বর দেখানো হয় না। */}
+      <div className="mt-5 border-t border-gray-100 dark:border-white/10 pt-4">
+        <h3 className="font-bold flex items-center gap-2"><IconShield className="w-5 h-5 text-violet-500" /> Recovery & Two-Step Verification</h3>
+        <p className="text-xs text-gray-400 mt-1">Add a second contact so you can get back into your account. Only you can see these — they are never shown to other users.</p>
+        <label className="text-sm font-medium mt-4 block">Recovery Email {recoveryEmailVerified
+          ? <span className="text-[11px] bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-2 py-0.5 rounded-full font-bold">✓ Verified</span>
+          : <span className="text-[11px] bg-gray-100 dark:bg-slate-700 text-gray-500 px-2 py-0.5 rounded-full font-bold">Not verified</span>}</label>
+        <div className="relative mt-1">
+          <IconMail className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
+          <input className={inputCls + ' pl-10'} value={recEmail} onChange={e => { setRecEmail(e.target.value); if (e.target.value.trim().toLowerCase() !== recoveryEmail) updateSecurity({ recoveryEmailVerified: false }) }} placeholder="you@example.com" inputMode="email" />
+        </div>
+        <Btn variant="ghost" className="mt-2 !py-2.5 !rounded-xl" onClick={sendRecoveryEmailOtp}>{emailOtpSent ? 'Send OTP again' : 'Send OTP'}</Btn>
+        {emailOtpSent && (
+          <div className="mt-2 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
+            <label className="text-sm font-medium">6-digit code</label>
+            <div className="relative mt-1">
+              <IconLock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
+              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={emailOtp} onChange={e => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            </div>
+            <Btn className="w-full mt-2 !py-3 !rounded-xl" onClick={verifyRecoveryEmailOtp}>Verify recovery email</Btn>
+          </div>
+        )}
+        <label className="text-sm font-medium mt-4 block">Recovery Mobile Number {recoveryPhoneVerified
+          ? <span className="text-[11px] bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 px-2 py-0.5 rounded-full font-bold">✓ Verified</span>
+          : <span className="text-[11px] bg-gray-100 dark:bg-slate-700 text-gray-500 px-2 py-0.5 rounded-full font-bold">Not verified</span>}</label>
+        <div className="relative mt-1">
+          <IconCall className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
+          <input className={inputCls + ' pl-10'} value={recPhone} onChange={e => { setRecPhone(e.target.value); if ((normalizeBdPhone(e.target.value) || e.target.value.trim()) !== recoveryPhone) updateSecurity({ recoveryPhoneVerified: false }) }} placeholder="01XXXXXXXXX" inputMode="tel" />
+        </div>
+        <Btn variant="ghost" className="mt-2 !py-2.5 !rounded-xl" onClick={sendRecoverySmsOtp}>{smsOtpSent ? 'Send OTP again' : 'Send OTP by SMS'}</Btn>
+        {smsOtpSent && (
+          <div className="mt-2 rounded-xl bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 p-3">
+            <label className="text-sm font-medium">6-digit code</label>
+            <div className="relative mt-1">
+              <IconLock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none" />
+              <input className={inputCls + ' pl-10 text-center tracking-[0.5em] font-semibold'} value={smsOtp} onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" inputMode="numeric" />
+            </div>
+            <Btn className="w-full mt-2 !py-3 !rounded-xl" onClick={verifyRecoverySmsOtp}>Verify recovery mobile</Btn>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 mt-4 text-sm">
+          <span className="font-medium flex items-center gap-2"><IconLock className="w-4 h-4 text-violet-500" /> Two-step verification</span>
+          <button onClick={() => updateSecurity({ twoFactorEnabled: !twoFactorEnabled })} className={`px-3 py-1.5 rounded-full font-bold ${twoFactorEnabled ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{twoFactorEnabled ? 'On' : 'Off'}</button>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">When on, login will ask for a second code — email OTP once the admin sets it up; SMS OTP once the SMS gateway is wired.</p>
+        {secMsg && <p className="text-sm text-center mt-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{secMsg}</p>}
+      </div>
       <Btn className="w-full mt-5" onClick={save}>Save Profile</Btn>
       {saved && <p className="text-sm text-green-600 mt-2">{saved}</p>}
     </Card>

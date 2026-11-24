@@ -82,6 +82,13 @@ export type UserDoc = {
   profilePhoto: string
   galleryPhotos: string[]
   interests: string[]
+  // পুনরুদ্ধার + দুই ধাপের যাচাই — শুধু এই ব্যক্তিগত ডকে (publicProfiles-এ কখনো নয়);
+  // মোবাইল নম্বর অন্য ব্যবহারকারীর কাছে দেখানো হয় না।
+  recoveryEmail: string
+  recoveryPhone: string
+  recoveryEmailVerified: boolean
+  recoveryPhoneVerified: boolean
+  twoFactorEnabled: boolean
 }
 
 // স্টোর থেকে যে স্ন্যাপশট নিয়ে ডক বানানো হয় (দরগুলো এখানে নেই — সেগুলো config/public-এ যায়)।
@@ -127,6 +134,13 @@ export type LocalUserState = {
   profilePhoto: string
   galleryPhotos: string[]
   interests: string[]
+  // পুনরুদ্ধার + দুই ধাপের যাচাই — শুধু এই ব্যক্তিগত ডকে (publicProfiles-এ কখনো নয়);
+  // মোবাইল নম্বর অন্য ব্যবহারকারীর কাছে দেখানো হয় না।
+  recoveryEmail: string
+  recoveryPhone: string
+  recoveryEmailVerified: boolean
+  recoveryPhoneVerified: boolean
+  twoFactorEnabled: boolean
 }
 
 // config/public — অ্যাডমিনের দর + পেমেন্টের আসল বিবরণ (গোপন কিছু এখানে নেই)।
@@ -229,6 +243,11 @@ export function toUserDoc(s: LocalUserState): UserDoc {
     profilePhoto: s.profilePhoto || '',
     galleryPhotos: Array.isArray(s.galleryPhotos) ? s.galleryPhotos.filter((x): x is string => typeof x === 'string').slice(0, 8) : [],
     interests: Array.isArray(s.interests) ? s.interests.filter((x): x is string => typeof x === 'string').slice(0, 16) : [],
+    recoveryEmail: s.recoveryEmail || '',
+    recoveryPhone: s.recoveryPhone || '',
+    recoveryEmailVerified: s.recoveryEmailVerified === true,
+    recoveryPhoneVerified: s.recoveryPhoneVerified === true,
+    twoFactorEnabled: s.twoFactorEnabled === true,
   }
 }
 
@@ -276,6 +295,12 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   if (typeof d.profilePhoto === 'string') out.profilePhoto = d.profilePhoto
   if (Array.isArray(d.galleryPhotos)) out.galleryPhotos = (d.galleryPhotos as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 8)
   if (Array.isArray(d.interests)) out.interests = (d.interests as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 16)
+  // পুনরুদ্ধার + দুই ধাপ — শুধু users/{uid} ব্যক্তিগত ডক থেকে পড়া হয়।
+  if (typeof d.recoveryEmail === 'string') out.recoveryEmail = d.recoveryEmail
+  if (typeof d.recoveryPhone === 'string') out.recoveryPhone = d.recoveryPhone
+  if (typeof d.recoveryEmailVerified === 'boolean') out.recoveryEmailVerified = d.recoveryEmailVerified
+  if (typeof d.recoveryPhoneVerified === 'boolean') out.recoveryPhoneVerified = d.recoveryPhoneVerified
+  if (typeof d.twoFactorEnabled === 'boolean') out.twoFactorEnabled = d.twoFactorEnabled
   // KYC: শুধু নিরাপদ ঘরগুলো ফেরে; idNumber/selfie/selfieVideo ডকে থাকার কথা নয়,
   // থাকলেও এখানে পড়া হয় না (সেগুলো শুধু এই ডিভাইসের localStorage-এ থাকে)।
   // ডকে KYC-র স্ট্যাটাস না থাকলে (পুরোনো ডক) স্ট্যাটাস বদলানো হয় না।

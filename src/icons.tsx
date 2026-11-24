@@ -137,3 +137,11 @@ export function IconChevronLeft(p: IconProps) {
 export function IconUser(p: IconProps) {
   return <Filled {...p}><path d="M12 12.5a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12.5Zm-7.5 8.5v-1.2a7.5 7.5 0 0 1 7.5-7.5 7.5 7.5 0 0 1 7.5 7.5V21a.9.9 0 0 1-.9.9H5.4a.9.9 0 0 1-.9-.9Z" /></Filled>
 }
+
+export function IconMail(p: IconProps) {
+  return <Stroked {...p}><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" /><path d="m4.5 7.5 7.5 5.5 7.5-5.5" /></Stroked>
+}
+
+export function IconLock(p: IconProps) {
+  return <Stroked {...p}><rect x="4.5" y="10.5" width="15" height="10" rx="2.5" /><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" /><circle cx="12" cy="15.5" r="1.3" fill="currentColor" stroke="none" /></Stroked>
+}
