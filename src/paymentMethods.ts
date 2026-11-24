@@ -41,7 +41,7 @@ export const PAYMENT_METHOD_IDS: PaymentMethodId[] = ['bkash', 'nagad', 'rocket'
 export const PAYMENTS_ALL_DISABLED_MESSAGE = 'কোনো পেমেন্ট মাধ্যম এখন চালু নেই — অ্যাডমিনকে জানান'
 
 // Pi Deposit বন্ধ থাকলে Pi Deposit কার্ডে এই বার্তা দেখায়।
-export const PI_DEPOSIT_DISABLED_MESSAGE = 'π Pi Deposit এখন বন্ধ আছে — অ্যাডমিনকে জানান'
+export const PI_DEPOSIT_DISABLED_MESSAGE = 'Pi Deposit এখন বন্ধ আছে — অ্যাডমিনকে জানান'
 
 // আংশিক/পুরোনো/ভুল enabled ঘরকে পূর্ণ ম্যাপে নরমালাইজ করে —
 // না থাকা বা boolean নয় এমন ঘর চালু (true) ধরা হয়।

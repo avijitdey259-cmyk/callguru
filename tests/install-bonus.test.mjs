@@ -129,7 +129,7 @@ check('লাইভ গিফট spendGiftPi দিয়ে যায়', () =
 // ---- হোম ব্যানার: স্টোরি স্ট্রিপের উপরে, দাবির পর ছোট লাইন ----
 check('হোমে ইন্সটল ব্যানার স্টোরির উপরে; দাবির পর ছোট লাইন', () => {
   const banner = pagesSrc.indexOf('Install the app and get 5 π free!')
-  const stories = pagesSrc.indexOf('Your Story')
+  const stories = pagesSrc.indexOf('Add your story')
   assert.ok(banner > 0 && stories > 0 && banner < stories, 'ব্যানার স্টোরির উপরে নেই')
   assert.ok(pagesSrc.includes('Install and get a 5 π bonus — gifts only.'))
   assert.ok(pagesSrc.includes('Install bonus received — 5 π gift Pi added'))
@@ -141,7 +141,9 @@ check('ওয়ালেটে একটাই মোট Pi — আলাদা
   const start = pagesSrc.indexOf('export function WalletPage()')
   const end = pagesSrc.indexOf('// ---------- Friends', start)
   const wallet = pagesSrc.slice(start, end)
-  assert.ok(wallet.includes('π {formatPi(totalPi)}'), 'একটাই মোট Pi (ব্যালেন্স কার্ড) নেই')
+  // একটাই মোট Pi — formatPi নিজেই π দেয়, তাই সামনে আর π লিখলে 'π π' হয়
+  assert.ok(wallet.includes('{formatPi(totalPi)}'), 'একটাই মোট Pi (ব্যালেন্স কার্ড) নেই')
+  assert.ok(!wallet.includes('π {formatPi(totalPi)}'), 'ব্যালেন্সে π দুবার আছে')
   assert.ok(!wallet.includes('Total Pi: <b>'), 'Pi Wallet-এ বারবার মোট Pi লাইন আছে')
   assert.ok(!wallet.includes('Current Pi Balance:'), 'Pi Report-এ বারবার মোট Pi লাইন আছে')
   assert.ok(!wallet.includes('gift Pi'), 'ওয়ালেটে আলাদা গিফট Pi লাইন আছে')

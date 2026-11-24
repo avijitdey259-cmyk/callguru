@@ -3,7 +3,7 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
@@ -79,6 +79,9 @@ export async function writePublicProfile(uid: string, displayName: string, refer
         if (list.length > 0) extra.interests = list
       }
       if (typeof extraFields.photo === 'string' && (extraFields.photo.startsWith('data:image/') || extraFields.photo.startsWith('https://'))) extra.photo = extraFields.photo
+      // Photo removed (empty string) — delete the field, otherwise the old
+      // photo would stay in publicProfiles forever and keep showing everywhere.
+      if (extraFields.photo === '') extra.photo = deleteField()
     }
     if (snap.exists()) {
       await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra }, { merge: true })
@@ -99,6 +102,21 @@ export function chatRoomId(a: string, b: string): string {
   return [a, b].sort().join('_')
 }
 
+// রুমের নাম থেকে দুই সদস্যের UID — ঘরের নামই সদস্য তালিকা (সাজানো জোড়া)।
+export function chatRoomMembers(roomId: string): [string, string] | null {
+  const parts = roomId.split('_')
+  return parts.length === 2 && parts[0] && parts[1] ? [parts[0], parts[1]] : null
+}
+
+// রুমের অন্য সদস্য — নিজের UID দিলে অপরজনের UID ফেরে, না মিললে null।
+export function otherRoomMember(roomId: string, uid: string): string | null {
+  const m = chatRoomMembers(roomId)
+  if (!m) return null
+  if (m[0] === uid) return m[1]
+  if (m[1] === uid) return m[0]
+  return null
+}
+
 export async function sendChatMessage(roomId: string, fromUid: string, fromName: string, text: string): Promise<boolean> {
   const d = getDb()
   if (!d) return false
@@ -106,8 +124,48 @@ export async function sendChatMessage(roomId: string, fromUid: string, fromName:
   if (!t || !roomId || !fromUid) return false
   try {
     await addDoc(collection(d, 'chats', roomId, 'messages'), { fromUid, fromName: fromName || 'User', text: t.slice(0, 2000), ts: Date.now(), createdAt: serverTimestamp() })
+    // রুমের সূচক (chats/{roomId} ডক) — অন্য ডিভাইস যেন এই চ্যাটটা খুঁজে পায়।
+    // আগে শুধু messages সাবকালেকশনেই লেখা হতো: প্রাপক আগে থেকে প্রেরককে বন্ধু
+    // হিসেবে না যোগ করলে রুমের অস্তিত্বই জানত না, তাই মেসেজ কোনোদিন পৌঁছাত না।
+    // এটা best-effort — ব্যর্থ হলেও মেসেজটা ইতিমধ্যেই পাঠানো হয়েছে।
+    try {
+      const members = chatRoomMembers(roomId)
+      if (members) {
+        await setDoc(doc(d, 'chats', roomId), { members, names: { [fromUid]: fromName || 'User' }, updatedAtMs: Date.now(), updatedAt: serverTimestamp() }, { merge: true })
+      }
+    } catch { /* রুম সূচক না বসলে মেসেজ তবু পাঠানো থাকে */ }
     return true
   } catch { return false }
+}
+
+// আমার চ্যাট রুমগুলো — "আমাকে কে মেসেজ পাঠিয়েছে" জানার একমাত্র পথ।
+// members-এ array-contains কোয়েরি (একটাই ক্ষেত্র, কম্পোজিট ইনডেক্স লাগে না);
+// নতুন থেকে পুরনো — ক্লায়েন্টেই সাজানো হয়। না পেলে [] — চ্যাট তখন আগের মতো
+// বন্ধু তালিকাতেই চলে।
+export type ChatRoomSummary = { roomId: string; otherUid: string; otherName: string; updatedAtMs: number }
+
+export function subscribeMyChatRooms(uid: string, cb: (rooms: ChatRoomSummary[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'chats'), where('members', 'array-contains', uid), limit(20))
+    return onSnapshot(q, (snap) => {
+      const rooms = snap.docs.map(s => {
+        const data = s.data() as Record<string, unknown>
+        const other = otherRoomMember(s.id, uid)
+        const names = (data.names ?? {}) as Record<string, unknown>
+        const otherName = other && typeof names[other] === 'string' ? (names[other] as string) : 'User'
+        return {
+          roomId: s.id,
+          otherUid: other ?? '',
+          otherName,
+          updatedAtMs: typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0,
+        }
+      }).filter(r => r.otherUid !== '')
+      rooms.sort((a, b) => b.updatedAtMs - a.updatedAtMs)
+      cb(rooms)
+    }, () => { /* সাবস্ক্রিপশন ব্যর্থ হলে চ্যাট বন্ধু তালিকাতেই চলবে */ })
+  } catch { return null }
 }
 
 // রুমের মেসেজে লাইভ সাবস্ক্রিপশন — নতুন মেসেজ এলে cb ডাকা হয় (সময়ের ক্রমে)।

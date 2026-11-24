@@ -157,7 +157,7 @@ check('2FA toggle only stores the preference (no login-flow change here)', () =>
   // টগল শুধু updateSecurity ডাকে — LoginPage-এ twoFactor পড়া হয় না এখনো
   // (ইমেইল OTP এখনো চালু নয় বলে জোর করা যাবে না — রিপোর্টে বলা আছে)
   const loginStart = pages.indexOf('export function LoginPage()')
-  const loginEnd = pages.indexOf('// ফিডের স্টোরি ক্যাপশন', loginStart)
+  const loginEnd = pages.indexOf('// ---------- Feed ----------', loginStart)
   assert.ok(!pages.slice(loginStart, loginEnd).includes('twoFactor'), 'লগইন ফ্লোতে 2FA জোর করা হয়নি')
 })
 

@@ -93,7 +93,7 @@ export type DatingProfile = { id: string; name: string; age: number; city: strin
 // ডেটিং প্রোফাইল সিড সরানো হয়েছে (ডেমো ডেটা) — ডেটিং তালিকা খালি থাকবে, যতক্ষণ না আসল প্রোফাইল আসে।
 export const DATING_PROFILES: DatingProfile[] = []
 
-export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string }
+export type Post = { id: string; author: string; time: string; text: string; likes: number; comments: number; shares: number; color: string; authorPhoto?: string; title?: string; location?: string; audience?: 'Public' | 'Friends'; boosted?: boolean; imageUrl?: string; videoUrl?: string }
 // সিড পোস্ট সরানো হয়েছে (ডেমো ডেটা) — ফিডে শুধু ব্যবহারকারীর নিজের পোস্ট থাকে।
 export const SEED_POSTS: Post[] = []
 

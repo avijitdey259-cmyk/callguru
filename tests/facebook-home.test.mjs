@@ -68,7 +68,7 @@ check('ফিডের ক্রম: ব্যানার → স্টোর�
   }
   const order = [
     idx('🎁 Install the app and get 5 π free!'),
-    idx('Your Story'),
+    idx('Add your story'),
     idx("What's on your mind?"),
     idx('Friends ('),
     idx('<NewMembersSection />'),

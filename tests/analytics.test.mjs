@@ -230,13 +230,16 @@ check('toPublicConfig without analytics arg: defaults to empty (old callers safe
 
 // ---------- ওয়্যারিং (সোর্স-টেক্সট) ----------
 check('LoginPage: all five signup paths report first signup (google/link/OTP/SMS)', () => {
-  for (const call of ["noteSignup('google')", "noteSignup('email_link')", "noteOtpSignup(`email:${mail}`, 'email_otp')", "noteOtpSignup(`phone:${ph}`, 'sms_otp')"]) {
+  for (const call of ["noteSignup('google', 'google:' + u.email.toLowerCase())", "noteSignup('email_link', 'email_link:' + u.email.toLowerCase())", "noteOtpSignup(`email:${mail}`, 'email_otp')", "noteOtpSignup(`phone:${ph}`, 'sms_otp')"]) {
     assert.ok(pages.includes(call), `missing ${call}`)
   }
-  assert.equal((pages.match(/noteSignup\('email_link'\)/g) || []).length, 2)
+  assert.equal((pages.match(/noteSignup\('email_link', 'email_link:' \+ u\.email\.toLowerCase\(\)\)/g) || []).length, 2)
   // রিপিট লগইনে ইভেন্ট নয় — শুধু প্রথম সাইন-আপে
   assert.ok(pages.includes('if (u.isNewUser) noteSignup'))
   assert.ok(pages.includes('if (wasSignupRecorded(key)) return'))
+  // ডাবল ট্রিগারেও একবারই — প্রতিটি সাইন-আপে অ্যাকাউন্ট-পরিচয়ের key যায়
+  assert.ok(pages.includes('noteSignup(method, key)'))
+  assert.ok(pages.includes('trackSignup(method, undefined, key)'))
 })
 
 check('firebase: signInWithGoogle + completeEmailLink return isNewUser', () => {

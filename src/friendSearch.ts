@@ -11,6 +11,9 @@ export interface SearchablePerson {
   online: boolean
   mutual?: number
   isFriend: boolean
+  // The person's profile photo (publicProfiles photo) when they set one —
+  // carried through search so every avatar can show it instead of initials.
+  photo?: string
   // ব্যবহারকারীর পাবলিক আইডি (referralCode, যেমন cg-abc123) — আসল ব্যবহারকারীদের
   // ক্ষেত্রে থাকে; বন্ধু/সাজেশন/পারসোনার ক্ষেত্রে নাও থাকতে পারে (তাদের id-ই আইডি)।
   referralCode?: string
@@ -42,7 +45,7 @@ export function searchPeople(people: SearchablePerson[], query: string): Searcha
 // publicProfiles থেকে আসে, না পেলে লোকাল তালিকাই থাকে।
 export function mergeAllUsers(
   local: SearchablePerson[],
-  allUsers: { id: string; displayName: string; colour: string; referralCode?: string }[],
+  allUsers: { id: string; displayName: string; colour: string; referralCode?: string; photo?: string }[],
   selfUid: string | null,
 ): SearchablePerson[] {
   const out: SearchablePerson[] = [...local]
@@ -55,7 +58,7 @@ export function mergeAllUsers(
     if (seenNames.has(nameKey)) continue
     seenIds.add(u.id)
     seenNames.add(nameKey)
-    out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}) })
+    out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}), ...(u.photo ? { photo: u.photo } : {}) })
   }
   return out
 }
@@ -86,7 +89,7 @@ export function searchPosts(posts: SearchablePost[], query: string): SearchableP
 // বন্ধু + People You May Know + চ্যাট পারসোনা — এক তালিকায়, নাম দিয়ে ডুপ্লিকেট বাদ দিয়ে
 // (বন্ধু আগে, তারপর সাজেশন, তারপর পারসোনা — একই নাম দুবার দেখাবে না)।
 export function buildSearchablePeople(
-  friends: { id: string; name: string; color: string; online: boolean }[],
+  friends: { id: string; name: string; color: string; online: boolean; photo?: string }[],
   suggestions: { id: string; name: string; color: string; mutual: number }[],
   buddies: { id: string; name: string; color: string; online: boolean }[],
 ): SearchablePerson[] {
@@ -98,7 +101,7 @@ export function buildSearchablePeople(
     seen.add(key)
     out.push(p)
   }
-  for (const f of friends) push({ id: f.id, name: f.name, color: f.color, online: f.online, isFriend: true })
+  for (const f of friends) push({ id: f.id, name: f.name, color: f.color, online: f.online, isFriend: true, ...(f.photo ? { photo: f.photo } : {}) })
   for (const s of suggestions) push({ id: s.id, name: s.name, color: s.color, online: true, mutual: s.mutual, isFriend: false })
   for (const b of buddies) push({ id: b.id, name: b.name, color: b.color, online: b.online, isFriend: false })
   return out

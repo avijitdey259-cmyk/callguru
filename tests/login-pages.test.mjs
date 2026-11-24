@@ -13,7 +13,7 @@ const app = read('src/App.tsx')
 const icons = read('src/icons.tsx')
 
 const start = pages.indexOf('export function LoginPage()')
-const end = pages.indexOf('// ফিডের স্টোরি ক্যাপশন', start)
+const end = pages.indexOf('// ---------- Feed ----------', start)
 const login = pages.slice(start, end)
 
 let passed = 0

@@ -3,7 +3,7 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles } from './firestore'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
 import { DEFAULT_CALL_PRIVACY, loadCallPrivacy, type CallPrivacy } from './incomingCall'
 import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, fromTopUpDoc, datingGateReached, type LocalUserState } from './firestoreMapping'
@@ -13,7 +13,7 @@ import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsId
 import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
-export type Friend = { id: string; name: string; color: string; online: boolean }
+export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string }
 export type ChatMsg = { id: string; from: string; text: string; time: string }
 export type KycStatus = 'none' | 'pending' | 'approved' | 'rejected'
 // ডেটিং KYC — জমা দিলে অ্যাডমিন দেখে মিলিয়ে অনুমোদন/বাতিল করেন; অনুমোদন হলেই ডেটিং খুলবে।
@@ -496,6 +496,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // নেই / OTP লগইন) অ্যাপ ঠিক আগের মতো localStorage-এই চলে — কিছুই ভাঙে না।
   const fsReadyRef = useRef(false) // এই uid-র প্রথম সিঙ্ক শেষ হয়েছে কি না
   const fsSyncUidRef = useRef<string | null>(null)
+  const friendPhotoUidRef = useRef<string | null>(null)
   const fsWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userRef = useRef(user)
   userRef.current = user
@@ -666,7 +667,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Firestore না থাকলে/ব্যর্থ হলে error হয় — অ্যাপ localStorage মোডেই চলতে থাকে।
   useEffect(() => {
     if (!user || !uid || !authReady) {
-      if (!user) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null }
+      if (!user) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }
       return
     }
     if (fsSyncUidRef.current === uid) return
@@ -778,6 +779,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fsState, uid, user, profileDob, gender, district, interests, profilePhoto])
 
+  // Friend photos refresh — a friend's changed photo lives in their
+  // publicProfiles doc, not in my friends snapshot (users/{uid}.friends),
+  // so without this my friends list / chat / stories would keep showing
+  // the old photo (or initials) forever. Once per login, merge the latest
+  // public photo of each friend by uid; friends with no photo keep initials.
+  useEffect(() => {
+    if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
+    if (friendPhotoUidRef.current === uid) return
+    friendPhotoUidRef.current = uid
+    let cancelled = false
+    fetchAllPublicProfiles(100).then(list => {
+      if (cancelled || list.length === 0) return
+      const byId = new Map(list.map(m => [m.id, m.photo] as const))
+      setFriends(prev => {
+        let changed = false
+        const next = prev.map(f => {
+          const photo = byId.get(f.id)
+          if (photo && f.photo !== photo) { changed = true; return { ...f, photo } }
+          return f
+        })
+        return changed ? next : prev
+      })
+    }).catch(() => { /* friends keep their last photo; initials if none */ })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fsState, uid, user])
+
   // ৩০ দিনের গিফট বক্সের অগ্রগতি — স্ট্রিক থেকেই ধরা হয় (একদিন মিস করলে স্ট্রিকের সঙ্গে চক্রও আবার শুরু)
   const giftBoxCycle = streak > 0 ? Math.floor((streak - 1) / GIFT_BOX_DAYS) : 0
   const giftBoxDays = streak > 0 ? streak - giftBoxCycle * GIFT_BOX_DAYS : 0
@@ -876,9 +904,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Firebase লগইন হলে (Google/ইমেইল লিংক) UID ধরা হয় — OTP লগইনে Firebase সেশন নেই, uid null থাকে
       const u = getCurrentUid()
       setUid(u)
-      if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null }
+      if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }
     },
-    logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null },
+    logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null },
     // (ব্যাংক তাৎক্ষণিক টপ-আপ বাদ দেওয়া হয়েছে — মালিকের নির্দেশে ২০২৬-১১-২০; এখন সব টপ-আপ ম্যানুয়াল অনুমোদনের মাধ্যমে হয়, approveTopUp-এ Pi যোগ হয়)
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),
@@ -895,7 +923,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setFreshPostIds((prev) => (prev.includes(p.id) ? prev : [p.id, ...prev]))
     },
     requests,
-    addFriend: (f) => setFriends(prev => prev.some(x => x.id === f.id) ? prev : [...prev, f]),
+    addFriend: (f) => setFriends(prev => {
+      const i = prev.findIndex(x => x.id === f.id)
+      if (i === -1) return [...prev, f]
+      // Already a friend — a re-add still refreshes the photo (e.g. they changed it).
+      if (f.photo && prev[i].photo !== f.photo) return prev.map(x => x.id === f.id ? { ...x, photo: f.photo } : x)
+      return prev
+    }),
     acceptRequest: (id) => {
       const r = requests.find(x => x.id === id)
       if (r) { setFriends(prev => [...prev, r]); setRequests(prev => prev.filter(x => x.id !== id)) }

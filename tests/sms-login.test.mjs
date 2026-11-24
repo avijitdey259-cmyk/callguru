@@ -69,7 +69,7 @@ check('api.ts: SMS OTP calls the existing OTP endpoints with channel sms', () =>
 
 check('login page: mobile number option exists next to email/Google', () => {
   const start = pages.indexOf('export function LoginPage()')
-  const end = pages.indexOf('// ফিডের স্টোরি ক্যাপশন', start)
+  const end = pages.indexOf('// ---------- Feed ----------', start)
   const login = pages.slice(start, end)
   assert.ok(login.includes('Or log in with mobile number'), 'মোবাইল অপশন নেই')
   assert.ok(login.includes('Send OTP by SMS'), 'SMS OTP বোতাম নেই')

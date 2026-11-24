@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
+import { Avatar } from './avatar'
 import { buildSearchablePeople, mergeAllUsers, searchPeople, searchPosts, suggestionsFor, type SearchablePerson } from './friendSearch'
 import { fetchAllPublicProfiles } from './firestore'
 import { FRIEND_SUGGESTIONS } from './data'
@@ -55,7 +56,7 @@ export function SearchSuggestions({ suggestions, onPick }: { suggestions: Search
     <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
       {suggestions.map(p => (
         <button key={p.id} onClick={() => onPick(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
-          <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+          <Avatar photo={p.photo} name={p.name} color={p.color} className="w-8 h-8 text-sm" />
           <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
         </button>
       ))}
@@ -115,7 +116,7 @@ export function HeaderSearch() {
           {peopleSuggestions.length > 0 && <p className="px-3 pt-2 pb-1 text-xs font-bold text-gray-400 flex items-center gap-1.5"><IconFriends className="w-3.5 h-3.5" /> Friends</p>}
           {peopleSuggestions.map(p => (
             <button key={p.id} onClick={() => pickPerson(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
-              <span className="w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+              <Avatar photo={p.photo} name={p.name} color={p.color} className="w-8 h-8 text-sm" />
               <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
             </button>
           ))}

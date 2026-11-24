@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
+import { Avatar } from './avatar'
 import { connectPresence, disconnectPresence, sendInviteResponse } from './presence'
 import {
   INVITE_TTL_MS,
@@ -36,8 +37,9 @@ function avatarColor(invite: CallInvite): string {
  * ইনকামিং-কল কার্ড — ধরো/কাটো বোতামই কার্ডের সবচেয়ে বড় আর চোখে পড়ার অংশ
  * (মালিকের স্পষ্ট নির্দেশ, ২০২৬-১১-২৩): দুটো বোতামই বড়, পুরো চওড়া, ট্যাপ করার মতো।
  */
-export function IncomingCallCard({ invite, onAccept, onDecline }: {
+export function IncomingCallCard({ invite, photo, onAccept, onDecline }: {
   invite: CallInvite
+  photo?: string
   onAccept: () => void
   onDecline: () => void
 }) {
@@ -49,9 +51,7 @@ export function IncomingCallCard({ invite, onAccept, onDecline }: {
       className="fixed z-[60] inset-x-0 top-0 md:inset-x-auto md:top-auto md:bottom-6 md:right-6 md:w-[360px] bg-white dark:bg-fb-card shadow-2xl md:rounded-2xl border-b md:border border-gray-200 dark:border-slate-700 p-4"
     >
       <div className="flex items-center gap-3">
-        <span className="w-14 h-14 rounded-full text-white flex items-center justify-center text-2xl font-bold shrink-0" style={{ background: color }}>
-          {invite.fromName.slice(0, 1)}
-        </span>
+        <Avatar photo={photo} name={invite.fromName} color={color} className="w-14 h-14 text-2xl" />
         <div className="min-w-0">
           <p className="font-extrabold text-lg truncate">{invite.fromName}</p>
           <p className="text-sm text-gray-500">📹 Video call incoming…</p>
@@ -157,5 +157,5 @@ export function IncomingCallHost() {
     setOverlay((prev) => reduceInviteDeclined(prev))
     setOverlay(idleOverlayState())
   }
-  return <IncomingCallCard invite={invite} onAccept={accept} onDecline={decline} />
+  return <IncomingCallCard invite={invite} photo={friends.find(f => f.id === invite.fromId)?.photo} onAccept={accept} onDecline={decline} />
 }

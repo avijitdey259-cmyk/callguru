@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
+import { Avatar } from './avatar'
 import { HeaderSearch } from './searchUI'
 import { formatPi } from './data'
 import { IconBell, IconCall, IconChat, IconDating, IconDownload, IconFriends, IconHome, IconLiveTV, IconMegaphone, IconMoon, IconReels, IconSettings, IconShield, IconStore, IconSun, IconUser, IconWallet } from './icons'
@@ -17,7 +18,7 @@ const CENTER_NAV = [
 ]
 
 export function TopBar() {
-  const { user, totalPi, dark, toggleDark, requests } = useStore()
+  const { user, totalPi, dark, toggleDark, requests, profilePhoto } = useStore()
   const navigate = useNavigate()
   const pendingCount = requests.length
   return (
@@ -32,7 +33,7 @@ export function TopBar() {
           ))}
         </div>
         <div className="flex-1 md:hidden" />
-        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">π {formatPi(totalPi)}</button>
+        <button onClick={() => navigate('/wallet')} className="flex items-center gap-1 bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 text-xs sm:text-sm font-bold px-2 sm:px-3 py-1.5 rounded-full shrink-0" title="Pi Balance">{formatPi(totalPi)}</button>
         {/* নোটিফিকেশন ঘণ্টা — ঝুলে থাকা বন্ধু-অনুরোধের সংখ্যা সোনালি ব্যাজে, ট্যাপে Friends পাতা */}
         <button onClick={() => navigate('/friends')} className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Notifications">
           <IconBell className="w-5 h-5" />
@@ -41,7 +42,7 @@ export function TopBar() {
         <button onClick={toggleDark} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Dark mode">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
         <button onClick={() => navigate('/chat')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" /></button>
         <InstallButton compact />
-        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0" title="Profile">{user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />}</button>
+        <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0 overflow-hidden" title="Profile">{profilePhoto ? <img src={profilePhoto} alt="Profile photo" className="w-full h-full object-cover" /> : (user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />)}</button>
       </div>
       {/* মোবাইলে হেডারের নিচে সবসময় পুরো চওড়া সার্চ সারি — একই HeaderSearch, একই আচরণ */}
       <div className="md:hidden px-3 pb-2"><HeaderSearch /></div>
@@ -66,7 +67,7 @@ export function BottomNav() {
 }
 
 export function Sidebar() {
-  const { user, isAdmin } = useStore()
+  const { user, isAdmin, profilePhoto } = useStore()
   const links = [
     { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
     { to: '/dating', label: 'Dating 18+', icon: IconDating }, { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
@@ -82,7 +83,7 @@ export function Sidebar() {
     <aside className="hidden md:block w-60 shrink-0">
       <div className="sticky top-[64px] space-y-1 p-2">
         <Link to="/menu" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-fb-card font-medium">
-          <span className="w-9 h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />}</span>
+          {user ? <Avatar photo={profilePhoto} name={user.name} color="#7C3AED" className="w-9 h-9" /> : <span className="w-9 h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold"><IconUser className="w-5 h-5" /></span>}
           {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
@@ -117,7 +118,7 @@ export function ContactsCard() {
       {friends.length === 0 && <p className="text-sm text-gray-500">No friends yet.</p>}
       {friends.map(f => (
         <button key={f.id} onClick={() => navigate('/chat', { state: { with: f.name } })} className="flex items-center gap-2 py-1.5 px-1 text-sm w-full text-left rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700">
-          <span className="relative w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0" style={{ background: f.color }}>{f.name.slice(0, 1)}{f.online && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />}</span>
+          <Avatar photo={f.photo} name={f.name} color={f.color} className="w-7 h-7 text-xs" online={f.online} />
           {f.name}
         </button>
       ))}

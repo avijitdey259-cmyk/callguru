@@ -59,6 +59,16 @@ service cloud.firestore {
       allow update: if isAdmin();
     }
 
+    // চ্যাট রুমের সূচক ডক (chats/{roomId}) — প্রাপক যেন রুমটা খুঁজে পায়
+    // (শুধু messages সাবকালেকশনে লিখলে প্রাপক রুমের অস্তিত্বই জানত না)।
+    // পড়া/লেখা শুধু রুমের দুই সদস্যের; members-এ নিজের UID থাকতে হবে।
+    match /chats/{roomId} {
+      allow read: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1]);
+      allow create, update: if isSignedIn() && (request.auth.uid == roomId.split('_')[0] || request.auth.uid == roomId.split('_')[1])
+        && request.auth.uid in request.resource.data.members;
+      allow delete: if false;
+    }
+
     // আসল বন্ধুর চ্যাট — রুমের নামে দুই UID থাকে (ছোট UID আগে, '_' দিয়ে
     // জোড়া); শুধু ওই দুই ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
     // fromUid নিজের UID-ই হতে হবে। আপডেট/মোছা বন্ধ।

@@ -243,4 +243,154 @@ check('তথ্যভিত্তিক প্রশ্নে মজার ম�
   }
 })
 
-console.log(`\n${passed}/27 passed`)
+// ---- ইংরেজি: অ্যাপের UI ইংরেজি, তাই ইংরেজি প্রশ্নে ইংরেজি উত্তর আসতে হবে ----
+// (আগে ইংরেজি কি ছিল না বলে "how are you?"-তেও "বুঝলাম না" আসতো।)
+check('"hi" বললে সবসময় সালামের উত্তর আসে — মজার মোড়ে বদলায় না (ডিটারমিনিস্টিক)', () => {
+  for (let i = 0; i < 30; i++) {
+    const r = M.getBuddyReply('bd-rima', 'hi')
+    assert.ok(/hi|hello|hey/i.test(r), r)
+    assert.ok(!/Talking about hi|about hey/i.test(r), r)
+  }
+})
+
+check('"how are you?" বললে ইংরেজিতে কেমন আছো-র উত্তর আসে', () => {
+  for (let i = 0; i < 10; i++) {
+    const r = M.getBuddyReply('bd-rima', 'how are you?')
+    assert.ok(!/didn't understand|didn't get|don't know|বুঝলাম না/i.test(r), r)
+    assert.ok(/doing|fine|good|great|feeling/i.test(r), r)
+  }
+})
+
+check('"what are you doing?" বললে নিজে কী করছে বলে', () => {
+  const r = M.getBuddyReply('bd-rima', 'what are you doing?')
+  assert.ok(/chatting|talking|doing|sitting|thinking|here i am/i.test(r), r)
+  assert.ok(!/didn't understand|didn't get/i.test(r), r)
+})
+
+check('"how does this app work?" বললে অ্যাপের সাহায্য আসে', () => {
+  const r = M.getBuddyReply('bd-fahim', 'how does this app work?')
+  assert.ok(/app|chat|call|wallet/i.test(r), r)
+  assert.ok(!/didn't understand|didn't get/i.test(r), r)
+})
+
+check('"how can I make a call?" বললে কলের উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-fahim', 'how can I make a call?')
+  assert.ok(/call|Pi|minute/i.test(r), r)
+})
+
+check('"how do I watch live?" বললে লাইভের তথ্য আসে, মজার মোড়ে এড়ায় না', () => {
+  for (let i = 0; i < 10; i++) {
+    const r = M.getBuddyReplyDetail('bd-fahim', 'how do I watch live?', undefined, { random: () => 0.01 })
+    assert.equal(r.fun, false, r.text)
+    assert.ok(/live/i.test(r.text), r.text)
+    assert.ok(!/Talking about live/i.test(r.text), r.text)
+  }
+})
+
+check('"tell me a joke" বললে আসল জোকস আসে, জেনেরিক নয়', () => {
+  const r = M.getBuddyReply('bd-rima', 'tell me a joke')
+  assert.ok(r.length > 60, r)
+  assert.ok(!/didn't understand|didn't get|Tell me more/i.test(r), r)
+})
+
+check('"what is your name?" বললে ইংরেজিতে নিজের নামে পরিচয় দেয়', () => {
+  for (const b of M.BUDDIES) {
+    const r = M.getBuddyReply(b.id, 'what is your name?')
+    assert.ok(r.includes(b.name), `${b.id}: ${r}`)
+  }
+})
+
+check('"who are you?" বললে নিজের নামে পরিচয় দেয়', () => {
+  for (const b of M.BUDDIES) {
+    const r = M.getBuddyReply(b.id, 'who are you?')
+    assert.ok(r.includes(b.name), `${b.id}: ${r}`)
+  }
+})
+
+check('"I am sad" বললে সহানুভূতির উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-shakil', 'I am sad')
+  assert.ok(!/didn't understand|didn't get/i.test(r), r)
+  assert.ok(/sad|feel|listen|here|joke/i.test(r), r)
+})
+
+check('"do humans live on Mars?" বললে লাইভের উত্তর আসে না, সোজা বলে জানে না', () => {
+  const r = M.getBuddyReply('bd-rima', 'do humans live on Mars?')
+  assert.ok(!/live|Live|লাইভ/i.test(r), r)
+  assert.ok(/didn't understand|didn't get|don't know|couldn't catch/i.test(r), r)
+})
+
+check('"what is the capital of France?" বললে সোজা বলে জানে না', () => {
+  const r = M.getBuddyReply('bd-rima', 'what is the capital of France?')
+  assert.ok(/didn't understand|didn't get|don't know|couldn't catch/i.test(r), r)
+  assert.ok(!/Paris/i.test(r), r)
+})
+
+check('"what time is it?" বললে আসল সময় বলে', () => {
+  const r = M.getBuddyReply('bd-rima', 'what time is it?')
+  assert.ok(/\d{1,2}:\d{2}/.test(r), r)
+})
+
+check('"my name is Avijit" বললে নামটা ধরে উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-rima', 'my name is Avijit')
+  assert.ok(r.includes('Avijit'), r)
+  assert.ok(r.includes('Rima'), r)
+})
+
+check('"where are you from?" বললে PiCall-এর কথা বলে', () => {
+  const r = M.getBuddyReply('bd-rima', 'where are you from?')
+  assert.ok(/PiCall/i.test(r), r)
+})
+
+check('"I can\'t sleep" বললে ঘুমের উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-shakil', "I can't sleep")
+  assert.ok(/sleep/i.test(r), r)
+})
+
+check('"I love you" বললে বন্ধুত্বের কথা বলে, এড়িয়ে যায় না', () => {
+  const r = M.getBuddyReply('bd-rima', 'I love you')
+  assert.ok(/friend|love/i.test(r), r) // মজার মোড়েও ("Talking about love...") বিষয় থাকে
+  assert.ok(!/didn't understand|didn't get/i.test(r), r)
+})
+
+check('"it is raining" বললে বৃষ্টির উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-mim', 'it is raining')
+  assert.ok(/rain/i.test(r), r)
+})
+
+check('"who won the cricket match?" বললে খেলার উত্তর আসে', () => {
+  const r = M.getBuddyReply('bd-rima', 'who won the cricket match?')
+  assert.ok(/cricket|sports|match|win|bangladesh/i.test(r), r)
+})
+
+check('ইংরেজিতেও একই কথায় পরপর একই উত্তর আসে না', () => {
+  for (const b of M.BUDDIES) {
+    let prev = ''
+    for (let i = 0; i < 30; i++) {
+      const r = M.getBuddyReply(b.id, 'how are you?', prev)
+      assert.notEqual(r, prev, `${b.id} repeat`)
+      prev = r
+    }
+  }
+})
+
+check('ইংরেজিতেও পারসোনা ভেদে উত্তর আলাদা', () => {
+  const rs = new Set(M.BUDDIES.map(b => M.getBuddyReply(b.id, 'how are you?')))
+  assert.ok(rs.size >= 3, [...rs].join(' | '))
+})
+
+check('প্রশ্নে মজার মোড় আসে না — গান/লাইভের প্রশ্নেও সরাসরি উত্তর', () => {
+  for (const q of ['sing a song', 'how do I watch live?', 'what is Pi?']) {
+    const r = M.getBuddyReplyDetail('bd-rima', q, undefined, { random: () => 0.01 })
+    assert.equal(r.fun, false, `${q}: ${r.text}`)
+  }
+})
+
+check('মজার মোড়ে বিষয় কখনো পুরো বাক্য হয় না ("talking about i feel tired")', () => {
+  for (let i = 0; i < 20; i++) {
+    const r = M.getBuddyReplyDetail('bd-rima', 'I feel tired', undefined, { random: () => 0.01 })
+    assert.ok(!/talking about i feel tired/i.test(r.text), r.text)
+    if (r.fun) assert.ok(/feeling low/i.test(r.text), r.text)
+  }
+})
+
+console.log(`\n${passed}/50 passed`)

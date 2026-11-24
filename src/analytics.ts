@@ -88,17 +88,27 @@ function appendScript(target: AnalyticsTarget, src: string): void {
 // moment later via config/public hydration).
 const initialized = { pixel: false, ga4: false, clarity: false }
 let pageViewSent = false
-let pendingSignups: SignupMethod[] = []
+// Queued signups waiting for the IDs to arrive — one entry per signup
+// (deduped by key, see trackSignup).
+let pendingSignups: { method: SignupMethod; key: string }[] = []
+// Idempotency: keys of signups already fired in this page load. A signup
+// must fire CompleteRegistration / sign_up exactly once even if the caller
+// triggers it twice (double tap, double effect, queue flush + direct fire).
+// The key is the account identity (see trackSignup) — a different account
+// signing up later in the same page load has a different key and still fires.
+const firedSignupKeys = new Set<string>()
 let activeTarget: AnalyticsTarget | null = null
 
-/** Test-only seam — clears the loaded flags, the PageView flag and the
- *  pending-signup queue so each test scenario starts clean. */
+/** Test-only seam — clears the loaded flags, the PageView flag, the
+ *  pending-signup queue and the fired-signup keys so each test scenario
+ *  starts clean. */
 export function resetAnalyticsForTests(): void {
   initialized.pixel = false
   initialized.ga4 = false
   initialized.clarity = false
   pageViewSent = false
   pendingSignups = []
+  firedSignupKeys.clear()
   activeTarget = null
 }
 
@@ -111,6 +121,15 @@ function fireSignupEvents(target: AnalyticsTarget, method: SignupMethod): void {
     try { (w.gtag as (...a: unknown[]) => void)('event', 'sign_up', { method }) } catch { /* never break login */ }
   }
   // Clarity needs no event — session recordings cover the signup.
+}
+
+/** Fire one signup's events at most once per page load (idempotency key).
+ *  Returns true when the events fired, false when this signup already fired. */
+function fireSignupOnce(target: AnalyticsTarget, method: SignupMethod, key: string): boolean {
+  if (firedSignupKeys.has(key)) return false
+  firedSignupKeys.add(key)
+  fireSignupEvents(target, method)
+  return true
 }
 
 export type AnalyticsInitResult = { pixel: boolean; ga4: boolean; clarity: boolean }
@@ -176,27 +195,38 @@ export function initAnalytics(ids: Partial<AnalyticsIds> | null | undefined, tar
   if (pendingSignups.length > 0) {
     const queued = pendingSignups
     pendingSignups = []
-    for (const m of queued) fireSignupEvents(t, m)
+    for (const q of queued) fireSignupOnce(t, q.method, q.key)
   }
   return { pixel: initialized.pixel, ga4: initialized.ga4, clarity: initialized.clarity }
 }
 
 /** Successful signup — CompleteRegistration (Pixel) + sign_up (GA4).
- *  Fires at once when the trackers are live; otherwise the method is queued
+ *  Fires at once when the trackers are live; otherwise the signup is queued
  *  and flushed by the next initAnalytics (IDs arriving via config/public
  *  hydration right after a Google/link signup). Never throws, never blocks
- *  login. Only call for a FIRST signup, not a repeat login (see callers). */
-export function trackSignup(method: SignupMethod, target?: AnalyticsTarget): void {
+ *  login. Only call for a FIRST signup, not a repeat login (see callers).
+ *  Idempotent per signup: `key` identifies the account that signed up
+ *  (e.g. 'google:user@example.com', 'email:user@example.com',
+ *  'phone:01700000000'). A second call with the same key — double tap,
+ *  double effect, or queue flush followed by a direct fire — fires nothing.
+ *  A different account (different key) still fires. Without a key the
+ *  method itself is the key, so pass a key from every caller. */
+export function trackSignup(method: SignupMethod, target?: AnalyticsTarget, key?: string): void {
+  const k = (key || '').trim() || method
+  if (firedSignupKeys.has(k)) return
+  const queue = () => {
+    if (pendingSignups.length < 5 && !pendingSignups.some((q) => q.key === k)) pendingSignups.push({ method, key: k })
+  }
   const t = target ?? activeTarget ?? defaultTarget()
   if (!t) {
-    if (pendingSignups.length < 5) pendingSignups.push(method)
+    queue()
     return
   }
   if (!initialized.pixel && !initialized.ga4 && !initialized.clarity) {
-    if (pendingSignups.length < 5) pendingSignups.push(method)
+    queue()
     return
   }
-  fireSignupEvents(t, method)
+  fireSignupOnce(t, method, k)
 }
 
 // ---------- First-signup record (OTP logins have no Firebase user) ----------

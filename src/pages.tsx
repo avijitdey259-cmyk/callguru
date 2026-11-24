@@ -14,6 +14,7 @@ import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, Ico
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
+import { Avatar } from './avatar'
 import {
   CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, SERVICES, TV_CHANNELS, TOPUP_PACKS, DISTRICTS, INTERESTS,
@@ -25,13 +26,13 @@ import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPla
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
-import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, getFirebaseApp } from './firebase'
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth } from './firebase'
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, sendChatMessage, subscribeChatMessages, chatRoomId } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary } from './firestore'
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
-import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
+import { colourForUid, formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, markSignupRecorded, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, wasSignupRecorded, type AnalyticsIds, type SignupMethod } from './analytics'
 
@@ -101,7 +102,7 @@ export function InviteCard() {
         <Btn onClick={copy}>📋 Copy Link</Btn>
         <Btn variant="green" onClick={share}>↗️ Share</Btn>
       </div>
-      <p className="text-sm mt-2">Referral: <b>{referrals} people</b> • Earnings from referrals: <b>π {referralPiEarned} Pi</b></p>
+      <p className="text-sm mt-2">Referral: <b>{referrals} people</b> • Earnings from referrals: <b>{formatPi(referralPiEarned)}</b></p>
       <p className="text-xs text-amber-600 mt-1">Referral Pi is bonus Pi — it cannot be withdrawn, only used for calls/live gifts.</p>
       {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
       <p className="text-xs text-gray-400 mt-2">Referrals are tracked on this device.</p>
@@ -199,7 +200,7 @@ export function LeaderboardCard() {
           {givers.length === 0 && <p className="text-sm text-gray-500 py-1">Nobody has sent a gift yet.</p>}
           {givers.map((h, i) => (
             <p key={h.name} className={`text-sm py-1 flex justify-between ${h.mine ? 'font-bold text-green-600' : ''}`}>
-              <span>{i + 1}. {h.name} {h.mine && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold">π Pi Gifter</span>}</span>
+              <span>{i + 1}. {h.name} {h.mine && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold">Pi Gifter</span>}</span>
               <span>🎁 π {h.gifts}</span>
             </p>
           ))}
@@ -273,14 +274,17 @@ export function LoginPage() {
   // সাইন-আপ সম্পূর্ণ হলে (প্রথমবারই শুধু — বারবার লগইনে নয়) Pixel-এ
   // CompleteRegistration + GA4-এ sign_up যায়। OTP-তে প্রথমবার কি না তা এই
   // ডিভাইসের রেকর্ডে দেখা হয়; Google/লিংকে Firebase-র isNewUser দেখা হয়।
-  const noteSignup = (method: SignupMethod) => {
+  // key = সাইন-আপ করা অ্যাকাউন্টের পরিচয় — একই সাইন-আপ দুবার ট্রিগার
+  // হলেও (ডাবল ট্যাপ/ডাবল ইফেক্ট) ইভেন্ট একবারই যায় (trackSignup-এর
+  // idempotency key); অন্য অ্যাকাউন্টের সাইন-আপে আলাদা key যায়।
+  const noteSignup = (method: SignupMethod, key: string) => {
     initAnalytics(resolveAnalyticsIds(envAnalyticsIds(), adminSettings.analytics))
-    trackSignup(method)
+    trackSignup(method, undefined, key)
   }
   const noteOtpSignup = (key: string, method: SignupMethod) => {
     if (wasSignupRecorded(key)) return
     markSignupRecorded(key)
-    noteSignup(method)
+    noteSignup(method, key)
   }
   // লগইন ইনপুটের একই চেহারা — আইকনসহ, গোল কোণা, ফোকাসে Pi purple রিং (দুই থিমেই)
   const inputCls = 'w-full border border-gray-200 dark:border-slate-600 rounded-xl px-3 py-2.5 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500'
@@ -294,7 +298,7 @@ export function LoginPage() {
     if (stored) {
       setCompletingLink(true)
       completeEmailLink(stored).then(u => {
-        if (u) { if (u.isNewUser) noteSignup('email_link'); login(u.name, u.email); navigate('/feed'); return }
+        if (u) { if (u.isNewUser) noteSignup('email_link', 'email_link:' + u.email.toLowerCase()); login(u.name, u.email); navigate('/feed'); return }
         setMsg('The link has expired or is wrong — send the link again.')
       }).catch(() => setMsg('The link has expired or is wrong — send the link again.'))
         .finally(() => setCompletingLink(false))
@@ -310,7 +314,7 @@ export function LoginPage() {
     setBusy(true); setMsg('')
     try {
       const u = await completeEmailLink(mail)
-      if (u) { if (u.isNewUser) noteSignup('email_link'); login(displayName(u.email), u.email); navigate('/feed'); return }
+      if (u) { if (u.isNewUser) noteSignup('email_link', 'email_link:' + u.email.toLowerCase()); login(displayName(u.email), u.email); navigate('/feed'); return }
       setMsg('The link has expired or is wrong — send the link again.')
     } catch {
       setMsg('The link has expired or is wrong — send the link again.')
@@ -327,7 +331,7 @@ export function LoginPage() {
     setMsg('')
     try {
       const u = await signInWithGoogle()
-      if (u) { if (u.isNewUser) noteSignup('google'); login(u.name, u.email); navigate('/feed'); return }
+      if (u) { if (u.isNewUser) noteSignup('google', 'google:' + u.email.toLowerCase()); login(u.name, u.email); navigate('/feed'); return }
       setMsg('Google login did not complete — please try again.')
     } catch {
       setMsg('Google login failed — the pop-up was closed or there is a network problem. Please try again.')
@@ -528,28 +532,16 @@ export function LoginPage() {
   )
 }
 
-// ফিডের স্টোরি ক্যাপশন — ডেমো লাইন (বন্ধু/পারসোনাদের জন্য আগাম লেখা)
-const STORY_CAPTIONS: Record<string, string> = {
-  'Rima': 'Something fun is going to happen today! 😄',
-  'Shakil': 'Take care, everyone ❤️',
-  'Fahim': 'Learned something new today! 😊',
-  'Mim': 'Heard today\'s song? 🎵',
-  'Asha': 'A dreamy day today! ✨',
-}
-const STORY_CAPTION_FALLBACK = 'Have a beautiful day today! 😊'
-
 // ---------- নতুন সদস্য ----------
 // আসল নতুন ব্যবহারকারী (Firestore publicProfiles থেকে, নতুন থেকে পুরনো) —
 // কোনো ডেমো/ভুয়া ব্যবহারকারী নয়। চ্যাট পারসোনারা এখানে আসে না (তারা লোকাল
 // বন্ধু, কোনো অ্যাকাউন্ট নয়), অ্যাডমিনও আসে না (তার পাবলিক প্রোফাইল লেখা হয় না)।
 // Firestore/নিয়ম না থাকলে খালি অবস্থা দেখায় — ভুয়া কাউকে দেখায় না।
 function NewMembersSection() {
-  const { uid, friends, addFriend, referralCode } = useStore()
+  const { uid, friends, addFriend } = useStore()
   const [members, setMembers] = useState<NewMember[]>([])
   const [loaded, setLoaded] = useState(false)
-  const [copied, setCopied] = useState(false)
   const navigate = useNavigate()
-  const link = `${INVITE_BASE_URL}?ref=${referralCode}`
   useEffect(() => {
     let cancelled = false
     fetchNewMembers(10).then(list => {
@@ -559,9 +551,6 @@ function NewMembersSection() {
     })
     return () => { cancelled = true }
   }, [uid])
-  async function copyLink() {
-    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে লিংকটা দেখেই নেওয়া যাবে */ }
-  }
   return (
     <Card>
       <h2 className="font-bold flex items-center gap-2"><IconSparkle className="w-5 h-5 text-pi-gold" /> New Members</h2>
@@ -569,7 +558,6 @@ function NewMembersSection() {
       {loaded && members.length === 0 && (
         <>
           <p className="text-sm text-gray-500 mt-1">Nobody new has joined yet — invite your friend!</p>
-          <p className="text-sm mt-1 break-all">Your link: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{link}</code> <Btn variant="ghost" onClick={copyLink}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
         </>
       )}
       {members.length > 0 && (
@@ -578,13 +566,13 @@ function NewMembersSection() {
             const isFriend = friends.some(f => f.id === m.id)
             return (
               <div key={m.id} className="shrink-0 w-28 text-center border rounded-xl p-3 dark:border-slate-700">
-                <span className="mx-auto w-14 h-14 rounded-full text-white flex items-center justify-center font-bold text-xl" style={{ background: m.colour }}>{m.displayName.slice(0, 1)}</span>
+                <Avatar photo={m.photo} name={m.displayName} color={m.colour} className="mx-auto w-14 h-14 text-xl" />
                 <p className="text-sm font-medium mt-1 truncate">{m.displayName}</p>
                 <p className="text-xs text-gray-400">{formatJoinTime(m.createdAtMs)}</p>
                 <div className="mt-2">
                   {isFriend
                     ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: m.displayName } })}>💬 Chat</Btn>
-                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true })}>Add Friend</Btn>}
+                    : <Btn onClick={() => addFriend({ id: m.id, name: m.displayName, color: m.colour, online: true, ...(m.photo ? { photo: m.photo } : {}) })}>Add Friend</Btn>}
                 </div>
               </div>
             )
@@ -615,7 +603,6 @@ export function Feed() {
   const [composerOpen, setComposerOpen] = useState(false)
   const [storyIdx, setStoryIdx] = useState<number | null>(null)
   const [sent, setSent] = useState<Record<string, boolean>>({})
-  const [tvShareMsg, setTvShareMsg] = useState('')
   // কম্পোজার মিডিয়া — একই জায়গায় ছবি + ভিডিও (ভিডিও পোস্ট রিলও হয়) + প্রোফাইল ছবি
   const photoInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
@@ -641,18 +628,15 @@ export function Feed() {
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f) return
-    if (f.size > 50 * 1024 * 1024) { setComposerErr('Video is too big — maximum 50 MB.'); return }
-    const app = getFirebaseApp()
-    if (!app || !uid) { setComposerErr('Video upload needs login — please log in again.'); return }
+    if (f.size > VIDEO_UPLOAD_MAX_BYTES) { setComposerErr('Video is too big — maximum 50 MB.'); return }
     setUploadingVideo(true); setComposerErr('')
     try {
-      const storage = getStorage(app)
-      const path = `uploads/${uid}/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-      const snap = await uploadBytes(storageRef(storage, path), f)
-      const url = await getDownloadURL(snap.ref)
+      const url = await uploadVideoFile(f, uid)
       setComposerVideoUrl(url)
-    } catch {
-      setComposerErr('Video upload failed — check your connection and try again.')
+    } catch (err) {
+      // uploadVideoFile already maps the failure to the honest message:
+      // Storage-off says storage is off, a network failure says connection.
+      setComposerErr(err instanceof Error ? err.message : VIDEO_UPLOAD_NETWORK_MESSAGE)
     } finally { setUploadingVideo(false) }
   }
   function onComposerProfilePhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -672,11 +656,19 @@ export function Feed() {
     setComposerPhoto(null); setComposerVideoUrl(null); setComposerErr('')
   }
   const navigate = useNavigate()
-  const locState = useLocation().state as { postId?: string } | null
+  const locState = useLocation().state as { postId?: string; openComposerVideo?: boolean } | null
   // হেডার সার্চে পোস্টের সাজেশনে ট্যাপ করলে সরাসরি সেই পোস্টে যাওয়া
+  // Reels পাতার "Upload Reel" থেকে এলে কম্পোজার খুলে ভিডিও বাছাই দেখানো
   useEffect(() => {
+    if (locState?.openComposerVideo) {
+      setComposerOpen(true)
+      // কম্পোজার রেন্ডার হওয়ার পর ভিডিও ইনপুটে ক্লিক — একই আপলোড পথ
+      setTimeout(() => { videoInputRef.current?.click() }, 100)
+    }
     if (locState?.postId) {
       jumpToPost(locState.postId)
+    }
+    if (locState?.postId || locState?.openComposerVideo) {
       navigate('/feed', { replace: true, state: {} })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -703,31 +695,17 @@ export function Feed() {
           <div className="mt-3 max-w-xs"><InstallButton showOffer={false} /></div>
         </div>
       )}
-      <div className="rounded-xl p-4 text-white shadow-sm" style={{ background: 'linear-gradient(135deg, #0F2027, #203A43, #2C5364)' }}>
-        <div className="flex items-center gap-3">
-          <span className="text-white flex shrink-0"><IconLiveTV className="w-8 h-8" /></span>
-          <div className="flex-1">
-            <p className="text-lg font-extrabold">Live TV — Free!</p>
-            <p className="text-sm mt-0.5 text-white/85">Jamuna, Ekattor, NTV, Channel 24, Zee Bangla, Star Jalsha — watch free, no payment.</p>
-          </div>
-        </div>
-        <div className="flex gap-2 mt-3 flex-wrap">
-          <button onClick={() => navigate('/live-tv')} className="px-4 py-2 rounded-full bg-white text-slate-900 font-bold text-sm">▶ Watch Now</button>
-          <button onClick={async () => { const r = await shareLink('PiCall Live TV', 'Watch free Live TV on PiCall — Jamuna, Ekattor, NTV, Zee Bangla, Star Jalsha and more!', INVITE_BASE_URL); setTvShareMsg(r === 'shared' ? '✅ Shared!' : r === 'copied' ? '✅ TV link copied — send it to friends!' : 'Share failed — copy the link from the address bar.') }} className="px-4 py-2 rounded-full bg-white/20 text-white font-medium text-sm flex items-center gap-1.5"><IconShare className="w-4 h-4" /> Share TV</button>
-        </div>
-        {tvShareMsg && <p className="text-sm text-green-200 mt-2">{tvShareMsg}</p>}
-      </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         <button onClick={() => setComposerOpen(true)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
           <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px] flex items-center justify-center">
             <span className="w-full h-full rounded-full bg-white dark:bg-fb-card flex items-center justify-center text-2xl relative"><IconPlus className="w-6 h-6 text-gray-400" /><span className="absolute bottom-0 right-0 w-5 h-5 rounded-full pb-gradient text-white flex items-center justify-center text-sm border-2 border-white dark:border-fb-card">+</span></span>
           </span>
-          <span className="text-[11px] font-medium text-center leading-tight">Your Story</span>
+          <span className="text-[11px] font-medium text-center leading-tight">Add your story</span>
         </button>
         {friends.map((f, i) => (
           <button key={f.id} onClick={() => setStoryIdx(i)} className="shrink-0 flex flex-col items-center gap-1 w-[68px]">
             <span className="story-ring w-[68px] h-[68px] rounded-full p-[3px]">
-              <span className="w-full h-full rounded-full flex items-center justify-center font-bold text-xl text-white border-[3px] border-white dark:border-black" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
+              <Avatar photo={f.photo} name={f.name} color={f.color} className="w-full h-full border-[3px] border-white dark:border-black text-xl" />
             </span>
             <span className="text-[11px] font-medium text-center leading-tight truncate w-full">{f.name}</span>
           </button>
@@ -736,9 +714,8 @@ export function Feed() {
       {storyIdx !== null && friends[storyIdx] && (
         <div className="fixed inset-0 z-50 bg-black/90 text-white flex flex-col items-center justify-center p-6" onClick={() => setStoryIdx(null)}>
           <button className="absolute top-4 right-4 text-2xl px-3 py-1" onClick={() => setStoryIdx(null)}>✕</button>
-          <span className="w-24 h-24 rounded-full text-white flex items-center justify-center text-4xl font-bold" style={{ background: friends[storyIdx].color }}>{friends[storyIdx].name.slice(0, 1)}</span>
+          <Avatar photo={friends[storyIdx].photo} name={friends[storyIdx].name} color={friends[storyIdx].color} className="w-24 h-24 text-4xl" />
           <p className="font-bold text-lg mt-4">{friends[storyIdx].name}</p>
-          <p className="text-sm text-gray-300 mt-2 text-center">{STORY_CAPTIONS[friends[storyIdx].name] ?? STORY_CAPTION_FALLBACK}</p>
           <div className="flex gap-3 mt-6">
             <button className="px-4 py-2 rounded-full bg-white/20 disabled:opacity-40" disabled={storyIdx === 0} onClick={e => { e.stopPropagation(); setStoryIdx(storyIdx - 1) }}>‹ Previous</button>
             <button className="px-4 py-2 rounded-full bg-white/20 disabled:opacity-40" disabled={storyIdx === friends.length - 1} onClick={e => { e.stopPropagation(); setStoryIdx(storyIdx + 1) }}>Next ›</button>
@@ -793,7 +770,7 @@ export function Feed() {
                   if (totalPi < 0.1) { alert('Not enough Pi balance — buy Pi.'); return }
                   addPi(-0.1, 'Boost', 'Post Boost'); boosted = true
                 }
-                addPost({ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
+                addPost({ id: 'p' + Date.now(), author: 'You', time: 'Now', text, title: postTitle.trim() || undefined, location: postLocation.trim() || undefined, audience: postAudience, boosted, likes: 0, comments: 0, shares: 0, color: '#7C3AED', authorPhoto: profilePhoto || undefined, imageUrl: composerPhoto ?? undefined, videoUrl: composerVideoUrl ?? undefined })
                 resetComposer()
               }}>Post</Btn>
             </div>
@@ -813,13 +790,13 @@ export function Feed() {
           {results.length === 0 && <p className="text-sm text-gray-500 mt-1">Nobody found — check whether the name or ID is correct.</p>}
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
-              <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+              <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
                 : sent[p.id]
                   ? <Btn variant="ghost" onClick={() => setSent(v => ({ ...v, [p.id]: false }))}>Remove</Btn>
-                  : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true }) }}>Add Friend</Btn>}
+                  : <Btn onClick={() => { setSent(v => ({ ...v, [p.id]: true })); addFriend({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) }) }}>Add Friend</Btn>}
             </div>
           ))}
           <h2 className="font-bold mt-4">Posts ({postResults.length})</h2>
@@ -834,17 +811,6 @@ export function Feed() {
       )}
       <NewMembersSection />
       <RefWelcomeBanner />
-      {REELS.length > 0 ? (
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-          {REELS.map(r => (
-            <div key={r.id} onClick={() => navigate('/reels')} className="shrink-0 w-36 rounded-xl bg-slate-900 text-white p-3 cursor-pointer">
-              <div className="text-white"><IconReels className="w-6 h-6" /></div><p className="text-sm font-medium mt-2">{r.title}</p><p className="text-xs opacity-70">{r.views} Views • {r.creator}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-gray-500">No reels yet.</p>
-      )}
       <div className="flex gap-2">
         {(['All', 'Liked', 'Mine'] as const).map(f => (
           <button key={f} onClick={() => setFeedFilter(f)} className={`px-3 py-1.5 rounded-full text-sm font-medium ${feedFilter === f ? 'pb-gradient text-white shadow-sm' : 'bg-white dark:bg-fb-card border border-gray-100 dark:border-white/10'}`}>{f === 'All' ? 'All posts' : f === 'Liked' ? '❤️ Liked' : 'My posts'}</button>
@@ -855,7 +821,7 @@ export function Feed() {
         <div key={p.id} id={'post-' + p.id}>
         <Card>
           <div className="flex items-center gap-2">
-            <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.author.slice(0, 1)}</span>
+            <Avatar photo={p.authorPhoto ?? (p.author === 'You' ? profilePhoto : friends.find(f => f.name === p.author)?.photo)} name={p.author} color={p.color} className="w-10 h-10" />
             <div><p className="font-bold text-sm">{p.author}</p><p className="text-xs text-gray-400">{p.time}{p.location ? ` • 📍 ${p.location}` : ''}{p.audience ? ` • ${p.audience === 'Public' ? '🌐 Public' : '👥 Friends'}` : ''}</p></div>
             {p.boosted && <span className="ml-auto text-xs font-bold text-white px-2 py-1 rounded-full pb-gradient">🚀 Boosted</span>}
           </div>
@@ -1034,6 +1000,20 @@ export function CallPage() {
   const friendName = type === 'friend' ? (id || 'Friend') : undefined
   const rate = expert ? takaToPi(expert.rate) : isDating ? datingRate : FRIEND_RATE // সব কল Pi-তে — এক্সপার্টের টাকার রেট ÷১০০, ডেটিং রেট অ্যাডমিন থেকে (ডিফল্ট π ০.১), বন্ধুর কল π ০.১ ফ্ল্যাট
   const name = isLinkCall ? (linkInfo?.callerName || 'Caller') : expert ? expert.name : isDating ? (datingProfile?.name || decodeURIComponent(id || 'Dating')) : decodeURIComponent(friendName || 'Friend')
+  // Peer photo — friend calls resolve from the friends list; dating calls
+  // resolve from publicProfiles by uid. Experts have no photo in the backend
+  // (/api/experts returns id/name/rate/online only), so they keep initials.
+  // Link calls know the caller by name only, so they keep initials too.
+  const peerFriend = type === 'friend' ? friends.find(f => f.name === name) : undefined
+  const [datingPeerPhoto, setDatingPeerPhoto] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (!isDating || !id) return
+    let alive = true
+    fetchAllPublicProfiles(100).then(list => { if (alive) setDatingPeerPhoto(list.find(m => m.id === id)?.photo) }).catch(() => { /* initials */ })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDating, id])
+  const peerPhoto = peerFriend?.photo ?? datingPeerPhoto
   // ডেটিং কল সম্পূর্ণ প্রিপেইড — গ্লোবাল প্রথম-১-মিনিট-ফ্রি এখানে প্রযোজ্য নয়, ফ্রি মিনিট খরচও হবে না
   const isFreeAvailable = !isDating && !freeFirstMinuteUsed
   const [started, setStarted] = useState(false)
@@ -1432,7 +1412,7 @@ export function CallPage() {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
-          <span className="w-24 h-24 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
+          <Avatar photo={peerPhoto} name={name} color="#7C3AED" className="w-24 h-24 text-4xl mx-auto" />
           <h1 className="text-xl font-bold mt-3">📞 {name}</h1>
           {callError
             ? <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">{callError}</p>
@@ -1481,7 +1461,7 @@ export function CallPage() {
           <p className="text-xs text-gray-400 mt-3">Once the call starts you will get a link — send it to the person you are calling, the call will connect as soon as they open the link.</p>
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={startCall}>▶️ Start Call</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy π Pi</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy Pi</Btn>
           </div>
           <button className="text-sm text-gray-300 mt-3" onClick={() => navigate(-1)}>← Go Back</button>
         </Card>
@@ -1500,7 +1480,7 @@ export function CallPage() {
         <video ref={(el) => { videoRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current }} className={`absolute inset-0 w-full h-full object-cover ${remoteReady ? 'opacity-100' : 'opacity-0'}`} autoPlay playsInline />
         {!remoteReady && (
           <div className="text-center">
-            <span className="w-28 h-28 rounded-full bg-fb-blue text-4xl flex items-center justify-center font-bold mx-auto">{name.slice(0, 1)}</span>
+            <Avatar photo={peerPhoto} name={name} color="#7C3AED" className="w-28 h-28 text-4xl mx-auto" />
             <p className="text-xl font-bold mt-3">{name}</p>
             <p className="text-gray-300 text-sm">{fmt(seconds)} • {isFreeAvailable && seconds < 60 ? '1st minute free' : `${formatPi(liveCost)}`}</p>
             {sharing && <p className="text-xs mt-2 pb-gradient inline-block px-2 py-1 rounded">🖥️ Screen Sharing</p>}
@@ -1577,7 +1557,7 @@ function PiReportCard() {
   const rows = piLedger.map(r => { const after = run; run = roundPi(run - r.amount); return { ...r, after } })
   return (
     <Card>
-      <h2 className="font-bold">📊 π Pi Report</h2>
+      <h2 className="font-bold">📊 Pi Report</h2>
       <div className="grid grid-cols-2 gap-2 mt-3 text-center">
         <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">Total Deposited</p><p className="font-bold text-green-600">{formatPi(totalDeposit)}</p></div>
         <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2"><p className="text-xs text-gray-500">Total Withdrawn</p><p className="font-bold text-red-600">{formatPi(totalWithdraw)}</p></div>
@@ -1647,7 +1627,7 @@ export function WalletPage() {
     // সব টপ-আপ ম্যানুয়াল — আবেদন জমা হয়, অ্যাডমিন অনুমোদন দিলে Pi যোগ হয়
     if (!activeMethod) return
     const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : activeMethod, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
-    setMsg(err || `✅ ${activeMethod} request submitted — ${formatPi(previewPi)} Pi will be added after admin approval.`)
+    setMsg(err || `✅ ${activeMethod} request submitted — ${formatPi(previewPi)} will be added after admin approval.`)
     if (!err) setTrx('')
   }
   function doDeposit() {
@@ -1680,7 +1660,7 @@ export function WalletPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <Card className="text-center">
         <p className="text-gray-500 text-sm">Wallet Balance</p>
-        <p className="text-4xl font-extrabold pb-gradient-text">π {formatPi(totalPi)}</p>
+        <p className="text-4xl font-extrabold pb-gradient-text">{formatPi(totalPi)}</p>
         <p className="text-sm text-gray-500 mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Bonus Pi: <b>{formatPi(bonusPi)}</b></p>
         <p className="text-xs text-amber-600 mt-1">Bonus Pi cannot be withdrawn — it can only be used for calls/live gifts.</p>
         <p className="text-sm text-gray-500 mt-1">Reward Points: {points} • Referral: {referrals} people</p>
@@ -1690,7 +1670,7 @@ export function WalletPage() {
         <h2 className="font-bold flex items-center gap-2"><IconWallet className="w-5 h-5" /> Pi Wallet</h2>
         <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin)</p>
         <div className="mt-4 border-t pt-3">
-          <p className="text-sm font-bold">π Pi Deposit</p>
+          <p className="text-sm font-bold">Pi Deposit</p>
           {piDepositEnabled ? (<>
           <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
           {savedPiAddress
@@ -1707,7 +1687,7 @@ export function WalletPage() {
           </>) : <p className="text-sm mt-2 text-gray-500">{PI_DEPOSIT_DISABLED_MESSAGE}</p>}
         </div>
         <div className="mt-4 border-t pt-3">
-          <p className="text-sm font-bold">π Pi Withdraw</p>
+          <p className="text-sm font-bold">Pi Withdraw</p>
           <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
           <p className="text-sm mt-1">Withdrawable: <b>{formatPi(piBalance)}</b> • Minimum withdraw: Pi equal to 10 USDT ({formatPi(piMinWithdraw)}) • Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)}</p>
           <label className="text-sm block mt-2">Your Pi address (starts with G, 56 characters)</label>
@@ -1808,7 +1788,7 @@ export function FriendsPage() {
   }
   function addFromSearch(p: SearchablePerson) {
     setSent(v => ({ ...v, [p.id]: true }))
-    addFriend({ id: p.id, name: p.name, color: p.color, online: true })
+    addFriend({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -1831,7 +1811,7 @@ export function FriendsPage() {
           {results.length === 0 && <p className="text-sm text-gray-500 mt-1">Nobody found — check whether the name or ID is correct.</p>}
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
-              <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: p.color }}>{p.name.slice(0, 1)}</span>
+              <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
               <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
@@ -1848,7 +1828,7 @@ export function FriendsPage() {
         {requests.length === 0 && <p className="text-sm text-gray-500 mt-1">No new requests.</p>}
         {requests.map(r => (
           <div key={r.id} className="flex items-center gap-3 py-2">
-            <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: r.color }}>{r.name.slice(0, 1)}</span>
+            <Avatar photo={r.photo} name={r.name} color={r.color} className="w-10 h-10" />
             <span className="flex-1 font-medium">{r.name}</span>
             <Btn onClick={() => acceptRequest(r.id)}>Confirm</Btn>
             <Btn variant="ghost" onClick={() => removeFriend(r.id)}>Delete</Btn>
@@ -1860,7 +1840,7 @@ export function FriendsPage() {
         {friends.length === 0 && <p className="text-sm text-gray-500 mt-1">No friends yet — find and add friends.</p>}
         {friends.map(f => (
           <div key={f.id} className="flex items-center gap-3 py-2">
-            <span className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold" style={{ background: f.color }}>{f.name.slice(0, 1)}</span>
+            <Avatar photo={f.photo} name={f.name} color={f.color} className="w-10 h-10" online={f.online} />
             <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● Online' : '○ Offline'}</span></span>
             <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: f.name } })}>💬 Chat</Btn>
             <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 Call</Btn>
@@ -1888,13 +1868,13 @@ export function FriendsPage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, soundSettings, setSoundSettings, uid, recordDatingChat } = useStore()
+  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat } = useStore()
   const location = useLocation()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'Rima')
   // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
   // বন্ধুরা নিজে থেকে প্রথমে লেখে না — চ্যাট খালি দিয়ে শুরু, ব্যবহারকারী লিখলেই উত্তর আসে
-  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string; fsId?: string }[]>>(() => {
+  const [msgs, setMsgs] = useState<Record<string, { from: string; text: string; fsId?: string; localOnly?: boolean }[]>>(() => {
     const seed: Record<string, { from: string; text: string }[]> = {}
     try {
       const raw = localStorage.getItem('callguru:chatMsgs')
@@ -1913,6 +1893,15 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [ban, setBan] = useState('')
   const [warn, setWarn] = useState(0)
+  // একটা চ্যাট খুললে শুধু সেই চ্যাটটাই পূর্ণ পর্দায় দেখায় — পাশে/উপরে আর কোনো
+  // তালিকা বা প্যানেল থাকে না; "All chats"-এ ফিরলেই তালিকা দেখায়।
+  const [showList, setShowList] = useState(false)
+  // আসল বন্ধুর মেসেজ সার্ভারে না পৌঁছালে চুপচাপ লোকালেই থেকে যায় — সেটা যেন
+  // ব্যবহারকারী দেখতে পান (আগে কোনো চিহ্ন ছাড়াই শুধু এই ডিভাইসে থাকত)।
+  const [sendFailed, setSendFailed] = useState(false)
+  // অন্য ডিভাইস থেকে আসা চ্যাট — প্রাপক এখনো বন্ধু হিসেবে যোগ না করলেও রুমটা
+  // এখানে দেখায়, যাতে মেসেজটা খুলে পড়া/উত্তর দেওয়া যায়।
+  const [incoming, setIncoming] = useState<ChatRoomSummary[]>([])
   // কে লিখছে (প্রতি বন্ধুর জন্য আলাদা) — উত্তর আসার ১–৩ সেকেন্ড আগে "লিখছে…" দেখায়
   const [typing, setTyping] = useState<Record<string, boolean>>({})
   const typingTimersRef = useRef<number[]>([])
@@ -1922,11 +1911,20 @@ export function ChatPage() {
   // প্রথম মেসেজ পাঠালেই ওই মানুষটা ডেটিং চ্যাটের হিসাবে ধরা হয় (৫ জন হলে KYC)।
   const datingPartnerIdRef = useRef<string | null>(null)
   // Friends পেজ থেকে কোনো বন্ধুর চ্যাটে এলে সেই চ্যাটটাই খুলে যায় (শুধু আসল বন্ধুর নামে)
+  // ডেটিং ম্যাচ থেকে এলে (datingPartnerId) ওই মানুষটা বন্ধু তালিকায় না থাকলে
+  // এখনই যোগ হয় — নইলে activeFriend মেলে না, roomId null থাকে আর প্রথম
+  // মেসেজটা Firestore-এ না গিয়ে শুধু এই ডিভাইসেই থেকে যেত।
   useEffect(() => {
     const st = location.state as { with?: string; draft?: string; datingPartnerId?: string } | null
-    if (st?.with && friends.some(f => f.name === st.with)) setActive(st.with)
+    if (st?.with && friends.some(f => f.name === st.with)) { setActive(st.with); setShowList(false) }
+    else if (st?.with && st?.datingPartnerId) {
+      addFriend({ id: st.datingPartnerId, name: st.with, color: colourForUid(st.datingPartnerId), online: true })
+      setActive(st.with)
+      setShowList(false)
+    }
     if (st?.draft) setDraft(st.draft)
     datingPartnerIdRef.current = st?.datingPartnerId ?? null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state])
   useEffect(() => {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
@@ -1960,6 +1958,19 @@ export function ChatPage() {
     return () => { if (unsub) unsub() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
+  // রুম বদলালে আগের "পাঠানো যায়নি" চিহ্ন মুছে যায়
+  useEffect(() => { setSendFailed(false) }, [roomId])
+  // আমার রুমগুলো — কেউ আমাকে মেসেজ পাঠালে রুমটা এখানে দেখায়, এমনকি আমি
+  // তাকে এখনো বন্ধু হিসেবে যোগ না করলেও। নইলে প্রাপকের কাছে রুম খোলার কোনো
+  // পথই থাকত না (চ্যাট তালিকায় শুধু বন্ধুরাই থাকে)।
+  useEffect(() => {
+    if (!uid) { setIncoming([]); return }
+    const unsub = subscribeMyChatRooms(uid, (rooms) => {
+      const knownIds = new Set(friends.map(f => f.id))
+      setIncoming(rooms.filter(r => r.otherUid !== uid && !knownIds.has(r.otherUid) && !isBuddyId(r.otherUid)))
+    })
+    return () => { if (unsub) unsub() }
+  }, [uid, friends])
   function send() {
     const err = contactBanCheck(draft)
     if (err) { setBan(err + ' Repeated attempts will raise more warnings.'); setWarn(w => w + 1); return }
@@ -1971,10 +1982,16 @@ export function ChatPage() {
     // ওই মানুষটা গোনা হয় (একই মানুষ বারবার গোনা হয় না)।
     if (datingPartnerIdRef.current) recordDatingChat(datingPartnerIdRef.current)
     // আসল বন্ধু — Firestore-এ লিখি; সাবস্ক্রিপশন থেকেই মেসেজ ফিরে এসে দেখাবে।
-    // সার্ভারে না পৌঁছালে মেসেজ শুধু এই ডিভাইসে থাকে।
+    // সার্ভারে না পৌঁছালে মেসেজ শুধু এই ডিভাইসে থাকে — সেটা চিহ্নসহ দেখাই,
+    // যাতে ব্যবহারকারী ভুল করে না ভাবেন মেসেজটা পৌঁছে গেছে।
     if (isRealUser && roomId && uid) {
-      sendChatMessage(roomId, uid, user?.name || 'You', text).then(id => {
-        if (!id) setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text }] }))
+      sendChatMessage(roomId, uid, user?.name || 'You', text).then(ok => {
+        if (!ok) {
+          setSendFailed(true)
+          setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text, localOnly: true }] }))
+        } else {
+          setSendFailed(false)
+        }
       })
       return
     }
@@ -1992,24 +2009,71 @@ export function ChatPage() {
       }, 1000 + Math.random() * 2000))
     }
   }
-  const contacts = friends.map(f => f.name)
+  const contacts = friends
+  // এই চ্যাটটা কি আসল মানুষের সাথে — আর মেসেজ কি আদৌ অন্য ডিভাইসে পৌঁছাবে?
+  // ৫ চ্যাট পারসোনা আগের মতোই লোকাল (তারাই উত্তর দেয়)। আসল বন্ধুর চ্যাটে
+  // Firebase লগইন (Google/ইমেইল লিংক) ছাড়া কোনো UID থাকে না — OTP লগইনে
+  // মেসেজ শুধু এই ডিভাইসেই থাকে, সেটা এখানে স্পষ্ট করে জানানো হয়।
+  const isBuddyChat = !activeFriend || isBuddyId(activeFriend.id)
+  const chatSyncBlocked = !isBuddyChat && (!uid || !isFirebaseConfigured)
+  function openChat(name: string) {
+    setActive(name)
+    setShowList(false)
+    datingPartnerIdRef.current = null
+  }
+  function openIncoming(room: ChatRoomSummary) {
+    addFriend({ id: room.otherUid, name: room.otherName, color: colourForUid(room.otherUid), online: true })
+    setActive(room.otherName)
+    setShowList(false)
+    datingPartnerIdRef.current = null
+  }
+  // তালিকা — শুধু "All chats"-এ ফিরলেই দেখায়; চ্যাট খোলা থাকলে শুধু চ্যাটটাই
+  // পূর্ণ পর্দায় থাকে (আগে মোবাইলে তালিকাটা চ্যাটের উপরে, কম্পিউটারে পাশে থাকত)।
+  if (showList) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Card>
+          <h2 className="font-bold mb-2 flex items-center gap-2"><IconChat className="w-5 h-5" /> Chat — completely free</h2>
+          {/* চ্যাট সাউন্ড চালু/বন্ধ — একই টগল মোবাইল ও কম্পিউটারে, মেনুর সেটিংসের সাথে এক */}
+          <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? 'Sound on — tap to turn off' : 'Sound off — tap to turn on'}</button>
+          {incoming.length > 0 && (
+            <>
+              <p className="text-sm font-bold mt-2">New chats</p>
+              {incoming.map(r => (
+                <button key={r.roomId} onClick={() => openIncoming(r)} className="block w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-slate-800"><b>{r.otherName}</b> <span className="text-xs text-green-600 font-bold"> • New message</span></button>
+              ))}
+            </>
+          )}
+          {contacts.length === 0 && incoming.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
+          {contacts.map(f => (
+            <button key={f.id} onClick={() => openChat(f.name)} className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm ${active === f.name ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}><Avatar photo={f.photo} name={f.name} color={f.color} className="w-8 h-8 text-sm" online={f.online} />{f.name}</button>
+          ))}
+          <p className="text-xs text-gray-400 mt-3">Phone numbers, WhatsApp/Facebook/Telegram links or emails cannot be shared — they will be blocked automatically.</p>
+          {warn > 0 && <p className="text-xs text-red-500 mt-1">Warning: {warn} times the rules were tried to be broken.</p>}
+        </Card>
+      </div>
+    )
+  }
   return (
-    <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
-      <Card className="md:col-span-1">
-        <h2 className="font-bold mb-2 flex items-center gap-2"><IconChat className="w-5 h-5" /> Chat — completely free</h2>
-        {/* চ্যাট সাউন্ড চালু/বন্ধ — একই টগল মোবাইল ও কম্পিউটারে, মেনুর সেটিংসের সাথে এক */}
-        <button onClick={() => setSoundSettings({ chatSound: !soundSettings.chatSound })} className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-700 font-medium mb-2">{soundSettings.chatSound ? 'Sound on — tap to turn off' : 'Sound off — tap to turn on'}</button>
-        {contacts.length === 0 && <p className="text-sm text-gray-500">No friends yet — add friends.</p>}
-        {contacts.map(n => (
-          <button key={n} onClick={() => { setActive(n); datingPartnerIdRef.current = null }} className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${active === n ? 'bg-violet-50 dark:bg-slate-700 font-bold' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}>{n}</button>
-        ))}
-        <p className="text-xs text-gray-400 mt-3">Phone numbers, WhatsApp/Facebook/Telegram links or emails cannot be shared — they will be blocked automatically.</p>
-        {warn > 0 && <p className="text-xs text-red-500 mt-1">Warning: {warn} times the rules were tried to be broken.</p>}
-      </Card>
-      <Card className="md:col-span-2">
-        <h2 className="font-bold">{active}</h2>
+    <div className="max-w-2xl mx-auto">
+      <Card>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowList(true)} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium">← All chats</button>
+          <h2 className="font-bold flex-1 flex items-center gap-2">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9" online={activeFriend.online} />}{active}</h2>
+        </div>
+        {chatSyncBlocked && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 rounded-lg px-3 py-2 mt-2">Messages in this chat stay on this device only — log in with Google or an email link so they reach {active}.</p>
+        )}
+        {sendFailed && (
+          <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 rounded-lg px-3 py-2 mt-2">The last message could not be sent — it stays on this device only.</p>
+        )}
         <div className="h-64 overflow-y-auto space-y-2 mt-3">
-          {(msgs[active] || []).map((m, i) => <p key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-violet-100 dark:bg-violet-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}><b>{m.from}:</b> {m.text}</p>)}
+          {(msgs[active] || []).map((m, i) => (
+            <div key={i} className={`text-sm px-3 py-2 rounded-xl max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-violet-100 dark:bg-violet-900 ml-auto' : 'bg-gray-100 dark:bg-slate-700'}`}>
+              <p><b>{m.from}:</b> {m.text}</p>
+              {m.localOnly && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">Only on this device — not sent</p>}
+            </div>
+          ))}
           {(msgs[active] || []).length === 0 && !typing[active] && <p className="text-sm text-gray-400 px-3 py-2">No messages yet — write the first message.</p>}
           {typing[active] && <p className="text-sm text-gray-400 italic px-3 py-2">{active} typing…</p>}
         </div>
@@ -2384,7 +2448,8 @@ export function DatingPage() {
             {realRooms.map(r => (
               <div key={r.id} className="border-2 border-red-400 rounded-xl p-3 dark:border-red-700">
                 <div className="flex gap-3 items-center">
-                  <span className="w-12 h-12 rounded-full bg-fb-blue text-white text-xl flex items-center justify-center font-bold relative">{r.hostName.slice(0, 1)}
+                  <span className="relative w-12 h-12 shrink-0">
+                    <Avatar photo={candidates.find(c => c.displayName === r.hostName)?.photo} name={r.hostName} color="#7C3AED" className="w-12 h-12 text-xl" />
                     <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
                   </span>
                   <div><p className="font-bold">{r.hostName}</p><p className="text-xs text-gray-500">👁️ {r.viewers} watching • <span className="text-green-600 font-bold">Real Live</span></p></div>
@@ -2474,6 +2539,16 @@ export function DatingLivePage() {
   const [realRoom, setRealRoom] = useState<LiveRoom | null>(null)
   const [roomLookupDone, setRoomLookupDone] = useState(false)
   const host = realRoom ? { id: realRoom.id, name: realRoom.hostName, age: 0, city: '', about: 'Live now', color: '#E91E63' } : undefined
+  // Host photo — the live server only sends hostName, so resolve the photo
+  // from publicProfiles by display name (same source Dating cards use).
+  const [hostPhoto, setHostPhoto] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (!host) return
+    let alive = true
+    fetchAllPublicProfiles(100).then(list => { if (alive) setHostPhoto(list.find(m => m.displayName === host.name)?.photo) }).catch(() => { /* initials */ })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host?.name])
   useEffect(() => {
     let alive = true
     fetchLiveRooms().then(rooms => { if (!alive) return; setRealRoom(rooms?.find(x => x.id === id) ?? null); setRoomLookupDone(true) })
@@ -2651,7 +2726,7 @@ export function DatingLivePage() {
           <p className="text-sm text-gray-300 mt-2">{endReason}</p>
           <div className="flex gap-2 mt-5 justify-center flex-wrap">
             <Btn variant="green" onClick={() => navigate('/dating')}>Back to Dating</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy π Pi</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy Pi</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={shareLive}>📤 Share</Btn>
           </div>
           {shareMsg && <p className="text-sm text-green-400 mt-2">{shareMsg}</p>}
@@ -2673,13 +2748,13 @@ export function DatingLivePage() {
             <p>Host will get <b>70%</b> • Admin will get <b>30%</b></p>
             <p>Pi Balance: <b>{formatPi(totalPi)}</b> • Will show: <b>~{talkableMinutes} Minutes</b></p>
             <p>The live will stop itself when the Pi balance ends.</p>
-            <p>Your Pi: <b>π {formatPi(totalPi)}</b> — you need Pi to send gifts on live.</p>
+            <p>Your Pi: <b>{formatPi(totalPi)}</b> — you need Pi to send gifts on live.</p>
           </div>
           <p className="text-xs text-gray-400 mt-2">🔴 This live too is covered by admin-only recording — only the admin can view it for appeals/disputes. {realRoom ? '🟢 Live server connected — real broadcast.' : 'Live server not connected — check your connection and try again.'}</p>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ You cannot watch live without a Pi balance. Prepaid — buy Pi first.</p>}
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={() => setStarted(true)}>▶️ Start Watching Live</Btn>
-            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy π Pi</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy Pi</Btn>
           </div>
           <button className="text-sm text-gray-300 mt-3" onClick={() => navigate('/dating')}>← Back to Dating</button>
         </Card>
@@ -2698,7 +2773,7 @@ export function DatingLivePage() {
         <div className="text-center px-4 w-full max-w-lg">
           <span className="inline-block bg-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">🔴 LIVE</span>
           <video ref={remoteRef} className={`w-full aspect-video bg-black rounded-xl mt-3 ${remoteReady ? '' : 'hidden'}`} autoPlay playsInline />
-          {!remoteReady && <span className="w-28 h-28 rounded-full text-white text-4xl flex items-center justify-center font-bold mx-auto mt-3" style={{ background: host.color }}>{host.name.slice(0, 1)}</span>}
+          {!remoteReady && <Avatar photo={hostPhoto} name={host.name} color={host.color} className="w-28 h-28 text-4xl mx-auto mt-3" />}
           <p className="text-xl font-bold mt-3">{host.name} is live</p>
           <p className="text-gray-300 text-sm">👁️ {liveViewers ?? realRoom?.viewers ?? 0} watching • {fmtLive(seconds)}</p>
           <div className="mt-3 text-sm space-y-1">
@@ -2722,7 +2797,7 @@ export function DatingLivePage() {
         <div className="max-w-md mx-auto glass rounded-xl p-2 mb-3">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold">🎁 Send Gift</p>
-            <span className="text-xs">π Your Pi: <b>{formatPi(totalPi)}</b></span>
+            <span className="text-xs">Your Pi: <b>{formatPi(totalPi)}</b></span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">Gifts can only be bought with Pi — you cannot buy gifts from outside, and there are no free gifts. The host gets 70% of a gift, the admin gets 30%.</p>
           <div className="grid grid-cols-4 gap-2 mt-2">
@@ -2735,7 +2810,7 @@ export function DatingLivePage() {
             ))}
           </div>
           {giftMsg && <p className="text-xs text-yellow-200 text-center mt-2">{giftMsg}</p>}
-          {giftMsg === 'Not enough Pi balance — add Pi to your Pi wallet' && <div className="text-center mt-1"><Btn variant="green" onClick={() => navigate('/wallet')}>Buy π Pi</Btn></div>}
+          {giftMsg === 'Not enough Pi balance — add Pi to your Pi wallet' && <div className="text-center mt-1"><Btn variant="green" onClick={() => navigate('/wallet')}>Buy Pi</Btn></div>}
           {giftsSent.length > 0 && <p className="text-xs text-gray-300 text-center mt-2">Gifts sent: {giftsSent.map(g => g.icon).join(' ')} • Host received from gifts {formatPi(giftCreatorTotal)} (70%)</p>}
         </div>
         <div className="flex justify-center pb-2">
@@ -3129,6 +3204,7 @@ export function GroupsPage() {
 
 export function ReelsPage() {
   const { reelShares, totalShares, recordShare, posts } = useStore()
+  const navigate = useNavigate()
   const [shareMsg, setShareMsg] = useState('')
   async function shareReel(r: { id: string; title: string; creator: string }) {
     const url = `${INVITE_BASE_URL}reels?reel=${r.id}`
@@ -3144,6 +3220,10 @@ export function ReelsPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconReels className="w-6 h-6" /> Reels & Monetization</h1>
       <p className="text-sm text-gray-500">Total share: <b>↗️ {totalShares}</b> • If you like it, share — friends will join PiCall!</p>
+      <div>
+        <Btn onClick={() => navigate('/feed', { state: { openComposerVideo: true } })}><span className="flex items-center gap-1"><IconVideo className="w-4 h-4" /> Upload Reel</span></Btn>
+        <p className="text-sm text-gray-500 mt-2">Upload a video from the post composer (max 50 MB) — it will appear here as a reel.</p>
+      </div>
       {shareMsg && <p className="text-sm text-green-600">{shareMsg}</p>}
       <div className="grid grid-cols-2 gap-3">
         {REELS.length === 0 && videoReels.length === 0 && <p className="text-sm text-gray-500 col-span-2">No reels yet.</p>}
@@ -3509,7 +3589,7 @@ export function AdminPage() {
         <p className="text-xs text-gray-400 mt-1">Currently saved: <b>{formatPi(liveRate)}/ minute</b> • Minimum π 0.01/minute.</p>
         {liveRateMsg && <p className="text-sm text-green-600 mt-2">{liveRateMsg}</p>}
         {liveRateErr && <p className="text-sm text-red-600 mt-2">{liveRateErr}</p>}
-        <h3 className="font-bold mt-5">π Pi Rate (set by admin)</h3>
+        <h3 className="font-bold mt-5">Pi Rate (set by admin)</h3>
         <p className="text-xs text-gray-500">Top-up conversion, deposit/withdraw and USDT exchange rates can be changed here — the wallet will show the new rate as soon as you change it.</p>
         <div className="grid sm:grid-cols-3 gap-3 mt-2">
           <div>
@@ -3539,7 +3619,7 @@ export function AdminPage() {
           <div key={t.id} className="border rounded-lg p-3 mt-2 flex justify-between gap-2 flex-wrap">
             <div className="text-sm">
               <p className="font-bold">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatBDT(Math.round(t.amount * usdtRateBDT))}` : formatBDT(t.amount)}</p>
-              <p className="text-green-600 font-bold">→ {formatPi(topUpPi(t.amount, t.currency, piRateBDT, usdtRateBDT))} Pi will be added</p>
+              <p className="text-green-600 font-bold">→ {formatPi(topUpPi(t.amount, t.currency, piRateBDT, usdtRateBDT))} will be added</p>
               <p className="text-gray-500">Reference: {t.trxId}</p>
               {topUpDestination(t) && <p className="text-gray-500">Destination (given to the customer): {topUpDestination(t)}</p>}
               <p className="text-gray-500">{t.date} • {t.status === 'pending' ? '⏳ Under review' : t.status === 'approved' ? '✅ Approved' : '❌ Rejected'}</p>
@@ -3916,7 +3996,7 @@ export function MenuPage() {
             ? <img src={profilePhoto} alt="Profile photo" className="w-16 h-16 rounded-full object-cover" />
             : <span className="w-16 h-16 rounded-full pb-gradient text-white text-2xl flex items-center justify-center font-bold">{user ? user.name.slice(0, 1) : '👤'}</span>}
           <div><p className="font-bold text-lg">{user ? user.name : 'Guest user'}</p><p className="text-sm text-gray-500">{user?.email || 'Log in'}</p></div>
-          <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">π {formatPi(totalPi)}</button>
+          <button onClick={() => navigate('/wallet')} className="ml-auto bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border border-violet-200 dark:border-violet-700 font-bold px-3 py-1.5 rounded-full text-sm">{formatPi(totalPi)}</button>
         </div>
         {user && <div className="flex gap-2 mt-3">
           <Btn variant="ghost" onClick={() => setShowProfileSettings(s => !s)}><span className="flex items-center gap-1"><IconSettings className="w-4 h-4" /> Profile Settings</span></Btn>
