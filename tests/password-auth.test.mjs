@@ -97,7 +97,8 @@ await check('mismatched passwords show an INLINE red error under Confirm passwor
   assert.ok(confirmIdx > 0 && inlineIdx > confirmIdx, 'ইনলাইন ভুল Confirm password ঘরের নিচে নেই')
   assert.ok(btnIdx > inlineIdx, 'ইনলাইন ভুল Create account বোতামের আগে নেই')
   assert.ok(login.includes('text-red-600 dark:text-red-400'), 'ইনলাইন ভুল লাল নয়')
-  assert.ok(login.includes("passwordsMismatch ? ' !border-red-400"), 'অমিলে Confirm ঘরের বর্ডার লাল হয় না')
+  assert.ok(login.includes("passwordsMismatch ? ' !border-red-400 dark:!border-red-500 focus:!ring-red-500 focus:!border-red-500'"), 'অমিলে Confirm ঘরের বর্ডার লাল হয় না')
+  assert.ok(login.includes('focus:!ring-red-500'), 'অমিলে ফোকাসেও লাল রিং হয় না (ভায়োলেট রিং লাল বর্ডার ঢেকে দেয়)')
   // ট্যাব বদলে ইনলাইন ভুল মুছে না — শুধু পাসওয়ার্ড ঘর সম্পাদনায় মুছে
   assert.equal((login.match(/setSignupMismatch\(/g) || []).length, 3, 'setSignupMismatch শুধু সাবমিট + দুই ঘরের onChange-এ থাকার কথা')
   assert.ok(!login.includes("setAuthMode('signup'); setSignupMismatch"), 'ট্যাব বদলে ইনলাইন ভুল মুছে যাচ্ছে')

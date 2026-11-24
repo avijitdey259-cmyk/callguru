@@ -452,7 +452,7 @@ export function LoginPage() {
             <label className="text-sm font-medium mt-3 block">Confirm password</label>
             <div className="relative mt-1">
               <IconLock className={inputIconCls} />
-              <input className={inputCls + ' pl-10' + (passwordsMismatch ? ' !border-red-400 dark:!border-red-500' : '')} type="password" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setSignupMismatch(false) }} placeholder="Type the password again" autoComplete="new-password" />
+              <input className={inputCls + ' pl-10' + (passwordsMismatch ? ' !border-red-400 dark:!border-red-500 focus:!ring-red-500 focus:!border-red-500' : '')} type="password" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setSignupMismatch(false) }} placeholder="Type the password again" autoComplete="new-password" />
             </div>
             {passwordsMismatch && <p className="text-sm text-red-600 dark:text-red-400 mt-1">Passwords do not match.</p>}
             <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={createPasswordAccount}>Create account</Btn>
