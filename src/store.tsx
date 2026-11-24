@@ -10,6 +10,7 @@ import { toUserDoc, fromUserDoc, toPublicConfig, fromPublicConfig, toTopUpDoc, f
 import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
 import { profileCompletion, type Gender, type ProfileFields } from './profile'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, type AnalyticsIds } from './analytics'
+import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
 export type Friend = { id: string; name: string; color: string; online: boolean }
@@ -54,14 +55,14 @@ export const ADMIN_EMAIL = 'avijitdey259@gmail.com'
 // কখনো পুরো দেখানো হয় না, খতিয়ানে/শেয়ারে লেখা হয় না।
 export type SmsSettings = { provider: string; apiKey: string; senderId: string }
 export type SmtpSettings = { host: string; port: number; user: string; pass: string; from: string }
-export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string }
+export type PaymentSettings = { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string; enabled: PaymentEnabledMap }
 // Analytics ID — Meta Pixel / GA4 / Clarity (সবার দেখা যায় এমন পরিচয়, গোপন নয়);
 // খালি থাকলে ট্র্যাকার বন্ধ। অ্যাডমিন সেটিংস থেকে config/public-এ যায়।
 export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings; analytics: AnalyticsIds }
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   sms: { provider: 'BulkSMSBD', apiKey: '', senderId: '' },
   smtp: { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' },
-  payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '' },
+  payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '', enabled: { ...DEFAULT_PAYMENT_ENABLED } },
   analytics: { ...EMPTY_ANALYTICS_IDS },
 }
 
@@ -477,7 +478,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return {
       sms: { ...DEFAULT_ADMIN_SETTINGS.sms, ...(v.sms || {}) },
       smtp: { ...DEFAULT_ADMIN_SETTINGS.smtp, ...(v.smtp || {}) },
-      payments: { ...DEFAULT_ADMIN_SETTINGS.payments, ...(v.payments || {}) },
+      payments: { ...DEFAULT_ADMIN_SETTINGS.payments, ...(v.payments || {}), enabled: normalizePaymentEnabled({ ...DEFAULT_ADMIN_SETTINGS.payments.enabled, ...((v.payments || {}).enabled || {}) }) },
       analytics: { ...DEFAULT_ADMIN_SETTINGS.analytics, ...(v.analytics || {}) },
     }
   })
@@ -582,14 +583,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   // config/public → স্টোরের দর + পেমেন্টের বিবরণ (sms/smtp গোপন অংশ ছোঁয়া হয় না)।
-  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string }; analytics: AnalyticsIds }>) => {
+  const applyPublicConfig = (c: Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; enabled?: PaymentEnabledMap }; analytics: AnalyticsIds }>) => {
     if (c.piRateBDT !== undefined) setPiRateBDTState(c.piRateBDT)
     if (c.usdtRateBDT !== undefined) setUsdtRateBDTState(c.usdtRateBDT)
     if (c.piWithdrawFeePct !== undefined) setPiWithdrawFeePctState(c.piWithdrawFeePct)
     if (c.datingRate !== undefined) setDatingRateState(c.datingRate)
     if (c.liveRate !== undefined) setLiveRateState(c.liveRate)
     if (c.tvPlaylistUrl !== undefined) setTvPlaylistUrlState(c.tvPlaylistUrl)
-    if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments } }))
+    if (c.payments !== undefined) setAdminSettingsState((prev) => ({ ...prev, payments: { ...prev.payments, ...c.payments, enabled: normalizePaymentEnabled({ ...prev.payments.enabled, ...(c.payments?.enabled ?? {}) }) } }))
     if (c.analytics !== undefined) setAdminSettingsState((prev) => ({ ...prev, analytics: { ...prev.analytics, ...c.analytics } }))
   }
 

@@ -22,6 +22,7 @@
 import type { CallRecord, Friend, KycInfo, KycStatus, PiLedgerRow, PiTx, TopUpRequest } from './store'
 import type { Gender } from './profile'
 import { EMPTY_ANALYTICS_IDS, sanitizeAnalyticsId, type AnalyticsIds } from './analytics'
+import { normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
 
 export const SCHEMA_VERSION = 1
 
@@ -166,7 +167,7 @@ export type PublicConfigDoc = {
   datingRate: number
   liveRate: number
   tvPlaylistUrl: string
-  payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string }
+  payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string; enabled: PaymentEnabledMap }
   // Analytics ID — Meta Pixel / GA4 / Clarity (সবার দেখা যায় এমন পরিচয়,
   // গোপন কিছু নয়); সাইন-ইন করা সব ব্যবহারকারী পড়ে।
   analytics: AnalyticsIds
@@ -352,7 +353,7 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
     datingRate: rates.datingRate,
     liveRate: rates.liveRate,
     tvPlaylistUrl,
-    payments: { ...payments },
+    payments: { ...payments, enabled: normalizePaymentEnabled(payments.enabled) },
     analytics: { ...analytics },
   }
 }
@@ -375,7 +376,12 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
     for (const k of ['bkash', 'nagad', 'rocket', 'usdtBep20', 'usdtErc20', 'binancePayId', 'piDepositAddress', 'piTestnetAddress']) {
       if (typeof p[k] === 'string') pay[k] = p[k] as string
     }
-    if (Object.keys(pay).length > 0) out.payments = pay as PublicConfigDoc['payments']
+    // চালু/বন্ধ ফ্ল্যাগ — পুরোনো ডকে না থাকলে এখানে বসে না (আগের ডিফল্টই থাকে);
+    // থাকলে (আংশিক হলেও) নরমালাইজ করে নেওয়া হয় — নম্বর/ঠিকানা এতে বদলায় না।
+    const hasEnabled = p.enabled && typeof p.enabled === 'object' && !Array.isArray(p.enabled)
+    if (Object.keys(pay).length > 0 || hasEnabled) {
+      out.payments = { ...pay, ...(hasEnabled ? { enabled: normalizePaymentEnabled(p.enabled) } : {}) } as PublicConfigDoc['payments']
+    }
   }
   // Analytics ID — তিনটিই সবার দেখা যায় এমন পরিচয়; খালি থাকলে ট্র্যাকার বন্ধ।
   if (d.analytics && typeof d.analytics === 'object') {

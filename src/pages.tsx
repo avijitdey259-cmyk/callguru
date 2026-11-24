@@ -23,6 +23,7 @@ import {
 } from './data'
 import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPlaylist'
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
+import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, sendEmailLink, completeEmailLink, isEmailLinkSignIn, getFirebaseAuth, getFirebaseApp } from './firebase'
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -1619,8 +1620,13 @@ export function WalletPage() {
   const [affiliateOn, setAffiliateOn] = useState(false)
   const depChain = 'Pi Mainnet'
   const wdChain = 'Pi Mainnet'
-  const isUsdt = method === 'USDT'
-  const isBinance = method === 'Binance Pay'
+  // চালু থাকা মাধ্যমেই টপ-আপ — বন্ধ মাধ্যম বোতামে দেখায় না; বর্তমান মাধ্যম
+  // বন্ধ হয়ে গেলে প্রথম চালু মাধ্যমে যায়; সব বন্ধ থাকলে ফর্মের বদলে বার্তা।
+  const enabledMethods = enabledTopUpMethods(adminSettings.payments.enabled)
+  const activeMethod = resolveTopUpMethod(adminSettings.payments.enabled, method)
+  const piDepositEnabled = isPaymentMethodEnabled(adminSettings.payments.enabled, 'piDeposit')
+  const isUsdt = activeMethod === 'USDT'
+  const isBinance = activeMethod === 'Binance Pay'
   const isUsdtAmount = isUsdt || isBinance
   // ব্যাংক বাদ — সব টপ-আপ এখন ম্যানুয়াল (অ্যাডমিন অনুমোদন), তাৎক্ষণিক টপ-আপ আর নেই
   const net = USDT_NETWORKS.find(n => n.id === usdtNetwork) || USDT_NETWORKS[1]
@@ -1628,15 +1634,16 @@ export function WalletPage() {
   const previewPi = topUpPi(Number(amount) || 0, isUsdtAmount ? 'USDT' : 'BDT', piRateBDT, usdtRateBDT)
   // অ্যাডমিন সেটিংসে আসল নম্বর/ঠিকানা বসানো থাকলে সেটাই দেখাবে; না থাকলে
   // "Not set up yet — ask the admin" দেখাবে — কোনো ডেমো নম্বর/ঠিকানা দেখানো হয় না
-  const savedPayNumber = method === 'bKash' ? adminSettings.payments.bkash : method === 'Nagad' ? adminSettings.payments.nagad : method === 'Rocket' ? adminSettings.payments.rocket : ''
+  const savedPayNumber = activeMethod === 'bKash' ? adminSettings.payments.bkash : activeMethod === 'Nagad' ? adminSettings.payments.nagad : activeMethod === 'Rocket' ? adminSettings.payments.rocket : ''
   const savedUsdtAddress = usdtNetwork === 'BEP20' ? adminSettings.payments.usdtBep20 : adminSettings.payments.usdtErc20
   const savedBinanceId = adminSettings.payments.binancePayId
   const savedPiAddress = adminSettings.payments.piDepositAddress
   function copyText(t: string, label: string) { navigator.clipboard?.writeText(t).then(() => setCopied(label)).catch(() => setCopied('')) }
   function doTopUp() {
     // সব টপ-আপ ম্যানুয়াল — আবেদন জমা হয়, অ্যাডমিন অনুমোদন দিলে Pi যোগ হয়
-    const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : method, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
-    setMsg(err || `✅ ${method} request submitted — ${formatPi(previewPi)} Pi will be added after admin approval.`)
+    if (!activeMethod) return
+    const err = submitManualTopUp(isUsdt ? `USDT (${usdtNetwork})` : activeMethod, Number(amount), trx, isUsdtAmount ? 'USDT' : 'BDT', isUsdt ? usdtNetwork : undefined)
+    setMsg(err || `✅ ${activeMethod} request submitted — ${formatPi(previewPi)} Pi will be added after admin approval.`)
     if (!err) setTrx('')
   }
   function doDeposit() {
@@ -1680,6 +1687,7 @@ export function WalletPage() {
         <p className="text-xs text-gray-500 mt-1">Rate: 1 Pi = {formatBDT(piRateBDT)} • 1 USDT = {formatBDT(usdtRateBDT)} (set by admin)</p>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi Deposit</p>
+          {piDepositEnabled ? (<>
           <p className="text-sm mt-2">Pi Chain: <b>Pi Mainnet (real Pi)</b></p>
           {savedPiAddress
             ? <><p className="text-sm mt-2">PiCall Pi address (Pi Mainnet): <code className="break-all">{savedPiAddress}</code></p>
@@ -1692,6 +1700,7 @@ export function WalletPage() {
           <Btn variant="green" className="w-full mt-3" onClick={doDeposit}>Confirm Deposit</Btn>
           {depMsg && <p className="text-sm mt-2">{depMsg}</p>}
           {piDeposits.length > 0 && <div className="mt-2">{piDeposits.map(d => <p key={d.id} className="text-sm text-gray-500">{formatPi(d.amount)} • {d.ref}{d.chain ? ` • ${d.chain}` : ''} • {d.date} • {d.status}</p>)}</div>}
+          </>) : <p className="text-sm mt-2 text-gray-500">{PI_DEPOSIT_DISABLED_MESSAGE}</p>}
         </div>
         <div className="mt-4 border-t pt-3">
           <p className="text-sm font-bold">π Pi Withdraw</p>
@@ -1710,22 +1719,25 @@ export function WalletPage() {
       </Card>
             <Card>
         <h2 className="font-bold flex items-center gap-2"><IconPlus className="w-5 h-5" /> Top Up</h2>
+        {activeMethod === null ? (
+          <p className="text-sm mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">{PAYMENTS_ALL_DISABLED_MESSAGE}</p>
+        ) : (<>
         {!isUsdtAmount && <div className="flex gap-2 flex-wrap mt-3">{TOPUP_PACKS.map(p => <button key={p} onClick={() => setAmount(p)} className={`px-4 py-2 rounded-lg border font-bold ${amount === p ? 'bg-fb-blue text-white' : 'bg-gray-50 dark:bg-slate-800'}`}>{formatBDT(p)}</button>)}</div>}
         <label className="text-sm block mt-3">Amount ({isUsdtAmount ? 'USDT' : 'Tk'})</label>
         <input type="number" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={amount} onChange={e => setAmount(Number(e.target.value))} />
         {previewPi > 0 && <p className="text-sm mt-1 text-green-600 font-bold">≈ {formatPi(previewPi)} will get (auto){isUsdtAmount ? ` — Rate: 1 USDT = ${formatBDT(usdtRateBDT)}` : ` — Rate: 1 Pi = ${formatBDT(piRateBDT)}`}।</p>}
         <label className="text-sm block mt-3">Payment Method</label>
-        <div className="flex gap-2 flex-wrap mt-1">{['bKash', 'Nagad', 'Rocket', 'USDT', 'Binance Pay'].map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${method === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
+        <div className="flex gap-2 flex-wrap mt-1">{enabledMethods.map(m => <button key={m} onClick={() => setMethod(m)} className={`px-3 py-1.5 rounded-full text-sm border ${activeMethod === m ? 'bg-fb-blue text-white' : ''}`}>{m}</button>)}</div>
         <div className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
           <p className="font-bold">Manual Payment — Steps:</p>
           <p>1. To the address below {isUsdtAmount ? `${amount || 0} USDT` : `${formatBDT(Number(amount) || 0)}`} Send.</p>
           <p>2. Below {isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay reference' : 'TrxID'} Write and submit the request. Pi will be added after admin approval.</p>
         </div>
-        {(method === 'bKash' || method === 'Nagad' || method === 'Rocket') && <div className="text-sm mt-3">
+        {(activeMethod === 'bKash' || activeMethod === 'Nagad' || activeMethod === 'Rocket') && <div className="text-sm mt-3">
           {savedPayNumber
-            ? <><p>{method} Number: <b>{savedPayNumber}</b></p>
-              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPayNumber, method)}>📋 Copy Number</Btn></>
-            : <p>{method} Number: <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
+            ? <><p>{activeMethod} Number: <b>{savedPayNumber}</b></p>
+              <Btn variant="ghost" className="mt-1" onClick={() => copyText(savedPayNumber, activeMethod)}>📋 Copy Number</Btn></>
+            : <p>{activeMethod} Number: <b className="text-gray-400">Not set up yet — ask the admin</b></p>}
         </div>}
         {isUsdt && <div className="mt-3">
           <label className="text-sm block">Choose Network</label>
@@ -1750,6 +1762,7 @@ export function WalletPage() {
         <><label className="text-sm block mt-3">{isUsdt ? 'Transaction Hash' : isBinance ? 'Binance Pay reference' : 'TrxID'}</label><input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={trx} onChange={e => setTrx(e.target.value)} placeholder={isUsdt ? 'e.g. 0x...' : isBinance ? 'e.g. BP-...' : 'e.g. 9HX7...'} /><p className="text-xs text-gray-400 mt-1">The same reference cannot be used twice.</p></>
         <Btn variant="green" className="w-full mt-4" onClick={doTopUp}>Submit Request</Btn>
         {msg && <p className="text-sm mt-2">{msg}</p>}
+        </>)}
         {pendingList.length > 0 && <div className="mt-4">
           <p className="text-sm font-bold">⏳ Top-up under review — Pi will be added after admin approval.</p>
           {pendingList.map(t => <p key={t.id} className="text-sm mt-1">{t.method}{t.network ? ` (${t.network})` : ''} — {t.currency === 'USDT' ? `${t.amount} USDT → ${formatPi(topUpPi(t.amount, 'USDT', piRateBDT, usdtRateBDT))}` : `${formatBDT(t.amount)} → ${formatPi(topUpPi(t.amount, 'BDT', piRateBDT, usdtRateBDT))}`} • {t.trxId} • {t.date}</p>)}
@@ -3232,16 +3245,34 @@ function AdminSettingsTab() {
       bkash: pay.bkash.trim(), nagad: pay.nagad.trim(), rocket: pay.rocket.trim(),
       usdtBep20: pay.usdtBep20.trim(), usdtErc20: pay.usdtErc20.trim(),
       binancePayId: pay.binancePayId.trim(), piDepositAddress: pay.piDepositAddress.trim(), piTestnetAddress: (pay.piTestnetAddress || '').trim(),
+      // চালু/বন্ধ ফ্ল্যাগ সংরক্ষণেই থাকে — Save-এ নম্বর/ঠিকানার সঙ্গে ফ্ল্যাগও যায়
+      enabled: normalizePaymentEnabled(pay.enabled),
     }
     setPay(cleaned)
     setAdminSettings({ ...adminSettings, payments: cleaned })
     setPayMsg('✅ Payment details saved — the wallet top-up and Pi deposit cards will now show the real numbers/addresses.')
   }
   function clearPay() {
-    const cleared = { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '' }
+    // শুধু নম্বর/ঠিকানা মোছে — চালু/বন্ধ ফ্ল্যাগ যেমন ছিল তেমনই থাকে
+    const cleared = { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '', enabled: normalizePaymentEnabled(pay.enabled) }
     setPay(cleared)
     setAdminSettings({ ...adminSettings, payments: cleared })
     setPayMsg('Payment details deleted — the wallet will show "Not set up yet" until you set them again.')
+  }
+  // পেমেন্ট মাধ্যমের চালু/বন্ধ টগল — সাথে সাথে কার্যকর হয়; নম্বর/ঠিকানা বদলায় না,
+  // শুধু ফ্ল্যাগ বদলায় (আবার চালু করলে আগের নম্বর/ঠিকানাই দেখায়)
+  function togglePayMethod(id: PaymentMethodId) {
+    const enabled = normalizePaymentEnabled(pay.enabled)
+    const nextEnabled = { ...enabled, [id]: !enabled[id] }
+    const next = { ...pay, enabled: nextEnabled }
+    setPay(next)
+    setAdminSettings({ ...adminSettings, payments: next })
+    const label = PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id
+    setPayMsg(`✅ ${label} ${nextEnabled[id] ? 'চালু' : 'বন্ধ'} করা হয়েছে — ${nextEnabled[id] ? 'টপ-আপে আবার দেখাবে।' : 'টপ-আপে আর দেখাবে না (নম্বর/ঠিকানা সংরক্ষিতই আছে)।'}`)
+  }
+  function payToggle(id: PaymentMethodId, label: string) {
+    const on = normalizePaymentEnabled(pay.enabled)[id]
+    return <button type="button" title={`${label} — টপ-আপে ${on ? 'চালু' : 'বন্ধ'}`} aria-label={`${label} ${on ? 'চালু' : 'বন্ধ'}`} onClick={() => togglePayMethod(id)} className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${on ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>{on ? 'On' : 'Off'}</button>
   }
   function saveAnalytics() {
     const cleaned: AnalyticsIds = {
@@ -3305,20 +3336,20 @@ function AdminSettingsTab() {
       <p className="text-xs text-amber-600 mt-2">The server copy will be deleted on a Railway restart — then you must save again. Permanent way: set SMTP_* env vars in Railway.</p>
 
       <h3 className="font-bold mt-6 pt-4 border-t">💰 Real Payment Details</h3>
-      <p className="text-xs text-gray-500 mt-1">The numbers/addresses set here will show on the wallet top-up and Pi deposit cards. If empty, the wallet shows “Not set up yet — ask the admin”.</p>
-      <label className="text-sm block mt-2">bKash Number</label>
+      <p className="text-xs text-gray-500 mt-1">The numbers/addresses set here will show on the wallet top-up and Pi deposit cards. If empty, the wallet shows “Not set up yet — ask the admin”. Each method’s On/Off switch controls whether it appears in top-up — turning one off keeps its saved number/address.</p>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">bKash Number</label>{payToggle('bkash', 'bKash')}</div>
       <input className={inputCls} value={pay.bkash} onChange={e => { setPay({ ...pay, bkash: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
-      <label className="text-sm block mt-2">Nagad Number</label>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">Nagad Number</label>{payToggle('nagad', 'Nagad')}</div>
       <input className={inputCls} value={pay.nagad} onChange={e => { setPay({ ...pay, nagad: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
-      <label className="text-sm block mt-2">Rocket Number</label>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">Rocket Number</label>{payToggle('rocket', 'Rocket')}</div>
       <input className={inputCls} value={pay.rocket} onChange={e => { setPay({ ...pay, rocket: e.target.value }); setPayMsg('') }} placeholder="01XXXXXXXXX" inputMode="tel" />
-      <label className="text-sm block mt-2">USDT BEP20 Address</label>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">USDT BEP20 Address</label>{payToggle('usdt', 'USDT (BEP20 + ERC20)')}</div>
       <input className={inputCls} value={pay.usdtBep20} onChange={e => { setPay({ ...pay, usdtBep20: e.target.value }); setPayMsg('') }} placeholder="0x..." />
       <label className="text-sm block mt-2">USDT ERC20 Address</label>
       <input className={inputCls} value={pay.usdtErc20} onChange={e => { setPay({ ...pay, usdtErc20: e.target.value }); setPayMsg('') }} placeholder="0x..." />
-      <label className="text-sm block mt-2">Binance Pay ID</label>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">Binance Pay ID</label>{payToggle('binancePay', 'Binance Pay')}</div>
       <input className={inputCls} value={pay.binancePayId} onChange={e => { setPay({ ...pay, binancePayId: e.target.value }); setPayMsg('') }} placeholder="Binance Pay ID" />
-      <label className="text-sm block mt-2">Pi Deposit Address</label>
+      <div className="flex items-center justify-between mt-2"><label className="text-sm block">Pi Deposit Address</label>{payToggle('piDeposit', 'Pi Deposit')}</div>
       <input className={inputCls} value={pay.piDepositAddress} onChange={e => { setPay({ ...pay, piDepositAddress: e.target.value }); setPayMsg('') }} placeholder="G..." />
       <div className="flex gap-2 mt-3 flex-wrap">
         <Btn onClick={savePay}>Save</Btn>
