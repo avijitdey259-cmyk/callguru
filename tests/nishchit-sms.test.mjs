@@ -137,7 +137,7 @@ try {
     assert.equal(hit.path, '/v1/messages')
     assert.equal(hit.auth, `Bearer ${FAKE_KEY}`)
     assert.equal(hit.body.to, '+8801712345678')
-    assert.match(hit.body.body, /^Your PiCall code is \d{6}\. Valid 10 minutes\.$/)
+    assert.match(hit.body.body, /^Your PiCall OTP is \d{6}\. Valid 10 minutes\.$/)
     assert.ok(/^[\x00-\x7F]*$/.test(hit.body.body), 'OTP বার্তা GSM-7 (ASCII) হতে হবে')
     assert.ok(hit.body.body.length <= 160, 'OTP বার্তা ১ সেগমেন্টের মধ্যে হতে হবে')
     assert.ok(typeof hit.idem === 'string' && hit.idem.startsWith('picall-sms-otp-'), 'Idempotency-Key নেই')

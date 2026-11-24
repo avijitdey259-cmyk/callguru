@@ -281,7 +281,7 @@ async function sendSmsOtp(req, res) {
     if (!getNishchitApiKey()) return res.status(503).json({ ok: false, error: 'not_configured' })
     const code = String(crypto.randomInt(100000, 1000000))
     smsOtpStore.set(phone, { code, expiresAt: now + OTP_TTL_MS, attempts: 0 })
-    const r = await sendNishchitSms(phone, `Your PiCall code is ${code}. Valid 10 minutes.`, `picall-sms-otp-${phone}-${code}`)
+    const r = await sendNishchitSms(phone, `Your PiCall OTP is ${code}. Valid 10 minutes.`, `picall-sms-otp-${phone}-${code}`)
     if (!r.ok) {
       smsOtpStore.delete(phone)
       if (r.error === 'sms_key_invalid') return res.status(502).json({ ok: false, error: 'sms_key_invalid' })
