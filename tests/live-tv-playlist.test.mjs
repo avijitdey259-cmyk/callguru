@@ -188,7 +188,7 @@ await check('fromPublicConfig: bad or missing tvPlaylistUrl is dropped, other fi
 
 await check('store: tvPlaylistUrl flows through applyPublicConfig path (text)', () => {
   assert.ok(store.includes('tvPlaylistUrl'))
-  assert.ok(store.includes('toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl)'))
+  assert.ok(store.includes('toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics)'))
   assert.ok(mapping.includes('tvPlaylistUrl'))
 })
 

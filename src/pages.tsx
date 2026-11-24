@@ -32,6 +32,7 @@ import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { formatJoinTime, filterNewMembers, type NewMember } from './newMembers'
 import { playChatSound, playRingtoneOnce, startRingtone, setInCallActive } from './sounds'
+import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, markSignupRecorded, resolveAnalyticsIds, sanitizeAnalyticsId, trackSignup, wasSignupRecorded, type AnalyticsIds, type SignupMethod } from './analytics'
 
 // ---------- ভাইরাল গ্রোথ: শেয়ার হেল্পার ----------
 // নেটিভ শেয়ার থাকলে সেটা, না থাকলে লিংক কপি করে দেওয়া হয়
@@ -247,7 +248,7 @@ export function Landing() {
 
 // ---------- Login ----------
 export function LoginPage() {
-  const { login, dark, toggleDark } = useStore()
+  const { login, dark, toggleDark, adminSettings } = useStore()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -268,6 +269,18 @@ export function LoginPage() {
   const [completingLink, setCompletingLink] = useState(false)
 
   const displayName = (mail: string) => name.trim() || mail.split('@')[0] || 'PiCall User'
+  // সাইন-আপ সম্পূর্ণ হলে (প্রথমবারই শুধু — বারবার লগইনে নয়) Pixel-এ
+  // CompleteRegistration + GA4-এ sign_up যায়। OTP-তে প্রথমবার কি না তা এই
+  // ডিভাইসের রেকর্ডে দেখা হয়; Google/লিংকে Firebase-র isNewUser দেখা হয়।
+  const noteSignup = (method: SignupMethod) => {
+    initAnalytics(resolveAnalyticsIds(envAnalyticsIds(), adminSettings.analytics))
+    trackSignup(method)
+  }
+  const noteOtpSignup = (key: string, method: SignupMethod) => {
+    if (wasSignupRecorded(key)) return
+    markSignupRecorded(key)
+    noteSignup(method)
+  }
   // লগইন ইনপুটের একই চেহারা — আইকনসহ, গোল কোণা, ফোকাসে Pi purple রিং (দুই থিমেই)
   const inputCls = 'w-full border border-gray-200 dark:border-slate-600 rounded-xl px-3 py-2.5 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500'
   const inputIconCls = 'w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 pointer-events-none'
@@ -280,7 +293,7 @@ export function LoginPage() {
     if (stored) {
       setCompletingLink(true)
       completeEmailLink(stored).then(u => {
-        if (u) { login(u.name, u.email); navigate('/feed'); return }
+        if (u) { if (u.isNewUser) noteSignup('email_link'); login(u.name, u.email); navigate('/feed'); return }
         setMsg('The link has expired or is wrong — send the link again.')
       }).catch(() => setMsg('The link has expired or is wrong — send the link again.'))
         .finally(() => setCompletingLink(false))
@@ -296,7 +309,7 @@ export function LoginPage() {
     setBusy(true); setMsg('')
     try {
       const u = await completeEmailLink(mail)
-      if (u) { login(displayName(u.email), u.email); navigate('/feed'); return }
+      if (u) { if (u.isNewUser) noteSignup('email_link'); login(displayName(u.email), u.email); navigate('/feed'); return }
       setMsg('The link has expired or is wrong — send the link again.')
     } catch {
       setMsg('The link has expired or is wrong — send the link again.')
@@ -313,7 +326,7 @@ export function LoginPage() {
     setMsg('')
     try {
       const u = await signInWithGoogle()
-      if (u) { login(u.name, u.email); navigate('/feed'); return }
+      if (u) { if (u.isNewUser) noteSignup('google'); login(u.name, u.email); navigate('/feed'); return }
       setMsg('Google login did not complete — please try again.')
     } catch {
       setMsg('Google login failed — the pop-up was closed or there is a network problem. Please try again.')
@@ -369,6 +382,7 @@ export function LoginPage() {
     const r = await verifyEmailOtp(mail, code)
     setBusy(false)
     if (r && r.ok) {
+      noteOtpSignup(`email:${mail}`, 'email_otp')
       login(displayName(mail), mail)
       navigate('/feed')
       return
@@ -414,6 +428,7 @@ export function LoginPage() {
     if (r && r.ok) {
       // SMS লগইন — Firebase সেশন নেই (ইমেইল OTP-র মতোই লোকাল-অনলি); ফোন নম্বরই
       // লগইন শনাক্তকারী হিসেবে থাকে (ইমেইলের ঘরে — user {name, email} আকারে থাকে)
+      noteOtpSignup(`phone:${ph}`, 'sms_otp')
       login(name.trim() || 'PiCall User', ph)
       navigate('/feed')
       return
@@ -3170,9 +3185,11 @@ function AdminSettingsTab() {
   const [sms, setSms] = useState(adminSettings.sms)
   const [smtp, setSmtp] = useState(adminSettings.smtp)
   const [pay, setPay] = useState(adminSettings.payments)
+  const [an, setAn] = useState<AnalyticsIds>(adminSettings.analytics || { ...EMPTY_ANALYTICS_IDS })
   const [smsMsg, setSmsMsg] = useState('')
   const [smtpMsg, setSmtpMsg] = useState('')
   const [payMsg, setPayMsg] = useState('')
+  const [anMsg, setAnMsg] = useState('')
   const [serverStatus, setServerStatus] = useState<{ smtpConfigured: boolean; smsConfigured: boolean } | null>(null)
   useEffect(() => { getAdminSettingsStatus().then(s => { if (s) setServerStatus(s) }) }, [])
 
@@ -3225,6 +3242,22 @@ function AdminSettingsTab() {
     setPay(cleared)
     setAdminSettings({ ...adminSettings, payments: cleared })
     setPayMsg('Payment details deleted — the wallet will show "Not set up yet" until you set them again.')
+  }
+  function saveAnalytics() {
+    const cleaned: AnalyticsIds = {
+      pixelId: sanitizeAnalyticsId(an.pixelId),
+      ga4Id: sanitizeAnalyticsId(an.ga4Id),
+      clarityId: sanitizeAnalyticsId(an.clarityId),
+    }
+    setAn(cleaned)
+    setAdminSettings({ ...adminSettings, analytics: cleaned })
+    setAnMsg('✅ Analytics IDs saved — the trackers will load for signed-in users (empty ID = that tracker stays off).')
+  }
+  function clearAnalytics() {
+    const cleared: AnalyticsIds = { ...EMPTY_ANALYTICS_IDS }
+    setAn(cleared)
+    setAdminSettings({ ...adminSettings, analytics: cleared })
+    setAnMsg('Analytics IDs deleted — all trackers are off until you set them again.')
   }
   const inputCls = 'w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600'
   return (
@@ -3292,6 +3325,21 @@ function AdminSettingsTab() {
         <Btn variant="ghost" onClick={clearPay}>Delete</Btn>
       </div>
       {payMsg && <p className="text-sm text-green-600 mt-2">{payMsg}</p>}
+
+      <h3 className="font-bold mt-6 pt-4 border-t">📊 Analytics — Meta Pixel / Google Analytics / Clarity</h3>
+      <p className="text-xs text-gray-500 mt-1">These IDs are public identifiers (they appear in the page source once set) — never a secret or password. Leave an ID empty to keep that tracker off. Saved IDs reach signed-in users; to also track logged-out visitors, set the same IDs as build secrets (VITE_PIXEL_ID / VITE_GA4_ID / VITE_CLARITY_ID).</p>
+      <label className="text-sm block mt-2">Meta Pixel ID</label>
+      <input className={inputCls} value={an.pixelId} onChange={e => { setAn({ ...an, pixelId: e.target.value }); setAnMsg('') }} placeholder="e.g. 123456789012345" inputMode="numeric" />
+      <label className="text-sm block mt-2">Google Analytics 4 — Measurement ID</label>
+      <input className={inputCls} value={an.ga4Id} onChange={e => { setAn({ ...an, ga4Id: e.target.value }); setAnMsg('') }} placeholder="e.g. G-XXXXXXXXXX" />
+      <label className="text-sm block mt-2">Microsoft Clarity — Project ID</label>
+      <input className={inputCls} value={an.clarityId} onChange={e => { setAn({ ...an, clarityId: e.target.value }); setAnMsg('') }} placeholder="e.g. abcdef1234" />
+      <div className="flex gap-2 mt-3 flex-wrap">
+        <Btn onClick={saveAnalytics}>Save</Btn>
+        <Btn variant="ghost" onClick={clearAnalytics}>Delete</Btn>
+      </div>
+      {anMsg && <p className="text-sm text-green-600 mt-2">{anMsg}</p>}
+      <p className="text-xs text-amber-600 mt-2">Pixel counts PageView on load and CompleteRegistration on first signup; GA4 counts sign_up on first signup; Clarity records sessions + heatmaps. No IDs yet = no tracking, no errors.</p>
     </Card>
   )
 }

@@ -21,6 +21,7 @@
 //     লেখায় অ্যাডমিনের দর মুছে যেত।
 import type { CallRecord, Friend, KycInfo, KycStatus, PiLedgerRow, PiTx, TopUpRequest } from './store'
 import type { Gender } from './profile'
+import { EMPTY_ANALYTICS_IDS, sanitizeAnalyticsId, type AnalyticsIds } from './analytics'
 
 export const SCHEMA_VERSION = 1
 
@@ -166,6 +167,9 @@ export type PublicConfigDoc = {
   liveRate: number
   tvPlaylistUrl: string
   payments: { bkash: string; nagad: string; rocket: string; usdtBep20: string; usdtErc20: string; binancePayId: string; piDepositAddress: string; piTestnetAddress: string }
+  // Analytics ID — Meta Pixel / GA4 / Clarity (সবার দেখা যায় এমন পরিচয়,
+  // গোপন কিছু নয়); সাইন-ইন করা সব ব্যবহারকারী পড়ে।
+  analytics: AnalyticsIds
 }
 
 export type TopUpDoc = {
@@ -338,8 +342,8 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   return out
 }
 
-// অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক; sms/smtp গোপন অংশ বাদ যায়)।
-export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = ''): PublicConfigDoc {
+// অ্যাডমিন সেটিংস → config/public (শুধু দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID; sms/smtp গোপন অংশ বাদ যায়)।
+export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number }, payments: PublicConfigDoc['payments'], tvPlaylistUrl = '', analytics: AnalyticsIds = EMPTY_ANALYTICS_IDS): PublicConfigDoc {
   return {
     schemaVersion: SCHEMA_VERSION,
     piRateBDT: rates.piRateBDT,
@@ -349,11 +353,12 @@ export function toPublicConfig(rates: { piRateBDT: number; usdtRateBDT: number; 
     liveRate: rates.liveRate,
     tvPlaylistUrl,
     payments: { ...payments },
+    analytics: { ...analytics },
   }
 }
 
-// config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক (যা ঘর ডকে নেই, সেটা বদলায় না)।
-export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments'] }> {
+// config/public → স্টোরের দর + পেমেন্টের বিবরণ + Live TV প্লেলিস্টের লিঙ্ক + Analytics ID (যা ঘর ডকে নেই, সেটা বদলায় না)।
+export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds }> {
   if (!doc || typeof doc !== 'object') return {}
   const d = doc as Record<string, unknown>
   const out: Record<string, unknown> = {}
@@ -372,7 +377,17 @@ export function fromPublicConfig(doc: unknown): Partial<{ piRateBDT: number; usd
     }
     if (Object.keys(pay).length > 0) out.payments = pay as PublicConfigDoc['payments']
   }
-  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments'] }>
+  // Analytics ID — তিনটিই সবার দেখা যায় এমন পরিচয়; খালি থাকলে ট্র্যাকার বন্ধ।
+  if (d.analytics && typeof d.analytics === 'object') {
+    const a = d.analytics as Record<string, unknown>
+    const an: AnalyticsIds = {
+      pixelId: sanitizeAnalyticsId(a.pixelId),
+      ga4Id: sanitizeAnalyticsId(a.ga4Id),
+      clarityId: sanitizeAnalyticsId(a.clarityId),
+    }
+    if (an.pixelId || an.ga4Id || an.clarityId) out.analytics = an
+  }
+  return out as Partial<{ piRateBDT: number; usdtRateBDT: number; piWithdrawFeePct: number; datingRate: number; liveRate: number; tvPlaylistUrl: string; payments: PublicConfigDoc['payments']; analytics: AnalyticsIds }>
 }
 
 // ম্যানুয়াল টপ-আপ আবেদন → topups/{id} ডক।

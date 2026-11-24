@@ -4,7 +4,7 @@
 // কোনো একটা value না থাকলে isFirebaseConfigured false হয় আর লগইন পেজ ডেমো মোডে চলে।
 import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup,
+  getAuth, GoogleAuthProvider, signInWithPopup, getAdditionalUserInfo,
   sendSignInLinkToEmail, signInWithEmailLink, isSignInWithEmailLink,
   onAuthStateChanged, type Auth, type User,
 } from 'firebase/auth'
@@ -69,8 +69,9 @@ export function onFirebaseAuthUser(cb: (u: User | null) => void): () => void {
 
 // আসল Google Sign-In — popup থেকে ফেরত আসা আসল নাম + ইমেইল দেয়।
 // Config না থাকলে null ফেরায় — কলারকে তখন ভুল করে ডেমো লগইন করা যাবে না,
-// স্পষ্ট ভুল বার্তা দেখাতে হবে।
-export async function signInWithGoogle(): Promise<{ name: string; email: string } | null> {
+// স্পষ্ট ভুল বার্তা দেখাতে হবে। isNewUser = এই প্রথম সাইন-আপ কি না (Pixel/
+// GA4-এ CompleteRegistration শুধু প্রথম সাইন-আপেই যায়, বারবার লগইনে নয়)।
+export async function signInWithGoogle(): Promise<{ name: string; email: string; isNewUser: boolean } | null> {
   const a = getFirebaseAuth()
   if (!a) return null
   const provider = new GoogleAuthProvider()
@@ -80,6 +81,7 @@ export async function signInWithGoogle(): Promise<{ name: string; email: string 
   return {
     name: user.displayName || user.email.split('@')[0] || 'Gmail user',
     email: user.email,
+    isNewUser: getAdditionalUserInfo(result)?.isNewUser ?? false,
   }
 }
 
@@ -112,8 +114,9 @@ export async function sendEmailLink(email: string): Promise<void> {
 
 /** লিংক থেকে লগইন সম্পূর্ণ করা — সফল হলে আসল নাম + যাচাই করা ইমেইল দেয়।
  *  সংরক্ষিত ইমেইল না থাকলে কলারকে ইমেইল দিতে হবে (email আর্গুমেন্টে)।
- *  লিংক মেয়াদোত্তীর্ণ/ভুল হলে null ফেরায়। সফল হলে সংরক্ষিত ইমেইল মুছে দেওয়া হয়। */
-export async function completeEmailLink(emailArg?: string): Promise<{ name: string; email: string } | null> {
+ *  লিংক মেয়াদোত্তীর্ণ/ভুল হলে null ফেরায়। সফল হলে সংরক্ষিত ইমেইল মুছে দেওয়া হয়।
+ *  isNewUser = এই প্রথম সাইন-আপ কি না (CompleteRegistration শুধু তখনই)। */
+export async function completeEmailLink(emailArg?: string): Promise<{ name: string; email: string; isNewUser: boolean } | null> {
   const a = getFirebaseAuth()
   if (!a) return null
   const email = (emailArg || '').trim().toLowerCase() || readStoredEmailForSignIn()
@@ -126,6 +129,7 @@ export async function completeEmailLink(emailArg?: string): Promise<{ name: stri
     return {
       name: user.displayName || user.email.split('@')[0] || 'Email user',
       email: user.email,
+      isNewUser: getAdditionalUserInfo(result)?.isNewUser ?? false,
     }
   } catch {
     return null
