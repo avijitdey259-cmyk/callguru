@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, sendSmsOtp, verifySmsOtp, saveAdminSmtp, getAdminSettingsStatus } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, sendSmsOtp, verifySmsOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
@@ -403,6 +403,10 @@ export function LoginPage() {
     if (!r || !r.ok) {
       if (r && r.error === 'not_configured') {
         setMsg('SMS login is not set up yet — please use email login for now.')
+      } else if (r && r.error === 'sms_key_invalid') {
+        setMsg('SMS key is wrong — ask the admin to check the Nishchit key.')
+      } else if (r && r.error === 'sms_no_credit') {
+        setMsg('SMS credit is over — ask the admin to top up.')
       } else if (r && r.error === 'rate_limited') {
         setMsg('Too many attempts — please try again in a little while.')
       } else if (r && (r.error === 'invalid_phone' || r.error === 'invalid_email')) {
@@ -3206,15 +3210,26 @@ function AdminSettingsTab() {
   const [serverStatus, setServerStatus] = useState<{ smtpConfigured: boolean; smsConfigured: boolean } | null>(null)
   useEffect(() => { getAdminSettingsStatus().then(s => { if (s) setServerStatus(s) }) }, [])
 
-  function saveSms() {
-    setAdminSettings({ ...adminSettings, sms })
-    setSmsMsg('✅ SMS gateway info saved.')
+  async function saveSms() {
+    const cleaned = { provider: sms.provider || 'Nishchit', apiKey: sms.apiKey, senderId: sms.senderId.trim() }
+    setSms(cleaned)
+    setAdminSettings({ ...adminSettings, sms: cleaned })
+    setSmsMsg('Saving…')
+    const ok = await saveAdminSms(cleaned)
+    const st = await getAdminSettingsStatus()
+    if (st) setServerStatus(st)
+    setSmsMsg(ok
+      ? '✅ SMS key saved — also sent to the server, SMS OTP will now go through Nishchit.'
+      : '✅ SMS info saved on this device — it did not reach the server (backend not reachable), save again later.')
   }
-  function clearSms() {
-    const cleared = { provider: 'BulkSMSBD', apiKey: '', senderId: '' }
+  async function clearSms() {
+    const cleared = { provider: 'Nishchit', apiKey: '', senderId: '' }
     setSms(cleared)
     setAdminSettings({ ...adminSettings, sms: cleared })
-    setSmsMsg('SMS gateway info deleted.')
+    await saveAdminSms(cleared)
+    const st = await getAdminSettingsStatus()
+    if (st) setServerStatus(st)
+    setSmsMsg('SMS info deleted.')
   }
   async function saveSmtp() {
     const user = smtp.user.trim()
@@ -3297,10 +3312,10 @@ function AdminSettingsTab() {
       <p className="text-xs text-gray-500 mt-1">The numbers/addresses/keys set here will be used in the app — do not send them in chat or code. Secret values (API key, App Password) are never shown in full.</p>
 
       <h3 className="font-bold mt-5">📩 SMS Gateway</h3>
+      <p className="text-xs text-gray-500 mt-1">Server Status: {serverStatus ? (serverStatus.smsConfigured ? 'SMS on ✅ — OTP SMS will be sent' : 'SMS off — SMS OTP will not be sent (add the Nishchit key)') : 'Unknown (could not reach the backend)'}</p>
       <label className="text-sm block mt-2">Provider</label>
       <select className={inputCls} value={sms.provider} onChange={e => { setSms({ ...sms, provider: e.target.value }); setSmsMsg('') }}>
-        <option value="BulkSMSBD">BulkSMSBD</option>
-        <option value="SSL Wireless">SSL Wireless</option>
+        <option value="Nishchit">Nishchit</option>
       </select>
       <label className="text-sm block mt-2">API Key</label>
       <input type="password" className={inputCls} value={sms.apiKey} onChange={e => { setSms({ ...sms, apiKey: e.target.value }); setSmsMsg('') }} placeholder="Gateway API Key" autoComplete="off" />
@@ -3312,7 +3327,7 @@ function AdminSettingsTab() {
         <Btn variant="ghost" onClick={clearSms}>Delete</Btn>
       </div>
       {smsMsg && <p className="text-sm text-green-600 mt-2">{smsMsg}</p>}
-      <p className="text-xs text-amber-600 mt-2">Sending SMS is not on yet — the gateway account info will be saved here.</p>
+      <p className="text-xs text-amber-600 mt-2">The server copy will be deleted on a Railway restart — then you must save again. Permanent way: set the NISHCHIT_API_KEY env var in Railway.</p>
 
       <h3 className="font-bold mt-6 pt-4 border-t">✉️ Email SMTP (for OTP mail)</h3>
       <p className="text-xs text-gray-500 mt-1">Server Status: {serverStatus ? (serverStatus.smtpConfigured ? 'SMTP on ✅ — OTP mail will be sent' : 'SMTP off — OTP mail will not be sent') : 'Unknown (could not reach the backend)'}</p>

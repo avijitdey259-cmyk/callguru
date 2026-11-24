@@ -163,10 +163,9 @@ export function verifyEmailOtp(email: string, code: string): Promise<OtpResult |
 }
 
 // ---------- SMS OTP (৬ সংখ্যার কোড, Railway ব্যাকএন্ড, channel:'sms') ----------
-// ইমেইল OTP-র একই পথ — শুধু channel + phone যায়। গেটওয়ে না থাকলে ব্যাকএন্ড
-// { ok:false, error:'not_configured' } দেয়; এখানে কোনো গেটওয়ে URL/চাবি নেই,
-// কোনো গেটওয়ে SDK নেই — গেটওয়ে অ্যাডাপ্টার ব্যাকএন্ডের আলাদা কাজ, মালিক
-// গেটওয়ে অ্যাকাউন্ট + API key দিলে তখন হবে।
+// ইমেইল OTP-র একই পথ — শুধু channel + phone যায়। চাবি না থাকলে ব্যাকএন্ড
+// { ok:false, error:'not_configured' } দেয়; এখানে কোনো চাবি নেই —
+// পাঠানোর কাজটা ব্যাকএন্ডের (server/index.js, নিশ্চিত SMS API)।
 /** POST /api/otp/send { channel:'sms', phone } — ৬ সংখ্যার কোড SMS-এ পাঠান। */
 export function sendSmsOtp(phone: string): Promise<OtpResult | null> {
   return postOtp('/api/otp/send', { channel: 'sms', phone })
@@ -210,4 +209,25 @@ export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
 /** GET /api/admin/settings — শুধু অবস্থা (চালু/বন্ধ) ফেরে, কোনো গোপন মান নয়। */
 export function getAdminSettingsStatus(): Promise<{ smtpConfigured: boolean; smsConfigured: boolean } | null> {
   return fetchJson('/api/admin/settings')
+}
+
+export type AdminSmsPayload = { provider: string; apiKey: string; senderId: string }
+
+/** POST /api/admin/settings { sms } — SMS চাবি শুধু সার্ভারের মেমোরিতে যায়
+ *  (Railway রিস্টার্টে মুছে যায়); স্থায়ী উপায় NISHCHIT_API_KEY env var। */
+export async function saveAdminSms(sms: AdminSmsPayload): Promise<boolean> {
+  if (!API_BASE) return false
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ sms }), signal: ctrl.signal,
+    })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
 }

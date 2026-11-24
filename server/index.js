@@ -156,6 +156,7 @@ function validEmail(email) {
 }
 
 app.post('/api/otp/send', otpSendIpLimit, async (req, res) => {
+  if (req.body?.channel === 'sms') return sendSmsOtp(req, res)
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   if (!validEmail(email)) return res.status(400).json({ ok: false, error: 'invalid_email' })
   const mailer = await getMailer()
@@ -185,6 +186,7 @@ app.post('/api/otp/send', otpSendIpLimit, async (req, res) => {
 })
 
 app.post('/api/otp/verify', otpVerifyIpLimit, (req, res) => {
+  if (req.body?.channel === 'sms') return verifySmsOtp(req, res)
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   const code = typeof req.body?.code === 'string' ? req.body.code.trim() : ''
   if (!validEmail(email) || !/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, error: 'invalid_code' })
@@ -201,6 +203,115 @@ app.post('/api/otp/verify', otpVerifyIpLimit, (req, res) => {
   res.json({ ok: true })
 })
 
+// ---------- SMS OTP (6-digit, via Nishchit — Bangladesh SMS API) ----------
+// নিশ্চিত (Nishchit) API: POST https://api.nishchit.tech/v1/messages,
+// Authorization: Bearer <key>, JSON {to, body, reference} + Idempotency-Key.
+// চাবি env var NISHCHIT_API_KEY থেকে আগে; না থাকলে অ্যাডমিন প্যানেলের
+// সার্ভার-সাইড কপি (POST /api/admin/settings → sms.apiKey, provider 'Nishchit')।
+// চাবি কোথাও hard-code করা হয় না, GET /api/admin/settings কখনো চাবি ফেরায় না,
+// config/public-এও চাবি যায় না। টেস্ট চাবি (nk_test_) ক্যারিয়ারে যায় না,
+// ক্রেডিটও খরচ করে না — শুধু যাচাইয়ের জন্য।
+// OTP বার্তা ইংরেজিতে (GSM-7, ১ সেগমেন্ট = ৳0.50); বাংলা হলে UCS-2 হয়ে
+// ৭০ অক্ষর/সেগমেন্ট হয়, তাই কোডের বার্তা ছোট ইংরেজি রাখা হয়েছে।
+const NISHCHIT_API_BASE = (process.env.NISHCHIT_API_BASE || 'https://api.nishchit.tech').replace(/\/$/, '')
+const smsOtpStore = new Map() // +8801... -> { code, expiresAt, attempts }
+const smsOtpSendLog = new Map() // +8801... -> { count, windowStart }
+
+function getNishchitApiKey() {
+  if (process.env.NISHCHIT_API_KEY) return process.env.NISHCHIT_API_KEY
+  const s = adminSettings.sms
+  if (s && s.provider === 'Nishchit' && typeof s.apiKey === 'string' && s.apiKey) return s.apiKey
+  return ''
+}
+
+// বাংলাদেশি নম্বর → E.164 (+8801[3-9]XXXXXXXX)। 01... / 880... / +880... /
+// বাংলা সংখ্যা — সব একই রূপে আসে; ভুল নম্বরে null।
+function normalizeBdPhoneE164(raw) {
+  if (typeof raw !== 'string') return null
+  const bn = { '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4', '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9' }
+  let d = raw.replace(/[০-৯]/g, (ch) => bn[ch] ?? ch).replace(/[\s\-()]/g, '')
+  if (d.startsWith('+880')) d = '0' + d.slice(4)
+  else if (d.startsWith('880')) d = '0' + d.slice(3)
+  if (!/^01[3-9]\d{8}$/.test(d)) return null
+  return '+880' + d.slice(1)
+}
+
+/** নিশ্চিতকে একটা SMS পাঠানো — 15s টাইমআউট (API-র ডেডলাইন 10s)। */
+async function sendNishchitSms(to, body, idempotencyKey) {
+  const key = getNishchitApiKey()
+  if (!key) return { ok: false, error: 'not_configured' }
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 15000)
+  try {
+    const res = await fetch(`${NISHCHIT_API_BASE}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({ to, body, reference: 'picall-otp' }),
+      signal: ctrl.signal,
+    })
+    const data = await res.json().catch(() => null)
+    if (res.status === 201 || res.ok) return { ok: true, status: res.status, data }
+    if (res.status === 401 || res.status === 403) return { ok: false, error: 'sms_key_invalid', status: res.status, data }
+    if (res.status === 429) return { ok: false, error: 'rate_limited', status: res.status, data }
+    if (res.status === 402) return { ok: false, error: 'sms_no_credit', status: res.status, data }
+    return { ok: false, error: 'send_failed', status: res.status, data }
+  } catch {
+    return { ok: false, error: 'send_failed' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function sendSmsOtp(req, res) {
+  try {
+    const phone = normalizeBdPhoneE164(req.body?.phone)
+    if (!phone) return res.status(400).json({ ok: false, error: 'invalid_phone' })
+    const now = Date.now()
+    const log = smsOtpSendLog.get(phone)
+    if (log && now - log.windowStart < 60 * 60 * 1000) {
+      if (log.count >= OTP_MAX_SENDS_PER_HOUR) return res.status(429).json({ ok: false, error: 'rate_limited' })
+      log.count += 1
+    } else {
+      smsOtpSendLog.set(phone, { count: 1, windowStart: now })
+    }
+    if (!getNishchitApiKey()) return res.status(503).json({ ok: false, error: 'not_configured' })
+    const code = String(crypto.randomInt(100000, 1000000))
+    smsOtpStore.set(phone, { code, expiresAt: now + OTP_TTL_MS, attempts: 0 })
+    const r = await sendNishchitSms(phone, `Your PiCall code is ${code}. Valid 10 minutes.`, `picall-sms-otp-${phone}-${code}`)
+    if (!r.ok) {
+      smsOtpStore.delete(phone)
+      if (r.error === 'sms_key_invalid') return res.status(502).json({ ok: false, error: 'sms_key_invalid' })
+      if (r.error === 'rate_limited') return res.status(429).json({ ok: false, error: 'rate_limited' })
+      if (r.error === 'sms_no_credit') return res.status(502).json({ ok: false, error: 'sms_no_credit' })
+      return res.status(502).json({ ok: false, error: 'send_failed' })
+    }
+    res.json({ ok: true })
+  } catch {
+    res.status(502).json({ ok: false, error: 'send_failed' })
+  }
+}
+
+function verifySmsOtp(req, res) {
+  const phone = normalizeBdPhoneE164(req.body?.phone)
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : ''
+  if (!phone || !/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, error: 'invalid_code' })
+  const rec = smsOtpStore.get(phone)
+  if (!rec) return res.status(400).json({ ok: false, error: 'invalid_code' })
+  if (Date.now() > rec.expiresAt) { smsOtpStore.delete(phone); return res.status(400).json({ ok: false, error: 'expired' }) }
+  if (rec.attempts >= OTP_MAX_ATTEMPTS) { smsOtpStore.delete(phone); return res.status(400).json({ ok: false, error: 'too_many_attempts' }) }
+  if (rec.code !== code) {
+    rec.attempts += 1
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) { smsOtpStore.delete(phone); return res.status(400).json({ ok: false, error: 'too_many_attempts' }) }
+    return res.status(400).json({ ok: false, error: 'invalid_code' })
+  }
+  smsOtpStore.delete(phone)
+  res.json({ ok: true })
+}
+
 // ---------- Admin settings (in-memory only; Railway restart clears them) ----------
 // অ্যাডমিন প্যানেলের সেটিংসের সার্ভার-সাইড কপি — শুধু /api/otp/send-এর SMTP-র জন্য।
 // GET কখনো গোপন মান ফেরায় না, শুধু চালু/বন্ধ অবস্থা। স্থায়ী উপায়: Railway-তে SMTP_* env var।
@@ -209,7 +320,8 @@ const adminSettings = { smtp: null, sms: null } // smtp: {host,port,user,pass,fr
 app.get('/api/admin/settings', (_req, res) => {
   res.json({
     smtpConfigured: Boolean(adminSettings.smtp && adminSettings.smtp.user && adminSettings.smtp.pass),
-    smsConfigured: Boolean(adminSettings.sms && adminSettings.sms.apiKey),
+    // env চাবি থাকলেও SMS চালু দেখায় — চাবির মান নয়, শুধু চালু/বন্ধ অবস্থা।
+    smsConfigured: Boolean(getNishchitApiKey()),
   })
 })
 
@@ -234,15 +346,15 @@ app.post('/api/admin/settings', adminIpLimit, requireAdmin, (req, res) => {
   if (body.sms && typeof body.sms === 'object') {
     const s = body.sms
     adminSettings.sms = {
-      provider: typeof s.provider === 'string' ? s.provider : 'BulkSMSBD',
-      apiKey: typeof s.apiKey === 'string' ? s.apiKey : '',
+      provider: typeof s.provider === 'string' ? s.provider : 'Nishchit',
+      apiKey: typeof s.apiKey === 'string' ? s.apiKey.trim() : '',
       senderId: typeof s.senderId === 'string' ? s.senderId : '',
     }
   }
   res.json({
     ok: true,
     smtpConfigured: Boolean(adminSettings.smtp && adminSettings.smtp.user && adminSettings.smtp.pass),
-    smsConfigured: Boolean(adminSettings.sms && adminSettings.sms.apiKey),
+    smsConfigured: Boolean(getNishchitApiKey()),
   })
 })
 

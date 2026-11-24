@@ -60,7 +60,7 @@ export type PaymentSettings = { bkash: string; nagad: string; rocket: string; us
 // খালি থাকলে ট্র্যাকার বন্ধ। অ্যাডমিন সেটিংস থেকে config/public-এ যায়।
 export type AdminSettings = { sms: SmsSettings; smtp: SmtpSettings; payments: PaymentSettings; analytics: AnalyticsIds }
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
-  sms: { provider: 'BulkSMSBD', apiKey: '', senderId: '' },
+  sms: { provider: 'Nishchit', apiKey: '', senderId: '' },
   smtp: { host: 'smtp.gmail.com', port: 587, user: '', pass: '', from: '' },
   payments: { bkash: '', nagad: '', rocket: '', usdtBep20: '', usdtErc20: '', binancePayId: '', piDepositAddress: '', piTestnetAddress: '', enabled: { ...DEFAULT_PAYMENT_ENABLED } },
   analytics: { ...EMPTY_ANALYTICS_IDS },
