@@ -31,7 +31,7 @@ import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile }
 import { updateProfile } from 'firebase/auth'
 import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
-import { probeChannels, sortChannelsByPlayability, type ProbeStatus } from './tvProbe'
+import { probeChannels, sortChannelsByPlayability, getCachedProbe, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
 import { adAmountDue, adPriceLabel, adRatesSet, adStatusLabel, loadLocalAds, mergeAdLists, saveLocalAds, validateAdInput, type UserAd } from './ads'
 import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, memberCount, mergeGroupLists, mergePageLists, saveLocalGroups, saveLocalPages, validateGroupInput, validatePageInput, validateGroupPost, validatePagePost, loadLocalGroupPosts, saveLocalGroupPosts, mergeGroupPostLists, loadLocalPagePosts, saveLocalPagePosts, mergePagePostLists, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
@@ -652,6 +652,41 @@ function NewMembersSection() {
 }
 
 // ---------- Feed ----------
+// Home-এ মাঝখানে Live TV প্রিভিউ — ডেমোর মতো। চলে এমন চ্যানেল উপরে
+// (এই সেশনে যাচাই হয়ে থাকলে ক্যাশে থাকা ফল দিয়ে সাজানো), ট্যাপ করলে
+// /live-tv খোলে যেখানে পুরো তালিকা + চালানো হয়।
+function HomeTvSection() {
+  const navigate = useNavigate()
+  const status: Record<string, ProbeStatus> = {}
+  for (const c of TV_CHANNELS) {
+    if (!c.streamUrl) continue
+    const s = getCachedProbe(c.streamUrl)
+    if (s !== undefined) status[c.streamUrl] = s
+  }
+  const preview = sortChannelsByPlayability(TV_CHANNELS, status).slice(0, 4)
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <p className="font-bold">📺 Live TV</p>
+        <button onClick={() => navigate('/live-tv')} className="text-sm font-bold text-fb-blue">Watch all →</button>
+      </div>
+      <div className="flex gap-3 mt-3 overflow-x-auto">
+        {preview.map(ch => {
+          const st = ch.streamUrl ? getCachedProbe(ch.streamUrl) : false
+          return (
+            <button key={ch.id} onClick={() => navigate('/live-tv')} className="shrink-0 w-20 text-center">
+              {ch.logo ? <img src={ch.logo} alt={ch.name} className="w-12 h-12 rounded-full object-cover mx-auto" /> : <span className="w-12 h-12 rounded-full pb-gradient text-white font-bold flex items-center justify-center mx-auto">{ch.name.charAt(0)}</span>}
+              <span className="block text-xs font-medium mt-1 line-clamp-2">{ch.name}</span>
+              <span className={`inline-block w-2 h-2 rounded-full mt-1 ${st === true ? 'bg-green-500' : st === false ? 'bg-red-400' : 'bg-gray-300'}`} />
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-xs text-gray-400 mt-2">Free live TV — tap a channel to watch.</p>
+    </Card>
+  )
+}
+
 export function Feed() {
   const { friends, user, addFriend, installBonusClaimed, posts, setPosts, addPost, freshPostIds, feedQuery: query, setFeedQuery: setQuery, totalPi, addPi, uid, profilePhoto, updateProfile } = useStore()
   const [text, setText] = useState('')
@@ -922,6 +957,7 @@ export function Feed() {
       )}
       <ServicesSection />
       <NewMembersSection />
+      <HomeTvSection />
       <RefWelcomeBanner />
       <div className="flex gap-2">
         {(['All', 'Liked', 'Mine'] as const).map(f => (
