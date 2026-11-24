@@ -27,6 +27,7 @@ import { DEFAULT_TV_PLAYLIST_URL, fetchTvPlaylist, isPlaylistUrl } from './tvPla
 import { DAILY_BONUS_REWARDS, INVITE_BASE_URL, REF_INVITER_PI, REF_WELCOME_PI, topUpPi } from './store'
 import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_METHODS, enabledTopUpMethods, isPaymentMethodEnabled, normalizePaymentEnabled, resolveTopUpMethod, type PaymentMethodId } from './paymentMethods'
 import { computeTransfer } from './piTransfer'
+import { pendingIncomingCount, paymentRequestStatusLabel } from './paymentRequest'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
@@ -2059,7 +2060,7 @@ function PiReportCard() {
 
 // ---------- Wallet ----------
 export function WalletPage() {
-  const { points, referrals, referralCode, numericUid, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, piTransferFeePct, piMinTransfer, sendPi, lookupUserByUid, friends, pendingTopUps, submitManualTopUp, adminSettings, kycVerified } = useStore()
+  const { uid, points, referrals, referralCode, numericUid, piBalance, bonusPi, totalPi, addPi, piDeposits, piWithdrawals, depositPi, withdrawPi, piRateBDT, usdtRateBDT, piWithdrawFeePct, piMinWithdraw, piTransferFeePct, piMinTransfer, sendPi, lookupUserByUid, friends, pendingTopUps, submitManualTopUp, adminSettings, kycVerified, paymentRequests, requestPayment, payPaymentRequest, declinePaymentRequest, cancelPaymentRequest } = useStore()
   const [amount, setAmount] = useState(500)
   const [method, setMethod] = useState('bKash')
   const [trx, setTrx] = useState('')
@@ -2110,6 +2111,69 @@ export function WalletPage() {
   const [copied, setCopied] = useState('')
   const [affiliateOn, setAffiliateOn] = useState(false)
   const [affiliateMsg, setAffiliateMsg] = useState('')
+  // পেমেন্ট রিকোয়েস্ট — "আমাকে Pi দাও": UID দিয়ে খুঁজে (নাম + ছবি দেখে)
+  // বা বন্ধু বেছে পরিমাণ + note পাঠানো; প্রাপক Pay করলে item 6-এর
+  // ট্রান্সফারই চলে (৯৮% পান, ২% ফি)। Pay/Decline/Cancel — স্ট্যাটাস
+  // বদলালেই তালিকা তাজা হয় (লাইভ সাবস্ক্রিপশন)।
+  const [rqUid, setRqUid] = useState('')
+  const [rqFound, setRqFound] = useState<{ uid: string; displayName: string; colour: string; photo?: string; numericUid?: number } | null>(null)
+  const [rqLookupMsg, setRqLookupMsg] = useState('')
+  const [rqLookupBusy, setRqLookupBusy] = useState(false)
+  const [rqAmount, setRqAmount] = useState('')
+  const [rqNote, setRqNote] = useState('')
+  const [rqMsg, setRqMsg] = useState('')
+  const [rqBusy, setRqBusy] = useState(false)
+  const [payReqId, setPayReqId] = useState('')
+  const [payBusy, setPayBusy] = useState(false)
+  const [payMsg, setPayMsg] = useState('')
+  const [rqActionBusy, setRqActionBusy] = useState('')
+  async function doRqLookup() {
+    const n = Number(rqUid.replace(/\D/g, ''))
+    if (!Number.isInteger(n) || n < 100000 || n > 999999) { setRqLookupMsg('Enter a 6-digit UID (e.g. 100001).'); setRqFound(null); return }
+    if (numericUid !== null && n === numericUid) { setRqLookupMsg('You cannot request Pi from yourself.'); setRqFound(null); return }
+    setRqLookupBusy(true); setRqLookupMsg('')
+    const found = await lookupUserByUid(n)
+    setRqLookupBusy(false)
+    if (!found) { setRqFound(null); setRqLookupMsg('No user found with this UID — check the number and try again.'); return }
+    setRqFound(found); setRqLookupMsg('')
+  }
+  async function doRequestPayment() {
+    if (!rqFound || rqBusy) return
+    const m = Number(rqAmount)
+    if (!Number.isFinite(m) || m <= 0) { setRqMsg('Enter a valid amount.'); return }
+    if (m < piMinTransfer) { setRqMsg(`Minimum request: ${formatPi(piMinTransfer)}.`); return }
+    setRqBusy(true); setRqMsg('')
+    const res = await requestPayment({ uid: rqFound.uid, name: rqFound.displayName, numericUid: rqFound.numericUid }, m, rqNote)
+    setRqBusy(false)
+    if (res.ok === false) { setRqMsg(res.error); return }
+    setRqMsg(`✅ Payment request sent to ${rqFound.displayName} — ${formatPi(m)}. They will see it in their Wallet.`)
+    setRqAmount(''); setRqNote(''); setRqFound(null); setRqUid('')
+  }
+  async function doPayRequest(req: { id: string; fromUid: string; fromName: string; fromNumericUid?: number; amount: number }) {
+    if (payBusy) return
+    if (!kycVerified) { setPayMsg('Paying needs approved KYC — complete Dating KYC first.'); return }
+    setPayBusy(true); setPayMsg('')
+    const res = await payPaymentRequest(req as never)
+    setPayBusy(false); setPayReqId('')
+    if (res.ok === false) { setPayMsg(res.error); return }
+    const { fee, net } = computeTransfer(req.amount, piTransferFeePct)
+    setPayMsg(`✅ Paid ${formatPi(req.amount)} to ${req.fromName} — fee ${formatPi(fee)} • they get ${formatPi(net)}.`)
+  }
+  async function doDeclineRequest(req: { id: string; fromUid: string; toUid: string; status: string }) {
+    if (rqActionBusy) return
+    setRqActionBusy(req.id); setPayMsg('')
+    await declinePaymentRequest(req as never)
+    setRqActionBusy('')
+  }
+  async function doCancelRequest(req: { id: string; fromUid: string; toUid: string; status: string }) {
+    if (rqActionBusy) return
+    setRqActionBusy(req.id); setPayMsg('')
+    await cancelPaymentRequest(req as never)
+    setRqActionBusy('')
+  }
+  const pendingIncoming = pendingIncomingCount(paymentRequests, uid)
+  const incomingReqs = paymentRequests.filter(r => r.toUid === uid)
+  const outgoingReqs = paymentRequests.filter(r => r.fromUid === uid)
   // অ্যাফিলিয়েট লিংক — ট্যাপ করলেই শেয়ার শিট ওঠে (না থাকলে কপি); শিট বন্ধ
   // করা ব্যর্থতা নয়, চুপচাপ থাকে; আসল ব্যর্থতায় সত্যি বার্তা
   async function shareAffiliateLink() {
@@ -2182,6 +2246,7 @@ export function WalletPage() {
           <button onClick={() => document.getElementById('wallet-topup')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white text-pi-purple font-bold text-sm">Deposit</button>
           <button onClick={() => document.getElementById('wallet-withdraw')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Withdraw</button>
           <button onClick={() => document.getElementById('wallet-sendpi')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Send Pi</button>
+          <button onClick={() => document.getElementById('wallet-request')?.scrollIntoView({ behavior: 'smooth' })} className="px-4 py-2 rounded-full bg-white/20 text-white font-bold text-sm border border-white/40">Request Payment{pendingIncoming > 0 ? ` (${pendingIncoming})` : ''}</button>
         </div>
         <p className="text-sm text-white/80 mt-3">Reward Points: {points} • Referral: {referrals} people</p>
         <p className="text-xs text-white/60 mt-1">Calls and live are prepaid — they will not work without a Pi balance. Whatever money or USDT you put in will auto-convert to Pi.</p>
@@ -2264,6 +2329,93 @@ export function WalletPage() {
               {trConfirm && <Btn variant="ghost" className="w-full mt-2" onClick={() => setTrConfirm(false)}>Cancel</Btn>}
             </>)}
             {trMsg && <p className="text-sm mt-2">{trMsg}</p>}
+          </>)}
+        </div>
+        <div id="wallet-request" className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">Request Payment</p>
+          <p className="text-sm mt-1">Ask any user for Pi by their 6-digit UID — when they pay, you get {100 - piTransferFeePct}% and {piTransferFeePct}% goes to the admin as a transfer fee. Minimum {formatPi(piMinTransfer)}.</p>
+          <label className="text-sm block mt-2">Recipient UID (6 digits)</label>
+          <div className="flex gap-2 mt-1">
+            <input className="flex-1 min-w-0 border rounded-lg px-3 py-2 dark:bg-slate-800 dark:border-slate-600" value={rqUid} onChange={e => { setRqUid(e.target.value.replace(/\D/g, '').slice(0, 6)); setRqFound(null); setRqMsg('') }} placeholder="e.g. 100001" inputMode="numeric" />
+            <Btn onClick={doRqLookup} disabled={rqLookupBusy}>{rqLookupBusy ? 'Finding…' : 'Find'}</Btn>
+          </div>
+          {rqLookupMsg && <p className="text-sm text-red-600 mt-2">{rqLookupMsg}</p>}
+          {rqFound && (
+            <div className="flex items-center gap-3 mt-3 border rounded-lg px-3 py-2">
+              <Avatar photo={rqFound.photo} name={rqFound.displayName} color={rqFound.colour} className="w-10 h-10" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium truncate">{rqFound.displayName}</p>
+                <p className="text-xs text-gray-400">{rqFound.numericUid !== undefined ? `ID: ${rqFound.numericUid}` : 'Friend'}</p>
+              </div>
+              <Btn variant="ghost" onClick={() => { setRqFound(null); setRqUid('') }}>Change</Btn>
+            </div>
+          )}
+          {friends.filter(f => !isBuddyId(f.id)).length > 0 && (<>
+            <label className="text-sm block mt-3">Or pick a friend</label>
+            <div className="flex gap-2 flex-wrap mt-1">
+              {friends.filter(f => !isBuddyId(f.id)).slice(0, 8).map(f => (
+                <button key={f.id} onClick={() => { setRqFound({ uid: f.id, displayName: f.name, colour: f.color, ...(f.photo ? { photo: f.photo } : {}), ...(f.numericUid !== undefined ? { numericUid: f.numericUid } : {}) }); setRqUid(f.numericUid !== undefined ? String(f.numericUid) : ''); setRqMsg('') }} className={`px-3 py-1.5 rounded-full text-sm border ${rqFound?.uid === f.id ? 'bg-fb-blue text-white' : ''}`}>{f.name}{f.numericUid !== undefined ? ` (${f.numericUid})` : ''}</button>
+              ))}
+            </div>
+          </>)}
+          {rqFound && (<>
+            <label className="text-sm block mt-3">Amount (Pi)</label>
+            <input type="number" step="0.01" className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={rqAmount} onChange={e => { setRqAmount(e.target.value); setRqMsg('') }} placeholder={`Minimum ${formatPi(piMinTransfer)}`} />
+            <label className="text-sm block mt-3">Note / reason (optional)</label>
+            <input className="w-full border rounded-lg px-3 py-2 mt-1 dark:bg-slate-800 dark:border-slate-600" value={rqNote} onChange={e => setRqNote(e.target.value)} placeholder="e.g. Payment for the call" maxLength={200} />
+            <Btn variant="green" className="w-full mt-3" disabled={rqBusy || !rqFound || (Number(rqAmount) || 0) < piMinTransfer} onClick={doRequestPayment}>{rqBusy ? 'Sending…' : 'Send Request'}</Btn>
+          </>)}
+          {rqMsg && <p className="text-sm mt-2">{rqMsg}</p>}
+        </div>
+        <div id="wallet-requests" className="mt-4 border-t pt-3">
+          <p className="text-sm font-bold">Payment Requests {pendingIncoming > 0 && <span className="ml-1 inline-block bg-red-500 text-white text-xs font-bold rounded-full px-2 py-0.5">{pendingIncoming}</span>}</p>
+          {paymentRequests.length === 0 ? (
+            <p className="text-sm text-gray-500 mt-2">No payment requests yet — ask someone for Pi above, or wait for a request to arrive here.</p>
+          ) : (<>
+            {incomingReqs.length > 0 && <p className="text-xs text-gray-500 mt-2">Incoming — people asking you for Pi:</p>}
+            {incomingReqs.map(r => (
+              <div key={r.id} className="flex items-start gap-3 mt-2 border rounded-lg px-3 py-2">
+                <Avatar photo={r.fromPhoto} name={r.fromName} color="#7c3aed" className="w-10 h-10" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{r.fromName}{r.fromNumericUid !== undefined ? ` (ID ${r.fromNumericUid})` : ''}</p>
+                  <p className="text-sm">asked for {formatPi(r.amount)}</p>
+                  {r.note && <p className="text-xs text-gray-500">“{r.note}”</p>}
+                  <p className="text-xs text-gray-400">{paymentRequestStatusLabel(r.status)}</p>
+                  {payReqId === r.id && r.status === 'pending' && (() => { const c = computeTransfer(r.amount, piTransferFeePct); return (
+                    <div className="mt-2 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-2">
+                      <p className="text-sm font-bold">Pay {formatPi(c.amount)} to {r.fromName}?</p>
+                      <p className="text-sm mt-1">Pay {formatPi(c.amount)} • Fee ({piTransferFeePct}%): {formatPi(c.fee)} • {r.fromName} gets {formatPi(c.net)}</p>
+                      <p className="text-xs text-gray-500 mt-1">Only your real Pi balance is used — bonus Pi is never sent. Paying needs approved KYC.</p>
+                    </div>
+                  ) })()}
+                </div>
+                {r.status === 'pending' && (
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {payReqId === r.id ? (
+                      <><Btn variant="green" disabled={payBusy} onClick={() => doPayRequest(r)}>{payBusy ? 'Paying…' : 'Confirm Pay'}</Btn>
+                      <Btn variant="ghost" onClick={() => setPayReqId('')}>Cancel</Btn></>
+                    ) : (
+                      <><Btn variant="green" disabled={rqActionBusy === r.id} onClick={() => { setPayReqId(r.id); setPayMsg('') }}>Pay</Btn>
+                      <Btn variant="ghost" disabled={rqActionBusy === r.id} onClick={() => doDeclineRequest(r)}>Decline</Btn></>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            {outgoingReqs.length > 0 && <p className="text-xs text-gray-500 mt-3">Sent by you:</p>}
+            {outgoingReqs.map(r => (
+              <div key={r.id} className="flex items-start gap-3 mt-2 border rounded-lg px-3 py-2">
+                <Avatar photo={undefined} name={r.toName} color="#0ea5e9" className="w-10 h-10" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{r.toName}{r.toNumericUid !== undefined ? ` (ID ${r.toNumericUid})` : ''}</p>
+                  <p className="text-sm">you asked for {formatPi(r.amount)}</p>
+                  {r.note && <p className="text-xs text-gray-500">“{r.note}”</p>}
+                  <p className="text-xs text-gray-400">{paymentRequestStatusLabel(r.status)}{r.status === 'paid' ? ` — you get ${formatPi(computeTransfer(r.amount, piTransferFeePct).net)}` : ''}</p>
+                </div>
+                {r.status === 'pending' && <Btn variant="ghost" disabled={rqActionBusy === r.id} onClick={() => doCancelRequest(r)}>Cancel</Btn>}
+              </div>
+            ))}
+            {payMsg && <p className="text-sm mt-2">{payMsg}</p>}
           </>)}
         </div>
         <p className="text-xs text-gray-400 mt-3">Real Pi payments need the official Pi SDK + Pi app approval; no real blockchain transaction happens here, and no seed/private key is asked for or stored.</p>

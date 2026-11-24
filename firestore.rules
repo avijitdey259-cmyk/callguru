@@ -25,8 +25,16 @@
 //                    (তৈরি করতে গেলে অনুমতি মিলবে না):
 //                      firebase deploy --only firestore:rules --project picall-76185
 //   piTransfers/{id} — Pi ট্রান্সফার: তৈরি করেন শুধু পাঠক নিজে (fromUid
-//                    নিজের UID, পরিমাণ > ০, ফি% ০–১০%); পড়তে পারেন
-//                    পাঠক/প্রাপক/অ্যাডমিন; বদলানো/মোছা বন্ধ।
+//                    নিজের UID, নিজেকে নয়, পরিমাণ > ০, ফি ০–পরিমাণ, ফি%
+//                    ০–১০%, স্ট্যাটাস 'completed'); পড়তে পারেন পাঠক/
+//                    প্রাপক/অ্যাডমিন; বদলানো/মোছা কখনো যায় না। kind
+//                    'admin' (অ্যাডমিনের ম্যানুয়াল পাঠানো) শুধু অ্যাডমিনই
+//                    লিখতে পারেন; note থাকলে ২০০ অক্ষর পর্যন্ত।
+//   paymentRequests/{id} — "আমাকে Pi দাও" অনুরোধ: তৈরি করেন শুধু
+//                    অনুরোধকারী নিজে (নিজেকে নয়, পরিমাণ > ০, pending);
+//                    পড়তে পারেন শুধু জড়িত দুই পক্ষ; স্ট্যাটাস বদলায় শুধু
+//                    প্রাপক (pending → paid/declined) বা অনুরোধকারী
+//                    (pending → cancelled), শুধু status ফিল্ডটাই।
 //   chats/{roomId}/messages/{msgId} — রুমের নামে দুই UID থাকে
 //                    (ছোট UID আগে, '_' দিয়ে জোড়া); শুধু ওই দুই
 //                    ব্যবহারকারীই পড়তে/লিখতে পারেন; লেখার সময়
@@ -174,6 +182,36 @@ service cloud.firestore {
         && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200));
       allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid || resource.data.adminUid == request.auth.uid || isAdmin());
       allow update, delete: if false;
+    }
+
+    // পেমেন্ট রিকোয়েস্ট (paymentRequests) — "আমাকে Pi দাও" অনুরোধ। তৈরি
+    // করেন শুধু অনুরোধকারী নিজে (fromUid নিজের UID, নিজেকে নয়, পরিমাণ > ০,
+    // pending দিয়ে শুরু); পড়তে পারেন শুধু জড়িত দুই পক্ষ (আর অ্যাডমিন)।
+    // স্ট্যাটাস বদলায় শুধু প্রাপক (pending → paid/declined) বা অনুরোধকারী
+    // (pending → cancelled) — আর শুধু status ফিল্ডটাই বদলাতে পারে; pay-টা
+    // ট্রানজ্যাকশনে হয়, তাই paid-ও প্রাপকের হাতেই বদলায়। মোছা বন্ধ।
+    // ⚠️ নিয়ম কনসোলে publish না হওয়া পর্যন্ত রিকোয়েস্ট তৈরি হবে না:
+    //   firebase deploy --only firestore:rules --project picall-76185
+    match /paymentRequests/{requestId} {
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.status == 'pending'
+        && request.resource.data.fromName is string
+        && request.resource.data.toName is string
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200));
+      allow read: if isSignedIn()
+        && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid || isAdmin());
+      allow update: if isSignedIn()
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && (
+          (resource.data.toUid == request.auth.uid && (request.resource.data.status == 'paid' || request.resource.data.status == 'declined'))
+          || (resource.data.fromUid == request.auth.uid && request.resource.data.status == 'cancelled')
+        );
+      allow delete: if false;
     }
 
     // চ্যাট রুমের সূচক ডক (chats/{roomId}) — প্রাপক যেন রুমটা খুঁজে পায়

@@ -3,8 +3,9 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
 import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
+import { validatePaymentRequest, canPayRequest, canDeclineRequest, canCancelRequest, type PaymentRequestDoc } from './paymentRequest'
 import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
 import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
@@ -267,10 +268,17 @@ type Store = {
   setPiMinTransfer: (v: number) => void
   // UID দিয়ে প্রাপক খোঁজা + Pi পাঠানো (ট্রানজ্যাকশনে; ব্যর্থ হলে কিছুই যায় না)
   lookupUserByUid: (numericUid: number) => Promise<{ uid: string; displayName: string; colour: string; photo?: string; numericUid: number } | null>
-  sendPi: (to: { uid: string; name: string; numericUid?: number }, amount: number) => Promise<{ ok: true } | { ok: false; error: string }>
+  sendPi: (to: { uid: string; name: string; numericUid?: number }, amount: number, opts?: { markRequestPaidId?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   // অ্যাডমিনের ম্যানুয়াল পাঠানো — ফি নেই, প্রাপক পুরোটাই পায়; অ্যাডমিনের
   // নিজের ব্যালেন্স থেকে যায় (কোনো Pi বানানো হয় না); শুধু অ্যাডমিন পারেন
   sendPiAsAdmin: (to: { uid: string; name: string; numericUid?: number }, amount: number, note?: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  // পেমেন্ট রিকোয়েস্ট — "আমাকে Pi দাও" অনুরোধ; Pay করলে item 6-এর
+  // ট্রান্সফারই চলে (ট্রানজ্যাকশনে স্ট্যাটাস 'paid' হয় — দুবার Pay নয়)
+  paymentRequests: PaymentRequestDoc[]
+  requestPayment: (to: { uid: string; name: string; numericUid?: number }, amount: number, note?: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  payPaymentRequest: (req: PaymentRequestDoc) => Promise<{ ok: true } | { ok: false; error: string }>
+  declinePaymentRequest: (req: PaymentRequestDoc) => Promise<boolean>
+  cancelPaymentRequest: (req: PaymentRequestDoc) => Promise<boolean>
   // Live TV — ONE IPTV playlist URL (M3U) from config/public; empty = default playlist.
   tvPlaylistUrl: string
   setTvPlaylistUrl: (u: string) => void
@@ -489,6 +497,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [piWithdrawFeePct, setPiWithdrawFeePctState] = useState<number>(() => load('piWithdrawFeePct', DEFAULT_PI_WITHDRAW_FEE_PCT))
   // Pi ট্রান্সফারের ফি% (ডিফল্ট ২%) + সর্বনিম্ন ট্রান্সফার (ডিফল্ট ০.১ π) — অ্যাডমিন সেট করেন, config/public-এ সিঙ্ক হয়
   const [piTransferFeePct, setPiTransferFeePctState] = useState<number>(() => load('piTransferFeePct', DEFAULT_TRANSFER_FEE_PCT))
+  // পেমেন্ট রিকোয়েস্ট — আমার পাঠানো + আমার কাছে আসা অনুরোধের তালিকা
+  const [paymentRequests, setPaymentRequests] = useState<PaymentRequestDoc[]>([])
   const [piMinTransfer, setPiMinTransferState] = useState<number>(() => load('piMinTransfer', DEFAULT_MIN_TRANSFER_PI))
   // Live TV প্লেলিস্টের লিঙ্ক — অ্যাডমিন নির্ধারিত (ডিফল্ট: Eamin Tv M3U); খালি মানে ডিফল্ট
   const [tvPlaylistUrl, setTvPlaylistUrlState] = useState<string>(() => load('tvPlaylistUrl', DEFAULT_TV_PLAYLIST_URL))
@@ -901,6 +911,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const knownIds = [...new Set([...cloudLedger, ...ledgerRef.current.map(r => r.id)])]
           transfers.forEach(t => applyPiTransfer(t, knownIds))
         }
+        // আমার পেমেন্ট রিকোয়েস্ট — লগইনে ক্লাউড থেকে এনে তালিকা বসানো হয়
+        const reqs = await fetchMyPaymentRequests(uid)
+        if (cancelled) return
+        setPaymentRequests(reqs)
         fsReadyRef.current = true
         setFsState('on')
       } catch {
@@ -945,6 +959,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!uid || fsState !== 'on') return
     const unsub = subscribeMyPiTransfers(uid, (docs) => { docs.forEach(t => applyPiTransfer(t)) })
+    return () => { unsub?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, fsState])
+
+  // পেমেন্ট রিকোয়েস্ট — লাইভ সাবস্ক্রিপশন; নতুন অনুরোধ এলেই বা স্ট্যাটাস
+  // বদলালেই (Pay/Decline/Cancel) তালিকা তাজা হয়।
+  useEffect(() => {
+    if (!uid || fsState !== 'on') return
+    const unsub = subscribeMyPaymentRequests(uid, (docs) => { setPaymentRequests(docs) })
     return () => { unsub?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, fsState])
@@ -1361,7 +1384,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return true
     },
     lookupUserByUid: (numericUid) => findUserByNumericUid(numericUid),
-    sendPi: async (to, amount) => {
+    sendPi: async (to, amount, opts) => {
       // শুধু আসল Pi — বোনাস/গিফট Pi কখনো নয়; পাঠাতে অনুমোদিত KYC লাগে
       if (!uid || !user) return { ok: false, error: 'Log in again and try.' }
       if (fsState !== 'on') return { ok: false, error: 'No connection — try again.' }
@@ -1370,7 +1393,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const { amount: a } = computeTransfer(amount, piTransferFeePct)
       // ক্লাউডের ব্যালেন্স তাজা করা — ট্রানজ্যাকশন যাতে পুরোনো অঙ্ক না পড়ে
       try { await writeUserDoc(uid, toUserDoc(collectSnapshot())) } catch { /* ট্রানজ্যাকশন ক্লাউড ব্যালেন্স যাচাই করেই */ }
-      const res = await createPiTransfer({ fromUid: uid, toUid: to.uid, fromName: user.name || 'User', toName: to.name, ...(numericUid !== null ? { fromNumericUid: numericUid } : {}), ...(to.numericUid !== undefined ? { toNumericUid: to.numericUid } : {}), amount: a, feePct: piTransferFeePct })
+      const res = await createPiTransfer({ fromUid: uid, toUid: to.uid, fromName: user.name || 'User', toName: to.name, ...(numericUid !== null ? { fromNumericUid: numericUid } : {}), ...(to.numericUid !== undefined ? { toNumericUid: to.numericUid } : {}), amount: a, feePct: piTransferFeePct, ...(opts?.markRequestPaidId ? { markRequestPaidId: opts.markRequestPaidId } : {}) })
       if (!res.ok) return res
       // সফল — স্থানীয় ব্যালেন্স ট্রানজ্যাকশনের ফলে বসানো হয়; খতিয়ানের
       // সারি ট্রানজ্যাকশনেই ক্লাউডে গেছে, এখানে একই সারি স্থানীয়ভাবে বসে
@@ -1397,6 +1420,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const row = buildTransferApplication(res.transfer, 'sent').row
       setPiLedger(prev => prev.some(r => r.id === row.id) ? prev : [row, ...prev].slice(0, 200))
       return { ok: true }
+    },
+    // পেমেন্ট রিকোয়েস্ট — অনুরোধ পাঠানো / Pay / Decline / Cancel।
+    // Pay = sendPi-ই (ট্রানজ্যাকশনে request 'paid' হয়; দুবার Pay নয়);
+    // Pay-এর সময়ও payer-এর KYC + ব্যালেন্স sendPi-তেই যাচাই হয়।
+    paymentRequests,
+    requestPayment: async (to, amount, note) => {
+      if (!uid || !user) return { ok: false, error: 'Log in again and try.' }
+      if (fsState !== 'on') return { ok: false, error: 'No connection — try again.' }
+      const err = validatePaymentRequest({ amount: roundPi(Number(amount)), minTransfer: piMinTransfer, isSelf: to.uid === uid })
+      if (err) return { ok: false, error: err }
+      const id = await createPaymentRequest({ fromUid: uid, toUid: to.uid, fromName: user.name || 'User', toName: to.name, ...(profilePhoto ? { fromPhoto: profilePhoto } : {}), ...(numericUid !== null ? { fromNumericUid: numericUid } : {}), ...(to.numericUid !== undefined ? { toNumericUid: to.numericUid } : {}), amount: roundPi(Number(amount)), ...(typeof note === 'string' && note.trim() ? { note: note.trim().slice(0, 200) } : {}) })
+      if (!id) return { ok: false, error: 'Could not send the request — try again.' }
+      return { ok: true }
+    },
+    payPaymentRequest: async (req) => {
+      if (!uid || !user) return { ok: false, error: 'Log in again and try.' }
+      if (!canPayRequest(req, uid)) return { ok: false, error: 'This payment request is no longer pending.' }
+      const res = await value.sendPi({ uid: req.fromUid, name: req.fromName, ...(req.fromNumericUid !== undefined ? { numericUid: req.fromNumericUid } : {}) }, req.amount, { markRequestPaidId: req.id })
+      return res
+    },
+    declinePaymentRequest: async (req) => {
+      if (!uid) return false
+      if (!canDeclineRequest(req, uid)) return false
+      return updatePaymentRequestStatus(req.id, 'declined')
+    },
+    cancelPaymentRequest: async (req) => {
+      if (!uid) return false
+      if (!canCancelRequest(req, uid)) return false
+      return updatePaymentRequestStatus(req.id, 'cancelled')
     },
     profileDob,
     gender,
@@ -1524,7 +1576,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
       } catch { return false }
     },
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto, paymentRequests])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -138,7 +138,7 @@ check('firestore.ts — ট্রানজ্যাকশনে কাটা + p
 
 check('store — sendPi + lookupUserByUid; লগইনে ও লাইভে জমা প্রয়োগ হয়', () => {
   assert.ok(storeSrc.includes('lookupUserByUid: (numericUid) => findUserByNumericUid(numericUid)'), 'lookupUserByUid নেই')
-  assert.ok(storeSrc.includes('sendPi: async (to, amount)'), 'sendPi নেই')
+  assert.ok(storeSrc.includes('sendPi: async (to, amount, opts)'), 'sendPi নেই')
   assert.ok(storeSrc.includes('validateTransferInput({ amount:'), 'sendPi-তে যাচাই নেই')
   assert.ok(storeSrc.includes('await writeUserDoc(uid, toUserDoc(collectSnapshot()))'), 'পাঠানোর আগে স্ন্যাপশট তাজা হয় না')
   assert.ok(storeSrc.includes('const res = await createPiTransfer('), 'createPiTransfer ডাকা হয় না')

@@ -17,6 +17,8 @@ export type { FriendRequestDoc, FriendRequestStatus } from './friendRequests'
 import { ADMIN_UID, computeTransfer, buildTransferApplication, mapPiTransferDoc, type PiTransferDoc } from './piTransfer'
 export type { PiTransferDoc } from './piTransfer'
 export { ADMIN_UID } from './piTransfer'
+import { mapPaymentRequestDoc, type PaymentRequestDoc } from './paymentRequest'
+export type { PaymentRequestDoc, PaymentRequestStatus } from './paymentRequest'
 
 let db: Firestore | null = null
 
@@ -489,6 +491,9 @@ export async function createPiTransfer(input: {
   kind?: 'admin'
   note?: string
   skipKycCheck?: boolean
+  // পেমেন্ট রিকোয়েস্টের Pay — একই ট্রানজ্যাকশনে request-এর স্ট্যাটাস 'paid'
+  // হয়; request আর pending না থাকলে ট্রানজ্যাকশনই ব্যর্থ হয় (দুবার Pay নয়)।
+  markRequestPaidId?: string
 }): Promise<{ ok: true; transfer: PiTransferDoc; newBalance: number } | { ok: false; error: string }> {
   const d = getDb()
   if (!d) return { ok: false, error: 'No connection — try again.' }
@@ -528,6 +533,15 @@ export async function createPiTransfer(input: {
       const kycStatus = (data.kyc as Record<string, unknown> | undefined)?.status
       if (!input.skipKycCheck && kycStatus !== 'approved') throw new Error('kyc')
       if (roundPi(bal) < amount) throw new Error('balance')
+      // পেমেন্ট রিকোয়েস্টের Pay — request এখনো pending আছে কি না যাচাই;
+      // paid/declined/cancelled হলে টাকাও যায় না, স্ট্যাটাসও বদলায় না।
+      if (input.markRequestPaidId) {
+        const reqRef = doc(d, 'paymentRequests', input.markRequestPaidId)
+        const reqSnap = await tx.get(reqRef)
+        if (!reqSnap.exists() || (reqSnap.data() as Record<string, unknown>).status !== 'pending') throw new Error('request-not-pending')
+        if ((reqSnap.data() as Record<string, unknown>).toUid !== input.fromUid) throw new Error('request-not-pending')
+        tx.update(reqRef, { status: 'paid' })
+      }
       const ledger = Array.isArray(data.piLedger) ? (data.piLedger as { id: string; date: string; type: string; label: string; amount: number }[]) : []
       const row = buildTransferApplication(transfer, 'sent').row
       const newLedger = [row, ...ledger].slice(0, 200)
@@ -542,6 +556,7 @@ export async function createPiTransfer(input: {
     if (msg === 'kyc') return { ok: false, error: 'Pi send needs approved KYC — complete Dating KYC first.' }
     if (msg === 'balance') return { ok: false, error: 'Not enough Pi balance — only real Pi can be sent, bonus Pi cannot be transferred.' }
     if (msg === 'no-sender-doc') return { ok: false, error: 'Your account was not found — log in again and try.' }
+    if (msg === 'request-not-pending') return { ok: false, error: 'This payment request is no longer pending — it may already be paid, declined or cancelled.' }
     return { ok: false, error: 'Transfer failed — nothing was sent. Check the connection and try again.' }
   }
 }
@@ -568,6 +583,84 @@ export function subscribeMyPiTransfers(uid: string, cb: (docs: PiTransferDoc[]) 
     const q = query(collection(d, 'piTransfers'), where('participants', 'array-contains', uid), limit(50))
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map(s => mapPiTransferDoc(s.id, s.data() as Record<string, unknown>)).filter((x): x is PiTransferDoc => x !== null)
+      list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+      cb(list)
+    }, () => { /* listener failed — login fetch still covers it */ })
+  } catch { return null }
+}
+
+// ---------- paymentRequests/{id} — "আমাকে Pi দাও" অনুরোধ ----------
+// তৈরি করেন শুধু অনুরোধকারী নিজে (fromUid নিজের UID); স্ট্যাটাস বদলান
+// শুধু প্রাপক (pending → paid/declined) বা অনুরোধকারী (pending → cancelled);
+// বাকিটা নিয়মে আটকানো। Pay-টা createPiTransfer ট্রানজ্যাকশনেই স্ট্যাটাস
+// বদলায় — এখানে আলাদা করে paid করা হয় না (দুবার Pay ঠেকাতে)।
+export async function createPaymentRequest(input: {
+  fromUid: string
+  toUid: string
+  fromName: string
+  toName: string
+  fromPhoto?: string
+  fromNumericUid?: number
+  toNumericUid?: number
+  amount: number
+  note?: string
+}): Promise<string | null> {
+  const d = getDb()
+  if (!d) return null
+  if (input.fromUid === input.toUid) return null
+  const amount = roundPi(input.amount)
+  if (amount <= 0) return null
+  try {
+    const ref = await addDoc(collection(d, 'paymentRequests'), {
+      fromUid: input.fromUid,
+      toUid: input.toUid,
+      fromName: input.fromName.trim().slice(0, 80) || 'User',
+      toName: input.toName.trim().slice(0, 80) || 'User',
+      ...(typeof input.fromPhoto === 'string' && input.fromPhoto.trim() ? { fromPhoto: input.fromPhoto.trim().slice(0, 500) } : {}),
+      ...(input.fromNumericUid !== undefined && isValidNumericUid(input.fromNumericUid) ? { fromNumericUid: input.fromNumericUid } : {}),
+      ...(input.toNumericUid !== undefined && isValidNumericUid(input.toNumericUid) ? { toNumericUid: input.toNumericUid } : {}),
+      amount,
+      ...(typeof input.note === 'string' && input.note.trim() ? { note: input.note.trim().slice(0, 200) } : {}),
+      status: 'pending',
+      participants: [...new Set([input.fromUid, input.toUid])],
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// স্ট্যাটাস বদল — শুধু Decline (প্রাপক) / Cancel (অনুরোধকারী); Pay-টা
+// ট্রানজ্যাকশনে হয়, এখানে নয়। নিয়ম ভাঙলে false।
+export async function updatePaymentRequestStatus(id: string, status: 'declined' | 'cancelled'): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id) return false
+  try {
+    await updateDoc(doc(d, 'paymentRequests', id), { status })
+    return true
+  } catch { return false }
+}
+
+// আমার অনুরোধগুলো (পাঠানো + পাওয়া) — participants-এ আমি আছি এমন ডক;
+// নতুনতম আগে। array-contains একক ফিল্টার — কম্পোজিট ইনডেক্স লাগে না।
+export async function fetchMyPaymentRequests(uid: string): Promise<PaymentRequestDoc[]> {
+  const d = getDb()
+  if (!d || !uid) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'paymentRequests'), where('participants', 'array-contains', uid), limit(50)))
+    const list = snap.docs.map(s => mapPaymentRequestDoc(s.id, s.data() as Record<string, unknown>)).filter((x): x is PaymentRequestDoc => x !== null)
+    list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return list
+  } catch { return [] }
+}
+
+// আমার অনুরোধগুলোর লাইভ সাবস্ক্রিপশন — নতুন অনুরোধ / স্ট্যাটাস বদল এলেই কলব্যাক।
+export function subscribeMyPaymentRequests(uid: string, cb: (docs: PaymentRequestDoc[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'paymentRequests'), where('participants', 'array-contains', uid), limit(50))
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(s => mapPaymentRequestDoc(s.id, s.data() as Record<string, unknown>)).filter((x): x is PaymentRequestDoc => x !== null)
       list.sort((a, b) => b.createdAtMs - a.createdAtMs)
       cb(list)
     }, () => { /* listener failed — login fetch still covers it */ })
