@@ -198,12 +198,12 @@ check('চ্যাট — পূর্ণ-পর্দা চ্যাট আ�
   assert.ok(!pagesSrc.includes("navigate(`/profile/${encodeURIComponent(active)}`)"), 'নাম দিয়ে (id ছাড়া) প্রোফাইলে যাওয়ার ভুল পথ আছে')
 })
 
-check('নতুন সারফেসে raw Firebase uid দেখানো হয় না — শুধু referralCode', () => {
-  // হেডার ড্রপডাউনের মানুষের সারি + ফলের পেজের সারি: ID শুধু referralCode থাকলে
-  assert.ok(searchUISrc.includes('ID: ${p.referralCode}'), 'হেডার সারিতে referralCode-ভিত্তিক ID নেই')
-  assert.ok(pagesSrc.includes('ID: ${p.referralCode}'), 'ফলের সারিতে referralCode-ভিত্তিক ID নেই')
-  // প্রোফাইল পেজ: showId = referralCode (আসল) / buddy id (পারসোনা) / নিজের referralCode — কখনো raw uid নয়
-  assert.ok(pagesSrc.includes('const showId = buddy ? buddy.id : (isSelf ? referralCode : (profile?.referralCode ?? \'\'))'), 'প্রোফাইলে referralCode-ভিত্তিক ID নেই')
+check('নতুন সারফেসে raw Firebase uid দেখানো হয় না — শুধু সংখ্যার UID (ফলব্যাক referralCode)', () => {
+  // হেডার ড্রপডাউনের মানুষের সারি + ফলের পেজের সারি: ID সংখ্যার UID আগে, না থাকলে referralCode
+  assert.ok(searchUISrc.includes('ID: ${p.numericUid ?? p.referralCode}'), 'হেডার সারিতে সংখ্যার UID-ভিত্তিক ID নেই')
+  assert.ok(pagesSrc.includes('ID: ${p.numericUid ?? p.referralCode}'), 'ফলের সারিতে সংখ্যার UID-ভিত্তিক ID নেই')
+  // প্রোফাইল পেজ: showId = সংখ্যার UID (আসল) / buddy id (পারসোনা) / নিজের সংখ্যার UID — কখনো raw uid নয়
+  assert.ok(pagesSrc.includes("const showId = buddy ? buddy.id : (isSelf ? String(numericUid ?? referralCode) : (profile?.numericUid !== undefined ? String(profile.numericUid) : (profile?.referralCode ?? '')))"), 'প্রোফাইলে সংখ্যার UID-ভিত্তিক ID নেই')
   assert.ok(!pagesSrc.includes('ID: {decodedId}'), 'প্রোফাইলে raw uid দেখানো হয়')
   assert.ok(!pagesSrc.includes('ID: {profile.id}'), 'প্রোফাইলে raw uid দেখানো হয়')
 })
@@ -211,7 +211,7 @@ check('নতুন সারফেসে raw Firebase uid দেখানো �
 check('Friends পেজের খোঁজা আগের মতোই (সাজেশন + ফল + Add Friend)', () => {
   assert.ok(pagesSrc.includes('useAllUserSearch(friends, query)'), 'Friends পেজের খোঁজা নেই')
   assert.ok(pagesSrc.includes('<SearchSuggestions suggestions={suggestions}'), 'Friends পেজের সাজেশন ড্রপডাউন নেই')
-  assert.ok(pagesSrc.includes('ID: {p.referralCode ?? p.id}'), 'Friends পেজের ফলের ID নেই')
+  assert.ok(pagesSrc.includes('ID: {p.numericUid ?? p.referralCode ??'), 'Friends পেজের ফলের ID নেই')
 })
 
 console.log(`\n${passed}/18 passed`)

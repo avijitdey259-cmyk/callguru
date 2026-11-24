@@ -4,8 +4,11 @@
 // বদল লাগে না, শুধু Firestore নিয়ম (firestore.rules) publish করতে হয়।
 // এই মডিউল pure — Firebase/React নেই, তাই node টেস্টে সরাসরি চলে।
 // নাম + রং (+ ঐচ্ছিক ছবি) ছাড়া এখানে কিছু যায় না — ইমেইল/ফোন/NID/
-// ব্যালেন্স কখনো রিকোয়েস্ট ডকে লেখা হয় না।
+// ব্যালেন্স কখনো রিকোয়েস্ট ডকে লেখা হয় না। সংখ্যার UID (fromNumericUid /
+// toNumericUid) শুধু দেখানোর জন্য যায় — রিকোয়েস্ট তালিকায় প্রেরকের
+// ছোট ID দেখা যায়, কাঁচা Firebase uid নয়।
 import type { Friend } from './store'
+import { numericUidFromDoc } from './numericUid'
 
 export type FriendRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled'
 
@@ -16,9 +19,11 @@ export type FriendRequestDoc = {
   fromName: string
   fromColour: string
   fromPhoto?: string
+  fromNumericUid?: number
   toName: string
   toColour: string
   toPhoto?: string
+  toNumericUid?: number
   status: FriendRequestStatus
   createdAtMs: number
 }
@@ -69,9 +74,11 @@ export function mapFriendRequestDoc(id: string, data: unknown): FriendRequestDoc
     fromName,
     fromColour,
     ...(cleanPhoto(d.fromPhoto) ? { fromPhoto: cleanPhoto(d.fromPhoto) } : {}),
+    ...(numericUidFromDoc(d.fromNumericUid) !== undefined ? { fromNumericUid: numericUidFromDoc(d.fromNumericUid) } : {}),
     toName,
     toColour,
     ...(cleanPhoto(d.toPhoto) ? { toPhoto: cleanPhoto(d.toPhoto) } : {}),
+    ...(numericUidFromDoc(d.toNumericUid) !== undefined ? { toNumericUid: numericUidFromDoc(d.toNumericUid) } : {}),
     status: status as FriendRequestStatus,
     createdAtMs,
   }
@@ -80,8 +87,8 @@ export function mapFriendRequestDoc(id: string, data: unknown): FriendRequestDoc
 // পাঠানোর ডেটা বানানো — নাম ১–৮০ অক্ষর, দুজনেই আসল UID, নিজেকে নয়; না হলে null।
 // status/createdAt লেখে firestore.ts-এর createFriendRequest।
 export function buildFriendRequestData(
-  from: { uid: string; name: string; colour: string; photo?: string },
-  to: { uid: string; name: string; colour: string; photo?: string },
+  from: { uid: string; name: string; colour: string; photo?: string; numericUid?: number },
+  to: { uid: string; name: string; colour: string; photo?: string; numericUid?: number },
 ): Omit<FriendRequestDoc, 'id' | 'status' | 'createdAtMs'> | null {
   if (!looksLikeFirebaseUid(from.uid) || !looksLikeFirebaseUid(to.uid)) return null
   if (from.uid === to.uid) return null
@@ -96,9 +103,11 @@ export function buildFriendRequestData(
     fromName,
     fromColour,
     ...(cleanPhoto(from.photo) ? { fromPhoto: cleanPhoto(from.photo) } : {}),
+    ...(numericUidFromDoc(from.numericUid) !== undefined ? { fromNumericUid: numericUidFromDoc(from.numericUid) } : {}),
     toName,
     toColour,
     ...(cleanPhoto(to.photo) ? { toPhoto: cleanPhoto(to.photo) } : {}),
+    ...(numericUidFromDoc(to.numericUid) !== undefined ? { toNumericUid: numericUidFromDoc(to.numericUid) } : {}),
   }
 }
 
@@ -111,6 +120,7 @@ export function requestToFriend(doc: FriendRequestDoc): Friend {
     color: doc.fromColour,
     online: true,
     ...(doc.fromPhoto ? { photo: doc.fromPhoto } : {}),
+    ...(doc.fromNumericUid !== undefined ? { numericUid: doc.fromNumericUid } : {}),
     requestId: doc.id,
   }
 }

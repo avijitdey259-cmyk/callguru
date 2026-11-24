@@ -108,7 +108,9 @@ check('নিয়ম: users নিজেরই থাকে; publicProfiles �
   assert.ok(ppStart > 0)
   const ppBody = rulesSrc.slice(ppStart, rulesSrc.indexOf('}', rulesSrc.indexOf('allow delete', ppStart)) + 1)
   assert.ok(ppBody.includes('allow read: if isSignedIn()'))
-  assert.ok(ppBody.includes('allow create, update: if isSignedIn() && request.auth.uid == uid'))
+  assert.ok(ppBody.includes('allow create: if isSignedIn() && request.auth.uid == uid'))
+  assert.ok(ppBody.includes('allow update: if isSignedIn() && request.auth.uid == uid'))
+  assert.ok(ppBody.includes("(!('numericUid' in resource.data) || request.resource.data.numericUid == resource.data.numericUid)"), 'UID বদল-রোধ গার্ড নেই')
   assert.ok(ppBody.includes('allow delete: if false'))
 })
 
@@ -117,8 +119,8 @@ check('নিয়ম: users নিজেরই থাকে; publicProfiles �
 // নাম/আইডি খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনের প্রোফাইলও লেখা হয় —
 // তিনি নতুন সদস্যের তালিকায়, নাম/আইডি খোঁজায় আর বন্ধু হিসেবে আসেন।
 check('স্টোর: প্রথম লগইনে পাবলিক প্রোফাইল লেখে; অ্যাডমিনও লেখে (বাদ নয়)', () => {
-  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })'))
-  const i = storeSrc.indexOf('writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })')
+  assert.ok(storeSrc.includes('writePublicProfile(uid, user.name, referralCode, profileExtra)'))
+  const i = storeSrc.indexOf('writePublicProfile(uid, user.name, referralCode, profileExtra)')
   const guard = storeSrc.slice(Math.max(0, i - 400), i)
   assert.ok(!guard.includes('!== ADMIN_EMAIL'), 'অ্যাডমিন বাদ দেওয়ার শর্ত এখনো আছে')
   // প্রোফাইল-সিঙ্ক ইফেক্টেও অ্যাডমিনের জন্য early return নেই

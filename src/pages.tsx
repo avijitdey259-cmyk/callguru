@@ -30,7 +30,7 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, backfillNumericUids, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
 import { probeChannels, sortChannelsByPlayability, getCachedProbe, clearProbeCache, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
@@ -1049,7 +1049,7 @@ export function Feed() {
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
-              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.numericUid ?? p.referralCode ?? '—'}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
                 : sentRequests.some(s => s.toUid === p.id)
@@ -2260,7 +2260,7 @@ export function WalletPage() {
 
 // ---------- Friends ----------
 export function FriendsPage() {
-  const { friends, requests, acceptRequest, declineRequest, sendFriendRequest, cancelFriendRequest, sentRequests, removeFriend, referralCode, blockedUids, blockUser, unblockUser } = useStore()
+  const { friends, requests, acceptRequest, declineRequest, sendFriendRequest, cancelFriendRequest, sentRequests, removeFriend, referralCode, numericUid, blockedUids, blockUser, unblockUser } = useStore()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [showSugg, setShowSugg] = useState(false)
@@ -2271,12 +2271,12 @@ export function FriendsPage() {
   // (নাম/আইডি দিয়ে ডুপ্লিকেট বাদ, নিজেকে বাদ)
   const { results, suggestions } = useAllUserSearch(friends, query)
   async function copyId() {
-    try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
+    try { await navigator.clipboard.writeText(String(numericUid ?? referralCode)); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
   }
   // আসল ব্যবহারকারীকে রিকোয়েস্ট পাঠানো (পারসোনা হলে সাথে সাথে লোকাল বন্ধু —
   // sendFriendRequest-ই সেটা ঠিক করে); ব্যর্থ হলে বোতাম আগের মতোই থাকে।
   async function addFromSearch(p: SearchablePerson) {
-    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
+    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}), ...(p.numericUid !== undefined ? { numericUid: p.numericUid } : {}) })
   }
   async function handleAccept(r: Friend) {
     const ok = await acceptRequest(r.requestId ?? r.id)
@@ -2290,7 +2290,7 @@ export function FriendsPage() {
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconFriends className="w-6 h-6" /> Friends</h1>
       <Card>
-        <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
+        <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{numericUid ?? referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
         <p className="text-xs text-gray-400 mt-1">Give this ID to friends — they can find you by this ID or your name.</p>
       </Card>
       <Card>
@@ -2308,7 +2308,7 @@ export function FriendsPage() {
           {results.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-2">
               <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
-              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
+              <span className="flex-1"><span className="font-medium">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.numericUid ?? p.referralCode ?? '—'}{p.mutual ? ` • ${p.mutual} mutual friends` : ''}{p.online ? ' • ● Online' : ' • ○ Offline'}</span></span>
               {p.isFriend
                 ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
                 : sentRequests.some(s => s.toUid === p.id)
@@ -2326,7 +2326,7 @@ export function FriendsPage() {
         {requests.map(r => (
           <div key={r.requestId ?? r.id} className="flex items-center gap-3 py-2">
             <Avatar photo={r.photo} name={r.name} color={r.color} className="w-10 h-10" />
-            <span className="flex-1 font-medium">{r.name}</span>
+            <span className="flex-1 min-w-0"><span className="font-medium block truncate">{r.name}</span>{r.numericUid !== undefined && <span className="block text-xs text-gray-400">ID: {r.numericUid}</span>}</span>
             <Btn onClick={() => handleAccept(r)}>Accept</Btn>
             <Btn variant="ghost" onClick={() => handleDecline(r)}>Decline</Btn>
           </div>
@@ -2338,7 +2338,7 @@ export function FriendsPage() {
         {friends.map(f => (
           <div key={f.id} className="flex items-center gap-3 py-2">
             <Avatar photo={f.photo} name={f.name} color={f.color} className="w-10 h-10" online={f.online} />
-            <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● Online' : '○ Offline'}</span></span>
+            <span className="flex-1 font-medium">{f.name} <span className="text-xs text-gray-400">{f.online ? '● Online' : '○ Offline'}{f.numericUid !== undefined ? ` • ID: ${f.numericUid}` : ''}</span></span>
             <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: f.name } })}>💬 Chat</Btn>
             {!blockedUids.includes(f.id) && <Btn variant="green" onClick={() => navigate(`/call/friend/${encodeURIComponent(f.name)}`)}>📞 Call</Btn>}
             {!isBuddyId(f.id) && (blockedUids.includes(f.id)
@@ -2386,7 +2386,7 @@ export function SearchResultsPage() {
   // নতুন কোয়েরিতে আবার All ট্যাব থেকে শুরু
   useEffect(() => { setTab('all') }, [q])
   async function addFromSearch(p: SearchablePerson) {
-    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}) })
+    await sendFriendRequest({ id: p.id, name: p.name, color: p.color, online: true, ...(p.photo ? { photo: p.photo } : {}), ...(p.numericUid !== undefined ? { numericUid: p.numericUid } : {}) })
   }
   function personRow(p: SearchablePerson) {
     return (
@@ -2394,7 +2394,7 @@ export function SearchResultsPage() {
         <Avatar photo={p.photo} name={p.name} color={p.color} className="w-10 h-10" />
         <span className="flex-1 min-w-0">
           <button onClick={() => navigate(`/profile/${encodeURIComponent(p.id)}`)} className="font-medium hover:underline text-left block truncate">{p.name}</button>
-          <span className="block text-xs text-gray-400 truncate">{p.referralCode ? `ID: ${p.referralCode}` : ''}{p.referralCode && p.mutual ? ' • ' : ''}{p.mutual ? `${p.mutual} mutual friends` : ''}{(p.referralCode || p.mutual) ? (p.online ? ' • ● Online' : ' • ○ Offline') : (p.online ? '● Online' : '○ Offline')}</span>
+          <span className="block text-xs text-gray-400 truncate">{(p.numericUid ?? p.referralCode) ? `ID: ${p.numericUid ?? p.referralCode}` : ''}{(p.numericUid ?? p.referralCode) && p.mutual ? ' • ' : ''}{p.mutual ? `${p.mutual} mutual friends` : ''}{((p.numericUid ?? p.referralCode) || p.mutual) ? (p.online ? ' • ● Online' : ' • ○ Offline') : (p.online ? '● Online' : '○ Offline')}</span>
         </span>
         {p.isFriend
           ? <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: p.name } })}><span className="flex items-center gap-1"><IconChat className="w-4 h-4" /> Chat</span></Btn>
@@ -2488,7 +2488,7 @@ export function SearchResultsPage() {
 export function UserProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { uid, user, friends, sendFriendRequest, cancelFriendRequest, sentRequests, referralCode, profilePhoto, blockedUids, blockUser, unblockUser } = useStore()
+  const { uid, user, friends, sendFriendRequest, cancelFriendRequest, sentRequests, referralCode, numericUid, profilePhoto, blockedUids, blockUser, unblockUser } = useStore()
   const decodedId = id ? decodeURIComponent(id) : ''
   const buddy = decodedId ? getBuddy(decodedId) : undefined
   const [profiles, setProfiles] = useState<NewMember[] | null>(null)
@@ -2513,12 +2513,12 @@ export function UserProfilePage() {
     if (target) await sendFriendRequest(target)
   }
   async function copyId() {
-    try { await navigator.clipboard.writeText(referralCode); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
+    try { await navigator.clipboard.writeText(String(numericUid ?? referralCode)); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* কপি না হলে আইডিটা দেখেই নেওয়া যাবে */ }
   }
   const name = buddy?.name ?? profile?.displayName ?? (isSelf ? (user?.name || 'You') : '')
   const color = buddy?.color ?? profile?.colour ?? colourForUid(decodedId)
   const photo = buddy ? undefined : (isSelf ? (profilePhoto || profile?.photo) : profile?.photo)
-  const showId = buddy ? buddy.id : (isSelf ? referralCode : (profile?.referralCode ?? ''))
+  const showId = buddy ? buddy.id : (isSelf ? String(numericUid ?? referralCode) : (profile?.numericUid !== undefined ? String(profile.numericUid) : (profile?.referralCode ?? '')))
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <button onClick={() => navigate(-1)} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium">← Back</button>
@@ -2545,7 +2545,7 @@ export function UserProfilePage() {
           </div>
           {isSelf && (
             <div className="mt-3">
-              <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
+              <p className="text-sm">🪪 Your ID: <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">{numericUid ?? referralCode}</code> <Btn variant="ghost" onClick={copyId}>{copied ? '✅ Copied!' : '📋 Copy'}</Btn></p>
               <Btn variant="ghost" className="mt-2" onClick={() => navigate('/menu')}>Edit profile</Btn>
             </div>
           )}
@@ -4243,7 +4243,7 @@ export function GroupDetailPage() {
   const isPageOwner = !!page && !!uid && uid === page.ownerUid
   const addCandidates = addQuery.trim().length < 2 ? [] : profiles
     .filter(p => p.id !== uid && !(group?.memberUids.includes(p.id))
-      && ((p.displayName + ' ' + (p.referralCode ?? '')).toLowerCase().includes(addQuery.trim().toLowerCase())))
+      && ((p.displayName + ' ' + (p.numericUid !== undefined ? String(p.numericUid) : '') + ' ' + (p.referralCode ?? '')).toLowerCase().includes(addQuery.trim().toLowerCase())))
     .slice(0, 10)
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -4766,6 +4766,19 @@ export function AdminPage() {
   const [editName, setEditName] = useState('')
   const [adminUsersMsg, setAdminUsersMsg] = useState('')
   const [adminUsersErr, setAdminUsersErr] = useState('')
+  const [backfillBusy, setBackfillBusy] = useState(false)
+  // UID নেই এমন ব্যবহারকারীদের যোগদানের ক্রমে সংখ্যার UID বসানো (ব্যাকফিল) —
+  // আগে থেকে UID থাকলে ছোঁয়া হয় না; নিয়ম publish না হওয়া পর্যন্ত ব্যর্থ হবে।
+  async function assignMissingUids() {
+    if (!adminUsers || backfillBusy) return
+    setBackfillBusy(true); setAdminUsersMsg(''); setAdminUsersErr('')
+    const { assigned, failed } = await backfillNumericUids(adminUsers)
+    if (failed > 0) setAdminUsersErr(`Assigned ${assigned} ID${assigned === 1 ? '' : 's'}; ${failed} failed — publish the new firestore.rules, then try again.`)
+    else setAdminUsersMsg(assigned === 0 ? 'Every user already has an ID.' : `✅ Assigned ${assigned} ID${assigned === 1 ? '' : 's'}.`)
+    const list = await fetchAllPublicProfiles(100).catch(() => null)
+    if (list) setAdminUsers(list)
+    setBackfillBusy(false)
+  }
   const [banBusyUid, setBanBusyUid] = useState<string | null>(null)
   async function saveEditName(m: NewMember) {
     const name = editName.trim()
@@ -5008,7 +5021,10 @@ export function AdminPage() {
       {tab === 'users' && <Card>
         <h2 className="font-bold">Users</h2>
         <p className="text-sm text-gray-500 mt-2">{adminUsers === null ? 'Loading users…' : adminUsers.length >= 100 ? 'Showing 100 users' : `${adminUsers.length} user${adminUsers.length === 1 ? '' : 's'}`}</p>
-        <input className="w-full border rounded-lg px-3 py-2 mt-3 dark:bg-slate-800 dark:border-slate-600" value={adminUsersQuery} onChange={e => setAdminUsersQuery(e.target.value)} placeholder="Search by name or referral code" />
+        <input className="w-full border rounded-lg px-3 py-2 mt-3 dark:bg-slate-800 dark:border-slate-600" value={adminUsersQuery} onChange={e => setAdminUsersQuery(e.target.value)} placeholder="Search by name, UID or referral code" />
+        {adminUsers && adminUsers.some(m => m.numericUid === undefined) && (
+          <Btn variant="ghost" className="mt-3" disabled={backfillBusy} onClick={assignMissingUids}>{backfillBusy ? 'Assigning IDs…' : '🪪 Assign missing IDs'}</Btn>
+        )}
         {adminUsersMsg && <p className="text-sm text-green-600 mt-2">{adminUsersMsg}</p>}
         {adminUsersErr && <p className="text-sm text-red-600 mt-2">{adminUsersErr}</p>}
         {adminUsers === null ? <p className="text-sm text-gray-500 mt-3">Loading users…</p>
@@ -5022,7 +5038,7 @@ export function AdminPage() {
                 ) : (
                   <p className="font-medium truncate">{m.displayName}</p>
                 )}
-                <p className="text-xs text-gray-500">ID: {m.referralCode ?? '—'} • Joined {m.createdAtMs ? new Date(m.createdAtMs).toLocaleDateString('en-GB') : 'Recently'}{bannedUids.includes(m.id) ? ' • 🚫 Banned' : ''}</p>
+                <p className="text-xs text-gray-500">ID: {m.numericUid ?? m.referralCode ?? '—'} • Joined {m.createdAtMs ? new Date(m.createdAtMs).toLocaleDateString('en-GB') : 'Recently'}{bannedUids.includes(m.id) ? ' • 🚫 Banned' : ''}</p>
               </div>
               {editingUid === m.id ? (
                 <div className="flex gap-2">

@@ -87,7 +87,7 @@ export function SearchSuggestions({ suggestions, onPick }: { suggestions: Search
       {suggestions.map(p => (
         <button key={p.id} onClick={() => onPick(p)} className="flex items-center gap-3 w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700">
           <Avatar photo={p.photo} name={p.name} color={p.color} className="w-8 h-8 text-sm" />
-          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.referralCode ?? p.id}</span></span>
+          <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400">ID: {p.numericUid ?? p.referralCode ?? '—'}</span></span>
         </button>
       ))}
     </div>
@@ -225,7 +225,7 @@ export function HeaderSearch() {
             return (
               <button key={p.id} onClick={() => openProfile(p)} onMouseEnter={() => setActiveIdx(i)} className={rowClass(i)}>
                 <Avatar photo={p.photo} name={p.name} color={p.color} className="w-8 h-8 text-sm" />
-                <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400 truncate">{p.referralCode ? `ID: ${p.referralCode}` : ''}{p.referralCode && p.mutual ? ' • ' : ''}{p.mutual ? `${p.mutual} mutual friends` : ''}{!p.referralCode && !p.mutual ? (p.online ? '● Online' : '○ Offline') : ''}{p.referralCode || p.mutual ? (p.online ? ' • ● Online' : ' • ○ Offline') : ''}</span></span>
+                <span className="flex-1 min-w-0"><span className="font-medium text-sm block truncate">{p.name}</span><span className="block text-xs text-gray-400 truncate">{(p.numericUid ?? p.referralCode) ? `ID: ${p.numericUid ?? p.referralCode}` : ''}{(p.numericUid ?? p.referralCode) && p.mutual ? ' • ' : ''}{p.mutual ? `${p.mutual} mutual friends` : ''}{!(p.numericUid ?? p.referralCode) && !p.mutual ? (p.online ? '● Online' : '○ Offline') : ''}{(p.numericUid ?? p.referralCode) || p.mutual ? (p.online ? ' • ● Online' : ' • ○ Offline') : ''}</span></span>
               </button>
             )
           })}

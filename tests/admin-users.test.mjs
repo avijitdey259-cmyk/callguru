@@ -72,14 +72,14 @@ check('AdminPage fetches publicProfiles when the Users tab opens', () => {
   assert.ok(pagesSrc.includes('fetchAllPublicProfiles(100).then(list => setAdminUsers(list))'), 'fetchAllPublicProfiles(100) দিয়ে লোড হয় না')
   assert.ok(pagesSrc.includes("useEffect(() => { if (tab === 'users') refreshAdminUsers() }, [tab])"), 'Users ট্যাব খুললে লোড হয় না')
 })
-check('Users tab renders name + referral code + joined date + colour dot', () => {
+check('Users tab renders name + numeric ID + joined date + colour dot', () => {
   assert.ok(tabSrc.includes('{m.displayName}'), 'displayName দেখানো হয় না')
-  assert.ok(tabSrc.includes('{m.referralCode ??'), 'referralCode দেখানো হয় না')
+  assert.ok(tabSrc.includes('{m.numericUid ?? m.referralCode ??'), 'সংখ্যার UID দেখানো হয় না (referralCode ফলব্যাকসহ)')
   assert.ok(tabSrc.includes("new Date(m.createdAtMs).toLocaleDateString('en-GB')"), 'joined date দেখানো হয় না')
   assert.ok(tabSrc.includes('backgroundColor: m.colour'), 'colour avatar dot নেই')
 })
-check('Search box filters by name or referral code', () => {
-  assert.ok(tabSrc.includes('Search by name or referral code'), 'খোঁজার বাক্স নেই')
+check('Search box filters by name, UID or referral code', () => {
+  assert.ok(tabSrc.includes('Search by name, UID or referral code'), 'খোঁজার বাক্স নেই')
   assert.ok(pagesSrc.includes('filterAdminUsers(adminUsers ?? [], adminUsersQuery)'), 'ফিল্টারে filterAdminUsers ব্যবহার হয় না')
 })
 check('Cap, loading and empty states are honest', () => {

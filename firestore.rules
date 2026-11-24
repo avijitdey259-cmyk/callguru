@@ -72,10 +72,23 @@ service cloud.firestore {
     // নতুন সদস্যের পাবলিক প্রোফাইল — শুধু নাম + যোগদানের সময় + রং।
     // ব্যক্তিগত ডেটা (users/{uid}) খোলা হয়নি — এই কালেকশনেই শুধু পাবলিক ক্ষেত্র থাকে।
     // অ্যাডমিন নাম বদলাতে পারেন, তবে শুধু displayName/colour — অন্য ক্ষেত্র নয়।
+    // সংখ্যার UID (numericUid) একবার বসলে আর বদলানো যায় না (নিজেরও নয়,
+    // অ্যাডমিনেরও নয়); না থাকলে শুধু বসানো যায় (লগইন ব্যাকফিল / অ্যাডমিন
+    // ব্যাকফিল)। তৈরি করার সময় UID একা (শুধু numericUid) বা একেবারে না —
+    // পুরো প্রোফাইলের সাথে নিজের পছন্দের UID বসানো যায় না।
     match /publicProfiles/{uid} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid
+        && (!('numericUid' in request.resource.data) || request.resource.data.keys().hasOnly(['numericUid']));
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && (!('numericUid' in resource.data) || request.resource.data.numericUid == resource.data.numericUid);
       allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'colour']);
+      // অ্যাডমিনের ব্যাকফিল — UID নেই এমন প্রোফাইলে শুধু UID বসানো (অন্য ক্ষেত্র নয়)।
+      allow update: if isAdmin()
+        && !('numericUid' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['numericUid'])
+        && request.resource.data.numericUid is int
+        && request.resource.data.numericUid >= 100000 && request.resource.data.numericUid <= 999999;
       allow delete: if false;
     }
 
@@ -83,6 +96,25 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    // সংখ্যার UID কাউন্টার (config/uidCounter — শেষ বরাদ্দ করা নম্বর)।
+    // সাইন-ইন করা যে কেউ পড়তে পারে; লেখা শুধু ensureNumericUid ট্রানজ্যাকশন
+    // থেকে — প্রথম বরাদ্দ 100001, তারপর ঠিক +১ করে, অন্য কোনো ক্ষেত্র নয়।
+    // (উপরের /config/{docId} অ্যাডমিন-শুধু নিয়মের পাশাপাশি চলে — কোনো
+    // একটা allow মিললেই অনুমতি হয়।) ⚠️ নিয়ম কনসোলে publish না হওয়া
+    // পর্যন্ত UID বরাদ্দ ব্যর্থ হবে (কাউন্টার লেখা যাবে না):
+    //   firebase deploy --only firestore:rules --project picall-76185
+    match /config/uidCounter {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['next'])
+        && request.resource.data.next is int && request.resource.data.next == 100001;
+      allow update: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['next'])
+        && request.resource.data.next is int
+        && request.resource.data.next == resource.data.next + 1;
+      allow delete: if false;
     }
 
     // ম্যানুয়াল টপ-আপ আবেদন — নিজেরটা তৈরি/পড়া; অ্যাডমিন সব পড়া + স্ট্যাটাস বদলানো।

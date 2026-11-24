@@ -3,7 +3,7 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests } from './firestore'
+import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid } from './firestore'
 import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
 import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
@@ -18,7 +18,7 @@ import { DEFAULT_AD_RATES, type AdRateSettings } from './ads'
 import { togglePostLike as togglePostLikePure, addPostComment as addPostCommentPure, deletePost as deletePostPure, updatePost as updatePostPure } from './feedPosts'
 
 export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
-export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string; requestId?: string }
+export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string; requestId?: string; numericUid?: number }
 // requestId — আসা বন্ধু রিকোয়েস্টের friendRequests ডকের চাবি (শুধু রিকোয়েস্ট
 // এন্ট্রিতে থাকে); Accept/Decline কোন ডকটা বদলাবে তা এটা দিয়েই চেনে।
 export type ChatMsg = { id: string; from: string; text: string; time: string }
@@ -182,6 +182,8 @@ type Store = {
   resetKyc: () => void
   // ভাইরাল গ্রোথ — রেফারেল/ইনভাইট, ডেইলি বোনাস, শেয়ার, লাইভ লিডারবোর্ড (ডেমো: এই ডিভাইসে ট্র্যাক করা হয়)
   referralCode: string
+  // সংখ্যার UID (যেমন 100001) — লগইনে বরাদ্দ/ব্যাকফিল হয়; না থাকলে null
+  numericUid: number | null
   referrer: string | null
   refNotice: string | null
   dismissRefNotice: () => void
@@ -387,6 +389,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [kycRejectReason, setKycRejectReason] = useState<string>(() => load('kycRejectReason', ''))
   // ভাইরাল গ্রোথ — রেফারেল কোড একবার তৈরি হয়ে স্থায়ী থাকে; ?ref= লিংকে এলে ওয়েলকাম বোনাস একবারই মেলে
   const [referralCode, setReferralCodeState] = useState<string>(() => load('referralCode', randomCode()))
+  // সংখ্যার UID — লগইনে বরাদ্দ/ব্যাকফিল হয় (ensureNumericUid); একবার বসলে আর বদলায় না
+  const [numericUid, setNumericUidState] = useState<number | null>(() => load('numericUid', null))
   const [referrer, setReferrer] = useState<string | null>(() => load('referrer', null))
   const [refWelcomeClaimed, setRefWelcomeClaimed] = useState<boolean>(() => load('refWelcomeClaimed', false))
   const [refNotice, setRefNotice] = useState<string | null>(() => load('refNotice', null))
@@ -495,6 +499,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => save('kycInfo', kycInfo), [kycInfo])
   useEffect(() => save('kycRejectReason', kycRejectReason), [kycRejectReason])
   useEffect(() => save('referralCode', referralCode), [referralCode])
+  useEffect(() => save('numericUid', numericUid), [numericUid])
   useEffect(() => save('referrer', referrer), [referrer])
   useEffect(() => save('refWelcomeClaimed', refWelcomeClaimed), [refWelcomeClaimed])
   useEffect(() => save('refNotice', refNotice), [refNotice])
@@ -603,6 +608,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     piBalance, bonusPi, points, referrals, liveEarnings,
     kycStatus, kycInfo, kycRejectReason,
     referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp,
+    numericUid,
     lastClaimDate, streak, giftBoxClaimedCycle,
     totalShares, reelShares, giftsSentPi,
     piWalletAddress, piDeposits, piWithdrawals, piLedger,
@@ -638,6 +644,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       })
     }
     if (h.referralCode !== undefined) setReferralCodeState(h.referralCode)
+    if (h.numericUid !== undefined) setNumericUidState(h.numericUid)
     if (h.referrer !== undefined) setReferrer(h.referrer)
     if (h.refWelcomeClaimed !== undefined) setRefWelcomeClaimed(h.refWelcomeClaimed)
     if (h.referralRewarded !== undefined) setReferralRewarded(h.referralRewarded)
@@ -774,21 +781,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       try {
         const docData = await fetchUserDoc(uid)
         if (cancelled) return
+        // সংখ্যার UID — আগে থেকে থাকলে সেটাই, না থাকলে কাউন্টার থেকে নতুন
+        // বরাদ্দ (১০০০০১ থেকে); ব্যর্থ হলে null — পরের লগইনে আবার চেষ্টা হয়।
+        const myNumericUid = await ensureNumericUid(uid)
+        if (myNumericUid !== null) setNumericUidState(myNumericUid)
+        if (cancelled) return
+        const profileExtra = { gender, district, interests, photo: profilePhoto, ...(myNumericUid !== null ? { numericUid: myNumericUid } : {}) }
         if (docData) {
           applyHydrated(fromUserDoc(docData))
           // পুরোনো প্রোফাইলে referralCode না থাকলে লগইনে ব্যাকফিল — নাম/আইডি
           // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনও সাধারণ ব্যবহারকারীর
           // মতো — তার প্রোফাইলও লেখা হয়, নতুন সদস্যের তালিকায় আসে।
-          await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
+          await writePublicProfile(uid, user.name, referralCode, profileExtra)
           if (cancelled) return
         } else {
-          await writeUserDoc(uid, toUserDoc(collectSnapshot()))
+          await writeUserDoc(uid, toUserDoc({ ...collectSnapshot(), numericUid: myNumericUid }))
           if (cancelled) return
           // প্রথম লগইন — পাবলিক প্রোফাইল (নাম + যোগদানের সময় + রং + পাবলিক আইডি)
           // লেখা হয়, যাতে "নতুন সদস্য" সেকশনে আর নাম/আইডি খোঁজায় আসল নতুন
           // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনও সাধারণ ব্যবহারকারীর মতো — তার
           // প্রোফাইলও লেখা হয়।
-          await writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto })
+          await writePublicProfile(uid, user.name, referralCode, profileExtra)
           if (cancelled) return
         }
         const cfg = await fetchPublicConfig()
@@ -857,7 +870,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           markAcceptedHandled(d.id)
           setFriends(prev => {
             if (prev.some(f => f.id === d.toUid)) return prev
-            return [...prev, { id: d.toUid, name: d.toName, color: d.toColour, online: true, ...(d.toPhoto ? { photo: d.toPhoto } : {}) }]
+            return [...prev, { id: d.toUid, name: d.toName, color: d.toColour, online: true, ...(d.toPhoto ? { photo: d.toPhoto } : {}), ...(d.toNumericUid !== undefined ? { numericUid: d.toNumericUid } : {}) }]
           })
         }
       }
@@ -880,7 +893,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 800)
     return () => { if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids, bannedUids])
+  }, [fsState, uid, user, freeFirstMinuteUsed, calls, friends, requests, likesUsed, premium, piBalance, bonusPi, points, referrals, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate, tvPlaylistUrl, adminSettings, profileDob, gender, district, thana, address, hideAddress, profilePhoto, galleryPhotos, interests, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, blockedUids, bannedUids])
 
   // পাবলিক প্রোফাইল সিঙ্ক — প্রোফাইল সেটিংস বদলালে (লিঙ্গ/জেলা/ইন্টারেস্ট/ছবি)
   // publicProfiles-ও আপডেট হয়, যাতে ম্যাচে নতুন তথ্য দেখায়। পুরো ঠিকানা +
@@ -1103,8 +1116,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sendInFlightRef.current.add(f.id)
       try {
         const payload = buildFriendRequestData(
-          { uid, name: user?.name || 'User', colour: colourForUid(uid), ...(profilePhoto ? { photo: profilePhoto } : {}) },
-          { uid: f.id, name: f.name, colour: f.color, ...(f.photo ? { photo: f.photo } : {}) },
+          { uid, name: user?.name || 'User', colour: colourForUid(uid), ...(profilePhoto ? { photo: profilePhoto } : {}), ...(numericUid !== null ? { numericUid } : {}) },
+          { uid: f.id, name: f.name, colour: f.color, ...(f.photo ? { photo: f.photo } : {}), ...(f.numericUid !== undefined ? { numericUid: f.numericUid } : {}) },
         )
         if (!payload) return false
         const requestId = await createFriendRequest(payload)
@@ -1173,6 +1186,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     rejectKyc: (reason) => { setKycRejectReason(reason.trim()); setKycStatus('rejected') },
     resetKyc: () => { setKycInfo(null); setKycRejectReason(''); setKycStatus('none') },
     referralCode,
+    numericUid,
     referrer,
     refNotice,
     dismissRefNotice: () => { setRefNotice(null) },
@@ -1398,7 +1412,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return await writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, next))
       } catch { return false }
     },
-  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
+  }), [user, uid, fsState, freeFirstMinuteUsed, calls, friends, feedQuery, posts, freshPostIds, likedPostIds, requests, likesUsed, premium, piBalance, bonusPi, giftPi, installBonusClaimed, points, referrals, dark, soundSettings, callPrivacy, datingRate, liveRate, liveEarnings, kycStatus, kycInfo, kycRejectReason, referralCode, numericUid, referrer, refWelcomeClaimed, refNotice, referralRewarded, referralPiEarned, hasToppedUp, lastClaimDate, streak, giftBoxCycle, giftBoxDays, giftBoxClaimed, canClaimGiftBox, giftBoxClaimedCycle, totalShares, reelShares, giftsSentPi, piWalletAddress, piDeposits, piWithdrawals, piLedger, piRateBDT, usdtRateBDT, piWithdrawFeePct, tvPlaylistUrl, pendingTopUps, adminSettings, recoveryEmail, recoveryPhone, recoveryEmailVerified, recoveryPhoneVerified, twoFactorEnabled, datingChatPartnerIds, bannedUids, sentRequests, blockedUids, profilePhoto])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

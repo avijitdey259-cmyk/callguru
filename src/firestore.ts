@@ -3,7 +3,8 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc } from './numericUid'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
 import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
@@ -66,6 +67,9 @@ export type PublicProfileExtra = {
   district?: string
   interests?: string[]
   photo?: string
+  // সংখ্যার UID — শুধু বরাদ্দের সময় দেওয়া হয় (ensureNumericUid থেকে);
+  // ভুল মান বাদ যায়, আর একবার বসলে আর কখনো বদলানো হয় না।
+  numericUid?: number
 }
 export async function writePublicProfile(uid: string, displayName: string, referralCode?: string, extraFields?: PublicProfileExtra): Promise<boolean> {
   const d = getDb()
@@ -87,6 +91,8 @@ export async function writePublicProfile(uid: string, displayName: string, refer
       // Photo removed (empty string) — delete the field, otherwise the old
       // photo would stay in publicProfiles forever and keep showing everywhere.
       if (extraFields.photo === '') extra.photo = deleteField()
+      // সংখ্যার UID — বৈধ হলেই লেখা হয় (বরাদ্দ ensureNumericUid থেকে আসে)
+      if (extraFields.numericUid !== undefined && isValidNumericUid(extraFields.numericUid)) extra.numericUid = extraFields.numericUid
     }
     if (snap.exists()) {
       await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra }, { merge: true })
@@ -95,6 +101,55 @@ export async function writePublicProfile(uid: string, displayName: string, refer
     }
     return true
   } catch { return false }
+}
+
+// সংখ্যার UID বরাদ্দ — publicProfiles/{uid}-এ আগে থেকে বৈধ UID থাকলে
+// সেটাই ফেরে (আর বদলায় না); না থাকলে config/uidCounter ট্রানজ্যাকশনে
+// পরের নম্বর নিয়ে বসানো হয় — একই মুহূর্তে দুজন সাইন আপ করলেও একই নম্বর
+// পায় না (ট্রানজ্যাকশন দ্বন্দ্বে আবার চেষ্টা করে)। ব্যর্থ হলে null —
+// তখন UID ছাড়াই চলতে থাকে, পরের লগইনে আবার চেষ্টা হয়। কখনো throw করে না।
+// ⚠️ নিয়ম publish না হওয়া পর্যন্ত (config/uidCounter) কাউন্টার লেখা
+// যাবে না — firestore.rules-এ কাউন্টার ম্যাচ publish করতে হয়।
+export async function ensureNumericUid(uid: string): Promise<number | null> {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const ref = doc(d, 'publicProfiles', uid)
+    const snap = await getDoc(ref)
+    const existing = snap.exists() ? numericUidFromDoc((snap.data() as Record<string, unknown>).numericUid) : undefined
+    if (existing !== undefined) return existing
+    const counterRef = doc(d, 'config', 'uidCounter')
+    const assigned = await runTransaction(d, async (tx) => {
+      const cSnap = await tx.get(counterRef)
+      const last = cSnap.exists() && typeof (cSnap.data() as Record<string, unknown>).next === 'number'
+        ? (cSnap.data() as Record<string, unknown>).next as number
+        : UID_COUNTER_START
+      const next = nextNumericUid(last)
+      if (next === null) throw new Error('Numeric UIDs exhausted')
+      tx.set(counterRef, { next })
+      tx.set(ref, { numericUid: next }, { merge: true })
+      return next
+    })
+    return assigned
+  } catch { return null }
+}
+
+// অ্যাডমিনের ব্যাকফিল — UID নেই এমন ব্যবহারকারীদের যোগদানের ক্রমে
+// (createdAt পুরনো → নতুন) UID বসানো; একবারে একজন করে, ক্রমানুসারে।
+// অ্যাডমিন শুধু UID-ই বসাতে পারেন (নিয়মে অন্য ক্ষেত্র বন্ধ); আগে থেকে
+// UID থাকলে ছোঁয়া হয় না। কখনো throw করে না।
+export async function backfillNumericUids(members: { id: string; createdAtMs: number | null; numericUid?: number }[]): Promise<{ assigned: number; failed: number }> {
+  const missing = members
+    .filter(m => m.numericUid === undefined)
+    .sort((a, b) => (a.createdAtMs ?? Number.MAX_SAFE_INTEGER) - (b.createdAtMs ?? Number.MAX_SAFE_INTEGER))
+  let assigned = 0
+  let failed = 0
+  for (const m of missing) {
+    const n = await ensureNumericUid(m.id)
+    if (n === null) failed++
+    else assigned++
+  }
+  return { assigned, failed }
 }
 
 // অ্যাডমিনের নাম বদল — শুধু displayName বদলায় (createdAt/colour/অন্য ক্ষেত্র ছোঁয়া হয় না)।

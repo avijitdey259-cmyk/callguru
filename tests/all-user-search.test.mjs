@@ -173,9 +173,9 @@ check('দুটো জায়গায় সাজেশন ড্রপড�
   assert.ok(searchUISrc.includes('fetchAllPublicProfiles(100)'), '১০০ সীমা নেই')
 })
 
-check('ফলে Firebase uid দেখানো হয় না — referralCode বা লোকাল id দেখায়', () => {
+check('ফলে Firebase uid দেখানো হয় না — সংখ্যার UID, না থাকলে referralCode দেখায়', () => {
   assert.ok(!pagesSrc.includes('ID: {p.id}'), 'ফলে এখনো p.id দেখানো হয়')
-  assert.ok(pagesSrc.includes('ID: {p.referralCode ?? p.id}'), 'referralCode ?? id দেখানো হয় না')
+  assert.ok(pagesSrc.includes('ID: {p.numericUid ?? p.referralCode ??'), 'সংখ্যার UID-আগে ফরম্যাট দেখানো হয় না')
 })
 
 check('মোবাইল ও কম্পিউটারে একই — সার্চ/সাজেশনে ডিভাইস-ভেদ নেই', () => {

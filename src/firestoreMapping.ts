@@ -65,6 +65,9 @@ export type UserDoc = {
   liveEarnings: number
   kyc: KycSync
   referralCode: string
+  // সংখ্যার UID (যেমন 100001) — publicProfiles-এর মতোই, একবার বসলে বদলায় না;
+  // না থাকলে undefined (পুরোনো ডক — লগইনে ব্যাকফিল হয়)।
+  numericUid?: number
   referrer: string | null
   refWelcomeClaimed: boolean
   referralRewarded: boolean
@@ -125,6 +128,8 @@ export type LocalUserState = {
   kycInfo: KycInfo | null
   kycRejectReason: string
   referralCode: string
+  // সংখ্যার UID (যেমন 100001) — না থাকলে null (পুরোনো অবস্থা — লগইনে ব্যাকফিল হয়)।
+  numericUid: number | null
   referrer: string | null
   refWelcomeClaimed: boolean
   referralRewarded: boolean
@@ -249,6 +254,7 @@ export function toUserDoc(s: LocalUserState): UserDoc {
     liveEarnings: s.liveEarnings,
     kyc: toKycSync(s.kycInfo, s.kycStatus, s.kycRejectReason),
     referralCode: s.referralCode,
+    ...(s.numericUid !== null ? { numericUid: s.numericUid } : {}),
     referrer: s.referrer,
     refWelcomeClaimed: s.refWelcomeClaimed,
     referralRewarded: s.referralRewarded,
@@ -303,6 +309,7 @@ export function fromUserDoc(doc: unknown): Partial<LocalUserState> {
   if (typeof d.referrals === 'number') out.referrals = num(d.referrals, 0)
   if (typeof d.liveEarnings === 'number') out.liveEarnings = num(d.liveEarnings, 0)
   if (typeof d.referralCode === 'string') out.referralCode = d.referralCode
+  if (typeof d.numericUid === 'number' && Number.isInteger(d.numericUid)) out.numericUid = d.numericUid
   if (d.referrer === null || typeof d.referrer === 'string') out.referrer = d.referrer as string | null
   if (typeof d.refWelcomeClaimed === 'boolean') out.refWelcomeClaimed = d.refWelcomeClaimed
   if (typeof d.referralRewarded === 'boolean') out.referralRewarded = d.referralRewarded

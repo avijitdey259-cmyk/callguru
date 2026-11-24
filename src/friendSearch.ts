@@ -17,18 +17,24 @@ export interface SearchablePerson {
   // ব্যবহারকারীর পাবলিক আইডি (referralCode, যেমন cg-abc123) — আসল ব্যবহারকারীদের
   // ক্ষেত্রে থাকে; বন্ধু/সাজেশন/পারসোনার ক্ষেত্রে নাও থাকতে পারে (তাদের id-ই আইডি)।
   referralCode?: string
+  // সংখ্যার UID (যেমন 100001) — আসল ব্যবহারকারীদের ক্ষেত্রে থাকে; নামের
+  // পাশাপাশি UID দিয়েও খোঁজা যায় (অংশ মিললেই হয়)।
+  numericUid?: number
 }
 
 export function normalizeQuery(q: string): string {
   return q.trim().toLowerCase()
 }
 
-export function personMatches(p: Pick<SearchablePerson, 'name' | 'id' | 'referralCode'>, query: string): boolean {
+export function personMatches(p: Pick<SearchablePerson, 'name' | 'id' | 'referralCode' | 'numericUid'>, query: string): boolean {
   const q = normalizeQuery(query)
   if (!q) return true
+  // UID দিয়ে খোঁজা — লেখায় সংখ্যা থাকলে UID-র সংখ্যার অংশেও মেলে
+  const digits = q.replace(/\D/g, '')
   return p.name.toLowerCase().includes(q)
     || p.id.toLowerCase().includes(q)
     || (typeof p.referralCode === 'string' && p.referralCode.toLowerCase().includes(q))
+    || (digits !== '' && p.numericUid !== undefined && String(p.numericUid).includes(digits))
 }
 
 export function searchPeople(people: SearchablePerson[], query: string): SearchablePerson[] {
@@ -45,7 +51,7 @@ export function searchPeople(people: SearchablePerson[], query: string): Searcha
 // publicProfiles থেকে আসে, না পেলে লোকাল তালিকাই থাকে।
 export function mergeAllUsers(
   local: SearchablePerson[],
-  allUsers: { id: string; displayName: string; colour: string; referralCode?: string; photo?: string }[],
+  allUsers: { id: string; displayName: string; colour: string; referralCode?: string; numericUid?: number; photo?: string }[],
   selfUid: string | null,
 ): SearchablePerson[] {
   const out: SearchablePerson[] = [...local]
@@ -58,7 +64,7 @@ export function mergeAllUsers(
     if (seenNames.has(nameKey)) continue
     seenIds.add(u.id)
     seenNames.add(nameKey)
-    out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}), ...(u.photo ? { photo: u.photo } : {}) })
+    out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}), ...(u.numericUid !== undefined ? { numericUid: u.numericUid } : {}), ...(u.photo ? { photo: u.photo } : {}) })
   }
   return out
 }
