@@ -1390,6 +1390,8 @@ export function CallPage() {
   // NO_ANSWER_TIMEOUT_MS পরে "No answer" দেখানো হয়।
   const noAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const failureShownRef = useRef(false)
+  // ডিরেক্ট বন্ধু-কল: /call/friend/<নাম> খুললেই একবারই auto-start হবে
+  const autoStartRef = useRef(false)
   function clearNoAnswerTimer() {
     if (noAnswerTimerRef.current !== null) { clearTimeout(noAnswerTimerRef.current); noAnswerTimerRef.current = null }
   }
@@ -1850,6 +1852,21 @@ export function CallPage() {
     }
   }
 
+  // বন্ধুর কল ডিরেক্ট (Messenger-স্টাইল): /call/friend/<নাম> খুললেই কল
+  // শুরু হয় — সেটআপ পর্দা নেই, সামনের ক্যামেরা ডিফল্ট (facing 'user')।
+  // ক্রেডিট না থাকলে কল শুরু হয় না, ছোট বার্তা দেখায় (সেটআপ পর্দার
+  // সেই লেখাটাই); ব্যান/ব্লক-এ আটকালে startCall নিজেই বার্তা দেয়।
+  useEffect(() => {
+    if (type !== 'friend' || isLinkCall || started || ended || autoStartRef.current) return
+    autoStartRef.current = true
+    if (!canStart) {
+      setCallError('You cannot call without a Pi balance. Prepaid calls — buy Pi first.')
+      return
+    }
+    void startCall()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, isLinkCall])
+
   // গ্রহণকারী কল ধরলেন: রুমে ঢুকলেন, অফারের অপেক্ষা করবেন
   function acceptCall() {
     if (!linkCode) return
@@ -2047,6 +2064,33 @@ export function CallPage() {
   }
 
   if (!started) {
+    // বন্ধুর কল ডিরেক্ট — সেটআপ পর্দা নেই (দর/ব্যালেন্স/মিনিটের লেখা,
+    // ক্যামেরা-বাছাই, Start বোতাম সবই বাদ): ট্যাপ করলেই কল শুরু হয়,
+    // সামনের ক্যামেরা চালু থাকে। শুধু ক্রেডিট/ব্যান/ব্লক-এ আটকালে ছোট বার্তা।
+    if (type === 'friend') {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+          <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+            <Avatar photo={peerPhoto} name={name} color="#7C3AED" className="w-24 h-24 text-4xl mx-auto" />
+            <h1 className="text-xl font-bold mt-3">📞 {name}</h1>
+            {callError ? (
+              <>
+                <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">{callError}</p>
+                <div className="flex gap-2 mt-5 justify-center">
+                  <Btn variant="green" onClick={() => navigate('/wallet')}>Buy Pi</Btn>
+                  <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate(-1)}>← Go Back</Btn>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-300 mt-2">Calling…</p>
+                <button onClick={() => navigate(-1)} className="mt-5 px-6 py-2 rounded-full bg-red-600 text-white font-bold">❌ Cancel</button>
+              </>
+            )}
+          </Card>
+        </div>
+      )
+    }
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <Card className="!bg-slate-800 !text-white max-w-md w-full">

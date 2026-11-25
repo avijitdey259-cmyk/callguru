@@ -4,6 +4,12 @@
 //   firebase-admin শুধু projectId দিয়ে Google-এর public key দিয়ে
 //   RS256 স্বাক্ষর মেলায় (verifyIdToken)। চাবি Railway env-এ রাখার
 //   দরকার নেই — এবং এই ফাইলে কোনো গোপন মান নেই।
+// - firebase-admin v12+ -এ মডুলার API: ডিফল্ট এক্সপোর্টে `auth` ফাংশনই
+//   থাকে না (14.5.1-এ যাচাই করা — পুরোনো ডাকটি TypeError দিত), তাই
+//   পুরোনো কোডে getAdminAuth সবসময় null ফিরত আর verifyIdToken আসল
+//   টোকেনও ফিরিয়ে দিত — কল রুম-জয়েনে 'unauthorized' আসত আর কল
+//   কখনো যেত না। এখানে 'firebase-admin/app' + 'firebase-admin/auth'-এর
+//   getAuth(app) ব্যবহার করা হয় (কোনো চাবি ছাড়াই, শুধু projectId)।
 // - OTP কোড / ID token কখনো লগ করা হয় না — কোথাও console.log নেই।
 // - __setTokenVerifier শুধু টেস্টের জন্য (tests/security-server.test.mjs);
 //   প্রোডাকশন কোড এটা কখনো ডাকে না।
@@ -22,13 +28,10 @@ export function __setTokenVerifier(fn) {
 
 function getAdminAuth() {
   if (!adminPromise) {
-    adminPromise = import('firebase-admin')
-      .then((m) => {
-        const admin = m.default || m
-        if (!admin.apps || admin.apps.length === 0) {
-          admin.initializeApp({ projectId: FIREBASE_PROJECT_ID })
-        }
-        return admin.auth()
+    adminPromise = Promise.all([import('firebase-admin/app'), import('firebase-admin/auth')])
+      .then(([appMod, authMod]) => {
+        const app = appMod.getApps().length > 0 ? appMod.getApp() : appMod.initializeApp({ projectId: FIREBASE_PROJECT_ID })
+        return authMod.getAuth(app)
       })
       .catch(() => null)
   }

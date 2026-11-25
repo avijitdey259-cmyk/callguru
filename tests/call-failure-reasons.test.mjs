@@ -132,10 +132,13 @@ check('callInviteStatusToFailureReason — কাটলে declined, ব্য�
   assert.equal(CI.callInviteStatusToFailureReason('cancelled'), null)
   assert.equal(CF.callFailureMessage(CI.callInviteStatusToFailureReason('declined'), 'রিমা'), 'রিমা declined the call')
 })
-check('callErrorToFailureReason — call-not-found / room-full ঠিক থাকে, বাকি সব server', () => {
+check('callErrorToFailureReason — call-not-found / room-full ঠিক থাকে, unauthorized আলাদা কারণ (জেনেরিক server নয়), বাকি সব server', () => {
   assert.equal(CF.callErrorToFailureReason('call-not-found'), 'call-not-found')
   assert.equal(CF.callErrorToFailureReason('room-full'), 'room-full')
-  assert.equal(CF.callErrorToFailureReason('unauthorized'), 'server')
+  assert.equal(CF.callErrorToFailureReason('unauthorized'), 'unauthorized')
+  assert.equal(CF.callFailureMessage('unauthorized', 'রিমা'), 'Sign-in check failed — please sign out and sign in again.')
+  assert.notEqual(CF.callFailureMessage('unauthorized', 'রিমা'), CF.callFailureMessage('server', 'রিমা'))
+  assert.equal(CF.parseFailureReason('unauthorized'), 'unauthorized')
   assert.equal(CF.callErrorToFailureReason(''), 'server')
 })
 check('closeWhileWaitingToFailureReason — উত্তর অপেক্ষায় সকেট মরলে no-answer, আগে মরলে server', () => {
@@ -159,8 +162,8 @@ check('server: call-invite-response-এ কারণ রিলে হয় (all
 check('server: সার্ভিস-ওয়ার্কার Decline-এ call-declined-এ reason declined', () => {
   assert.ok(serverSrc.includes("type: 'call-declined', roomId: `call-${code}`, reason: 'declined'"))
 })
-check('server: health version 6.2.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
-  assert.ok(serverSrc.includes("version: '6.2.0'"))
+check('server: health version 6.3.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
+  assert.ok(serverSrc.includes("version: '6.3.0'"))
 })
 check('overlay: গেটে আটকালে কারণসহ স্ট্যাটাস লেখে; Decline-এ declined', () => {
   assert.ok(overlaySrc.includes('gateReasonToInviteStatus(gate.reason)'))
@@ -262,11 +265,11 @@ try {
   const up = await waitForHealth()
   assert.ok(up, `টেস্ট সার্ভার চালু হয়নি: ${serverErr.slice(0, 500)}`)
 
-  await checkAsync('live: GET /api/health — version 6.2.0', async () => {
+  await checkAsync('live: GET /api/health — version 6.3.0', async () => {
     const r = await fetch(`${BASE}/api/health`)
     assert.equal(r.status, 200)
     const body = await r.json()
-    assert.equal(body.version, '6.2.0')
+    assert.equal(body.version, '6.3.0')
   })
 
   const alice = wsClient()

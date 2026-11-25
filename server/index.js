@@ -101,7 +101,7 @@ const experts = [
   { id: 'exp-4', name: 'Mehjabin Chowdhury', rate: 10, online: true }
 ]
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.2.0' }))
+app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.3.0' }))
 app.get('/api/experts', (_req, res) => res.json(experts))
 app.post('/api/topup', (req, res) => {
   const { amount, method } = req.body || {}

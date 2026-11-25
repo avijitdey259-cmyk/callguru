@@ -18,10 +18,12 @@ export type CallFailureReason =
   | 'server'
   | 'call-not-found'
   | 'room-full'
+  | 'unauthorized'
 
 export const CALL_FAILURE_REASONS: readonly CallFailureReason[] = [
   'busy', 'offline', 'no-credit', 'not-friend', 'not-accepting',
   'declined', 'no-answer', 'server', 'call-not-found', 'room-full',
+  'unauthorized',
 ]
 
 /** Unknown/foreign value → a known reason, or null (never trust the wire blindly). */
@@ -51,6 +53,9 @@ export function callFailureMessage(reason: CallFailureReason, name: string): str
     case 'server': return 'Could not connect to the server — please try again.'
     case 'call-not-found': return 'The call was not found or has ended.'
     case 'room-full': return 'There are already 2 people on this call.'
+    // সার্ভার টোকেন যাচাই করতে পারেনি (ভুল/মেয়াদোত্তীর্ণ সেশন) — এটা
+    // সার্ভার-ডাউন নয়, তাই জেনেরিক বার্তা নয়: আবার সাইন-ইন করতে বলা হয়।
+    case 'unauthorized': return 'Sign-in check failed — please sign out and sign in again.'
   }
 }
 
@@ -75,6 +80,9 @@ export function gateReasonToFailureReason(gateReason: string): CallFailureReason
 export function callErrorToFailureReason(err: string): CallFailureReason {
   if (err === 'call-not-found') return 'call-not-found'
   if (err === 'room-full') return 'room-full'
+  // 'unauthorized' (সার্ভার টোকেন যাচাই করতে পারেনি) জেনেরিক server নয় —
+  // কলারকে আসল কারণ + করণীয় দেখানো হয়।
+  if (err === 'unauthorized') return 'unauthorized'
   return 'server'
 }
 
