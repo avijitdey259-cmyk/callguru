@@ -8,7 +8,7 @@ import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import { roundPi } from './data'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
-import { colourForUid, mapPublicProfile, type NewMember } from './newMembers'
+import { colourForUid, mapPublicProfile, toCreatedAtMs, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
 import { mapGroupDoc, mapGroupPostDoc, mapPageDoc, mapPagePostDoc, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
@@ -47,7 +47,15 @@ export async function writeUserDoc(uid: string, data: UserDoc): Promise<boolean>
   const d = getDb()
   if (!d) return false
   try {
-    await setDoc(doc(d, 'users', uid), { ...data, updatedAt: serverTimestamp() })
+    const ref = doc(d, 'users', uid)
+    const snap = await getDoc(ref)
+    const existing = snap.exists() ? (snap.data() as Record<string, unknown>) : null
+    // createdAt শুধু প্রথমবার বসে — পরের লেখায় আগের যোগদানের সময়ই
+    // থাকে; না থাকলে (পুরোনো ডক) এখনই ব্যাকফিল হয় (2026-11-25)।
+    const createdAt = existing && toCreatedAtMs(existing.createdAt) != null
+      ? existing.createdAt as ReturnType<typeof serverTimestamp>
+      : serverTimestamp()
+    await setDoc(ref, { ...data, createdAt, updatedAt: serverTimestamp() })
     return true
   } catch { return false }
 }
@@ -112,7 +120,15 @@ export async function writePublicProfile(uid: string, displayName: string, refer
       if (extraFields.numericUid !== undefined && isValidNumericUid(extraFields.numericUid)) numericUid = extraFields.numericUid
     }
     if (snap.exists()) {
-      await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra, ...(numericUid !== undefined ? { numericUid } : {}) }, { merge: true })
+      // createdAt নেই এমন প্রোফাইলে ব্যাকফিল — orderBy('createdAt') কোয়েরিতে
+      // (খোঁজা + নতুন সদস্য) createdAt ছাড়া ডক চিরকাল অদৃশ্য থাকে।
+      // 2026-11-25: ensureNumericUid ট্রানজ্যাকশন প্রথমে খালি {numericUid}
+      // ডক বানিয়ে ফেলায় নতুন ব্যবহারকারীর createdAt বসত না। লগইন সিঙ্কে
+      // প্রতিবার writePublicProfile চলে, তাই পুরোনো ভাঙা ডকও পরের লগইনে
+      // সেরে যায়; থাকলে কখনো বদলানো হয় না।
+      const existing = snap.data() as Record<string, unknown>
+      const backfill = toCreatedAtMs(existing.createdAt) == null ? { createdAt: serverTimestamp() } : {}
+      await setDoc(ref, { displayName: displayName || 'User', colour: colourForUid(uid), ...extra, ...(numericUid !== undefined ? { numericUid } : {}), ...backfill }, { merge: true })
     } else {
       await setDoc(ref, { displayName: displayName || 'User', createdAt: serverTimestamp(), colour: colourForUid(uid), ...extra })
       if (numericUid !== undefined) await setDoc(ref, { numericUid }, { merge: true })
@@ -145,7 +161,12 @@ export async function ensureNumericUid(uid: string): Promise<number | null> {
       const next = nextNumericUid(last)
       if (next === null) throw new Error('Numeric UIDs exhausted')
       tx.set(counterRef, { next })
-      tx.set(ref, { numericUid: next }, { merge: true })
+      // প্রোফাইল ডক না থাকলে এখানে বানানো হয় না — খালি {numericUid} ডক
+      // হলে writePublicProfile create-শাখা নেয় না, createdAt ছাড়া ডক
+      // তৈরি হয় আর খোঁজা/নতুন সদস্যে চিরকাল অদৃশ্য থাকে (2026-11-25)।
+      // প্রোফাইল লেখে writePublicProfile (লগইন সিঙ্কে এর পরেই চলে)।
+      const pSnap = await tx.get(ref)
+      if (pSnap.exists()) tx.set(ref, { numericUid: next }, { merge: true })
       return next
     })
     return assigned
