@@ -1,8 +1,9 @@
 // PiCall ইনকামিং কল — হোম পেজে কল এলে ওভারলে + গেটিং লজিক।
-// কল-বাই-লিংকের ওপরে: কলকারী বন্ধুকে কল দিলে (CallPage) একটা 'call-invite'
-// পাঠান; গ্রহণকারীর অ্যাপে (হোম পেজ সহ যেকোনো পেজে) এই মডিউলের নিয়মে
-// ওভারলে ওঠে। ডেমো/ভুয়া কল কখনো বানানো হয় না — ইনভাইট শুধু আসল
-// WebSocket সিগন্যালিং (src/presence.ts) থেকে আসে।
+// কল-বাই-লিংকের ওপরে: কলকারী বন্ধুকে কল দিলে (CallPage) Firestore
+// callInvites-এ একটা ডক লেখেন (২০২৬-১১-২৫ রিবিল্ড — পুরোনো
+// presence-WebSocket ইনভাইট পথ বাদ); গ্রহণকারীর অ্যাপে (হোম পেজ সহ
+// যেকোনো পেজে) এই মডিউলের নিয়মে ওভারলে ওঠে। ডেমো/ভুয়া কল কখনো
+// বানানো হয় না — ইনভাইট শুধু আসল Firestore ডক থেকে আসে।
 // রিংটোন এই মডিউলে বাজে না — ওভারলে হোস্ট (IncomingCallOverlay.tsx)
 // শেয়ার্ড সাউন্ড ইঞ্জিন (src/sounds.ts) দিয়ে বাজায়, সেটিংস মেনে।
 
@@ -33,7 +34,7 @@ export type CallInvite = {
   fromName: string
   /** কলকারীর অবতার রং (না থাকলে fromId থেকে বানানো হয়) */
   fromColor?: string
-  /** কী ধরনের কল — ইনভাইট শুধু বন্ধুর কলে পাঠানো হয় */
+  /** কী ধরনের কল — বন্ধু/সার্ভিস/ডেটিং কলে ইনভাইট যায়; লিংক-কলে নয় */
   kind: 'friend' | 'expert' | 'dating' | 'link' | 'service'
   /** পাঠানোর সময় (ms epoch) — ৬০ সেকেন্ডের বেশি পুরোনো ইনভাইট মেয়াদোত্তীর্ণ */
   at: number
@@ -49,38 +50,6 @@ export function isInviteExpired(invite: CallInvite, now: number = Date.now()): b
 /** কল কোডের আকৃতি — makeCallCode-র ৬ অক্ষর (0/o/1/l নেই)। */
 export function isValidCallCode(code: unknown): code is string {
   return typeof code === 'string' && /^[a-z0-9]{6}$/i.test(code)
-}
-
-/** presence সকেটে পাঠানোর মেসেজ বানানো (pure — টেস্টে যাচাই করা যায়)। */
-export function buildInviteMessage(invite: Omit<CallInvite, 'at'> & { to: string }): Record<string, unknown> {
-  return {
-    type: 'call-invite',
-    to: invite.to,
-    code: invite.code,
-    fromId: invite.fromId,
-    fromName: invite.fromName.slice(0, 60),
-    fromColor: invite.fromColor ?? '',
-    kind: invite.kind,
-  }
-}
-
-/** সার্ভার থেকে আসা মেসেজ যাচাই করে ইনভাইট বানানো — ভুল আকৃতি হলে null। */
-export function parseInviteMessage(raw: unknown): CallInvite | null {
-  if (!raw || typeof raw !== 'object') return null
-  const m = raw as Record<string, unknown>
-  if (m.type !== 'call-invite') return null
-  if (!isValidCallCode(m.code)) return null
-  if (typeof m.fromId !== 'string' || !m.fromId.trim()) return null
-  if (typeof m.fromName !== 'string' || !m.fromName.trim()) return null
-  const kind = m.kind === 'friend' || m.kind === 'expert' || m.kind === 'dating' || m.kind === 'link' || m.kind === 'service' ? m.kind : 'friend'
-  return {
-    code: String(m.code),
-    fromId: String(m.fromId),
-    fromName: String(m.fromName).slice(0, 60),
-    fromColor: typeof m.fromColor === 'string' && m.fromColor ? String(m.fromColor) : undefined,
-    kind,
-    at: typeof m.at === 'number' ? m.at : Date.now(),
-  }
 }
 
 export type InviteGate = {

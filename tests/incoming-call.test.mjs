@@ -1,15 +1,14 @@
-// ইনকামিং-কল ওভারলে টেস্ট — হোম পেজে কল এলে ধরো/কাটো কার্ড, গেটিং, presence + পুশ।
+// ইনকামিং-কল ওভারলে টেস্ট — হোম পেজে কল এলে ধরো/কাটো কার্ড, গেটিং + পুশ।
 // চালানো: রিপো রুট থেকে `node tests/incoming-call.test.mjs`
 // (esbuild দিয়ে src/*.ts বান্ডল করে Node-এ চালায় — Firebase/React লাগে না।)
 // যাচাই করে:
 //   ১) কে কল দিতে পারবে — everyone/friends/nobody + বন্ধু/অচেনা + নিজে + চলমান কল + মেয়াদ
-//   ২) ইনভাইট মেসেজ বানানো/পড়া — ভুল আকৃতি বাতিল
-//   ৩) ওভারলে অবস্থা — নতুন ইনভাইট আগেরটা সরায়; ধরলে/কাটলে/মুছলে idle
-//   ৪) presence মেসেজ চেনা — invite / invite-response / registered / invite-sent
-//   ৫) পুশ পেলোড — কলকারীর নাম, ধরো/কাটো অ্যাকশন, /call/<code> লিংক
-//   ৬) নোটিফিকেশন ট্যাপ — answer → কলে ঢোকা, decline → শুধু বন্ধ
+//   ২) ওভারলে অবস্থা — নতুন ইনভাইট আগেরটা সরায়; ধরলে/কাটলে/মুছলে idle
+//   ৩) পুশ পেলোড — কলকারীর নাম, ধরো/কাটো অ্যাকশন, /call/<code> লিংক
+//   ৪) নোটিফিকেশন ট্যাপ — answer → কলে ঢোকা, decline → শুধু বন্ধ
+//   ৫) ওয়্যারিং — হোস্ট Firestore ইনভাইট শোনে (presence পথ বাদ)
 import { build } from 'esbuild'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,7 +34,6 @@ async function loadModule(entry) {
 }
 
 const IC = await loadModule('incomingCall.ts')
-const PR = await loadModule('presence.ts')
 const PN = await loadModule('pushNotify.ts')
 
 let n = 0
@@ -91,25 +89,7 @@ check('callPrivacy লোড — ভুল মান হলে ডিফল্�
   assert.equal(IC.DEFAULT_CALL_PRIVACY, 'friends')
 })
 
-// ---------- ২) ইনভাইট মেসেজ ----------
-check('buildInviteMessage — আকৃতি ঠিক, নাম ৬০ অক্ষরে কাটা', () => {
-  const msg = IC.buildInviteMessage({ to: 'uid-2', code: 'abc123', fromId: 'uid-1', fromName: 'র'.repeat(80), kind: 'friend' })
-  assert.equal(msg.type, 'call-invite')
-  assert.equal(msg.to, 'uid-2')
-  assert.equal(msg.code, 'abc123')
-  assert.equal(msg.fromName.length, 60)
-})
-check('parseInviteMessage — ঠিক মেসেজ মেলে, ভুল আকৃতি বাতিল', () => {
-  const ok = IC.parseInviteMessage({ type: 'call-invite', code: 'abc123', fromId: 'uid-1', fromName: 'রিমা', kind: 'friend', at: NOW })
-  assert.equal(ok?.code, 'abc123')
-  assert.equal(ok?.fromName, 'রিমা')
-  assert.equal(IC.parseInviteMessage({ type: 'call-invite', code: 'bad!', fromId: 'uid-1', fromName: 'রিমা' }), null)
-  assert.equal(IC.parseInviteMessage({ type: 'call-invite', code: 'abc123', fromId: '', fromName: 'রিমা' }), null)
-  assert.equal(IC.parseInviteMessage({ type: 'other', code: 'abc123' }), null)
-  assert.equal(IC.parseInviteMessage(null), null)
-})
-
-// ---------- ৩) ওভারলে অবস্থা ----------
+// ---------- ২) ওভারলে অবস্থা ----------
 check('নতুন ইনভাইট আগেরটাকে সরিয়ে বাজে; ধরলে/কাটলে/মুছলে idle', () => {
   let s = IC.idleOverlayState()
   assert.equal(s.status, 'idle')
@@ -130,29 +110,7 @@ check('নতুন ইনভাইট আগেরটাকে সরিয়�
   assert.equal(IC.reduceInviteAnswered(IC.idleOverlayState()).status, 'idle')
 })
 
-// ---------- ৪) presence মেসেজ ----------
-check('buildPresenceRegister — userId + নাম', () => {
-  const m = PR.buildPresenceRegister('uid-1', 'আভিজিৎ')
-  assert.equal(m.type, 'presence-register')
-  assert.equal(m.userId, 'uid-1')
-  assert.equal(m.name, 'আভিজিৎ')
-})
-check('parsePresenceMessage — invite / response / registered / sent চেনে', () => {
-  const inv = PR.parsePresenceMessage({ type: 'call-invite', code: 'abc123', fromId: 'uid-1', fromName: 'রিমা', kind: 'friend', at: NOW })
-  assert.equal(inv.kind, 'invite')
-  assert.equal(inv.invite.fromName, 'রিমা')
-  const res = PR.parsePresenceMessage({ type: 'call-invite-response', code: 'abc123', accepted: false, fromId: 'uid-1' })
-  assert.equal(res.kind, 'invite-response')
-  assert.equal(res.accepted, false)
-  assert.equal(PR.parsePresenceMessage({ type: 'presence-registered' }).kind, 'registered')
-  const sent = PR.parsePresenceMessage({ type: 'call-invite-sent', to: 'uid-2', delivered: false, pushed: true })
-  assert.equal(sent.kind, 'invite-sent')
-  assert.equal(sent.pushed, true)
-  assert.equal(PR.parsePresenceMessage({ type: 'nonsense' }).kind, 'unknown')
-  assert.equal(PR.parsePresenceMessage({ type: 'call-invite', code: 'bad', fromId: 'x', fromName: 'y' }).kind, 'unknown')
-})
-
-// ---------- ৫) পুশ পেলোড ----------
+// ---------- ৩) পুশ পেলোড ----------
 check('buildIncomingCallPush — name, Answer/Decline, /call/<code>', () => {
   const p = PN.buildIncomingCallPush(INVITE)
   assert.ok(p.title.includes('রিমা'))
@@ -164,13 +122,23 @@ check('buildIncomingCallPush — name, Answer/Decline, /call/<code>', () => {
   assert.ok(p.actions[1].title.includes('Decline'))
 })
 
-// ---------- ৬) নোটিফিকেশন ট্যাপ ----------
+// ---------- ৪) নোটিফিকেশন ট্যাপ ----------
 check('notificationClickTarget — answer/ট্যাপ → কলে ঢোকা, decline → শুধু বন্ধ', () => {
   assert.deepEqual(PN.notificationClickTarget('answer', { url: '/call/abc123' }), { kind: 'open', url: '/call/abc123' })
   assert.deepEqual(PN.notificationClickTarget(undefined, { url: '/call/abc123' }), { kind: 'open', url: '/call/abc123' })
   assert.deepEqual(PN.notificationClickTarget('decline', { url: '/call/abc123' }), { kind: 'close' })
   assert.deepEqual(PN.notificationClickTarget('answer', { url: '/evil' }), { kind: 'open', url: '/feed' })
   assert.deepEqual(PN.notificationClickTarget('answer', null), { kind: 'open', url: '/feed' })
+})
+
+// ---------- ৫) ওয়্যারিং — হোস্ট Firestore ইনভাইট শোনে ----------
+check('ওভারলে হোস্ট — Firestore ইনভাইট শোনে, presence নেই', () => {
+  const overlaySrc = readFileSync(join(root, 'src/IncomingCallOverlay.tsx'), 'utf8')
+  assert.ok(overlaySrc.includes('subscribeIncomingCallInvites(myId'), 'হোস্ট Firestore ইনভাইট শোনে না')
+  assert.ok(overlaySrc.includes("updateCallInviteStatus(docId, 'accepted')"), 'ধরলে accepted লেখা হয় না')
+  assert.ok(overlaySrc.includes("updateCallInviteStatus(docId, 'declined')"), 'কাটলে declined লেখা হয় না')
+  assert.ok(!overlaySrc.includes('connectPresence'), 'হোস্ট এখনো presence সংযোগ করে')
+  assert.ok(!overlaySrc.includes('sendInviteResponse'), 'হোস্ট এখনো presence উত্তর পাঠায়')
 })
 
 console.log(`\n${n}/${n} incoming-call tests passed`)

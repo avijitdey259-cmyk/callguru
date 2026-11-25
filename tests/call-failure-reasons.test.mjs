@@ -1,12 +1,14 @@
 // কল-ব্যর্থতার কারণ — কল না গেলে কলকারী ঠিক কেন দেখবেন, জেনেরিক ভুল নয়।
 // চালানো: রিপো রুট থেকে `node tests/call-failure-reasons.test.mjs`
 // ভাগ ১: src/callFailure.ts-এর বিশুদ্ধ ম্যাপিং (কারণ → বার্তা, গেট/ইনভাইট
-//        → কারণ) + presence মেসেজে কারণ পার্স করা।
-// ভাগ ২: সার্ভার + ক্লায়েন্ট ওয়্যারিং (স্ট্যাটিক যাচাই — কারণ রিলে হয়,
-//        ব্যস্ত/অফলাইন সার্ভারেই ধরা পড়ে, CallPage কারণ দেখায়)।
+//        স্ট্যাটাস → কারণ) + Firestore ইনভাইট স্ট্যাটাস ম্যাপিং।
+// ভাগ ২: সার্ভার + ক্লায়েন্ট ওয়্যারিং (স্ট্যাটিক যাচাই — কারণ Firestore
+//        ইনভাইট ডকের স্ট্যাটাসে আসে, ব্যস্ত/অফলাইন সার্ভারেই ধরা পড়ে,
+//        CallPage কারণ দেখায়)।
 // ভাগ ৩: আসল সার্ভার চালিয়ে (টেস্ট পোর্টে, স্টাব করা টোকেন-যাচাই দিয়ে)
-//        WebSocket ইন্টিগ্রেশন — ইনভাইট পৌঁছানো/ব্যস্ত/অফলাইন/কারণসহ
-//        উত্তর/সার্ভিস-ওয়ার্কার Decline।
+//        WebSocket ইন্টিগ্রেশন — সার্ভারের পুরোনো WS ইনভাইট পথ
+//        (ক্লায়েন্ট আর ব্যবহার করে না, সার্ভারে আছে) + সার্ভিস-ওয়ার্কার
+//        Decline রিলে।
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -34,7 +36,7 @@ async function loadModule(entry) {
 }
 
 const CF = await loadModule('callFailure.ts')
-const PR = await loadModule('presence.ts')
+const CI = await loadModule('callInvites.ts')
 const IC = await loadModule('incomingCall.ts')
 
 let n = 0
@@ -119,24 +121,16 @@ check('গেটের কারণ আর ম্যাপিং মিলে �
   assert.equal(CF.callFailureMessage(CF.gateReasonToFailureReason(gate.reason), 'Susmita'), 'Not friends yet — send a friend request first')
 })
 
-// ---------- ভাগ ১গ: ইনভাইট ack/উত্তর → কারণ ----------
-check('inviteSentToFailureReason — না পৌঁছালে + পুশ না গেলে offline; ব্যস্ত হলে busy', () => {
-  assert.equal(CF.inviteSentToFailureReason(false, false), 'offline')
-  assert.equal(CF.inviteSentToFailureReason(false, false, 'offline'), 'offline')
-  assert.equal(CF.inviteSentToFailureReason(false, false, 'busy'), 'busy')
-  assert.equal(CF.inviteSentToFailureReason(false, true), null)
-  assert.equal(CF.inviteSentToFailureReason(true, false), null)
-  assert.equal(CF.inviteSentToFailureReason(true, true), null)
-  assert.equal(CF.inviteSentToFailureReason(false, true, 'busy'), 'busy')
-})
-check('inviteResponseToFailureReason — ধরলে null; কাটলে কারণ, কারণ না থাকলে declined', () => {
-  assert.equal(CF.inviteResponseToFailureReason(true), null)
-  assert.equal(CF.inviteResponseToFailureReason(true, 'busy'), null)
-  assert.equal(CF.inviteResponseToFailureReason(false, 'not-friend'), 'not-friend')
-  assert.equal(CF.inviteResponseToFailureReason(false, 'busy'), 'busy')
-  assert.equal(CF.inviteResponseToFailureReason(false, 'not-accepting'), 'not-accepting')
-  assert.equal(CF.inviteResponseToFailureReason(false), 'declined')
-  assert.equal(CF.inviteResponseToFailureReason(false, 'bogus'), 'declined')
+// ---------- ভাগ ১গ: ইনভাইট স্ট্যাটাস → কারণ (Firestore) ----------
+check('callInviteStatusToFailureReason — কাটলে declined, ব্যস্ত busy, বন্ধু নয় not-friend; ধরলে/বাজতে থাকলে null', () => {
+  assert.equal(CI.callInviteStatusToFailureReason('declined'), 'declined')
+  assert.equal(CI.callInviteStatusToFailureReason('busy'), 'busy')
+  assert.equal(CI.callInviteStatusToFailureReason('not-friend'), 'not-friend')
+  assert.equal(CI.callInviteStatusToFailureReason('not-accepting'), 'not-accepting')
+  assert.equal(CI.callInviteStatusToFailureReason('accepted'), null)
+  assert.equal(CI.callInviteStatusToFailureReason('ringing'), null)
+  assert.equal(CI.callInviteStatusToFailureReason('cancelled'), null)
+  assert.equal(CF.callFailureMessage(CI.callInviteStatusToFailureReason('declined'), 'রিমা'), 'রিমা declined the call')
 })
 check('callErrorToFailureReason — call-not-found / room-full ঠিক থাকে, বাকি সব server', () => {
   assert.equal(CF.callErrorToFailureReason('call-not-found'), 'call-not-found')
@@ -151,31 +145,8 @@ check('closeWhileWaitingToFailureReason — উত্তর অপেক্ষ�
   assert.equal(CF.callFailureMessage(CF.closeWhileWaitingToFailureReason(false), 'রিমা'), 'Could not connect to the server — please try again.')
 })
 
-// ---------- ভাগ ১ঘ: presence মেসেজে কারণ পার্স ----------
-check('parsePresenceMessage — invite-sent-এ busy/offline কারণ মেলে, ভুল কারণ বাদ যায়', () => {
-  const busy = PR.parsePresenceMessage({ type: 'call-invite-sent', to: 'uid-2', delivered: false, pushed: false, reason: 'busy' })
-  assert.equal(busy.kind, 'invite-sent')
-  assert.equal(busy.reason, 'busy')
-  const off = PR.parsePresenceMessage({ type: 'call-invite-sent', to: 'uid-2', delivered: false, pushed: false, reason: 'offline' })
-  assert.equal(off.reason, 'offline')
-  const bad = PR.parsePresenceMessage({ type: 'call-invite-sent', to: 'uid-2', delivered: false, pushed: false, reason: 'bogus' })
-  assert.equal(bad.kind, 'invite-sent')
-  assert.equal(bad.reason, undefined)
-  const plain = PR.parsePresenceMessage({ type: 'call-invite-sent', to: 'uid-2', delivered: true, pushed: false })
-  assert.equal(plain.delivered, true)
-  assert.equal(plain.reason, undefined)
-})
-check('parsePresenceMessage — invite-response-এ কারণ মেলে', () => {
-  const res = PR.parsePresenceMessage({ type: 'call-invite-response', code: 'abc123', accepted: false, fromId: 'uid-1', reason: 'not-friend' })
-  assert.equal(res.kind, 'invite-response')
-  assert.equal(res.accepted, false)
-  assert.equal(res.reason, 'not-friend')
-  const bad = PR.parsePresenceMessage({ type: 'call-invite-response', code: 'abc123', accepted: false, fromId: 'uid-1', reason: 'evil' })
-  assert.equal(bad.reason, undefined)
-})
-
 // ---------- ভাগ ২: ওয়্যারিং (স্ট্যাটিক) ----------
-check('server: call-invite-এ ব্যস্ত চেক — inCallByUser থাকলে reason busy', () => {
+check('server: call-invite-এ ব্যস্ত চেক — inCallByUser থাকলে reason busy (সার্ভারের পুরোনো WS পথ, ক্লায়েন্ট আর ব্যবহার করে না)', () => {
   assert.ok(serverSrc.includes('inCallByUser.has(to)'))
   assert.ok(serverSrc.includes("reason: 'busy'"))
   assert.ok(serverSrc.includes("reason: 'offline'"))
@@ -188,20 +159,21 @@ check('server: call-invite-response-এ কারণ রিলে হয় (all
 check('server: সার্ভিস-ওয়ার্কার Decline-এ call-declined-এ reason declined', () => {
   assert.ok(serverSrc.includes("type: 'call-declined', roomId: `call-${code}`, reason: 'declined'"))
 })
-check('server: health version 6.1.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
-  assert.ok(serverSrc.includes("version: '6.1.0'"))
+check('server: health version 6.2.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
+  assert.ok(serverSrc.includes("version: '6.2.0'"))
 })
-check('overlay: গেটে আটকালে কারণসহ উত্তর পাঠায়; Decline-এ declined', () => {
-  assert.ok(overlaySrc.includes('gateReasonToFailureReason(gate.reason)'))
-  assert.ok(overlaySrc.includes("sendInviteResponse(invite.fromId, invite.code, false, 'declined')"))
+check('overlay: গেটে আটকালে কারণসহ স্ট্যাটাস লেখে; Decline-এ declined', () => {
+  assert.ok(overlaySrc.includes('gateReasonToInviteStatus(gate.reason)'))
+  assert.ok(overlaySrc.includes("updateCallInviteStatus(docId, 'declined')"))
 })
-check('CallPage: কারণ দেখানো হয় (showCallFailure), invite-sent শোনা হয়, no-answer টাইমার আছে', () => {
+check('CallPage: কারণ দেখানো হয় (showCallFailure), Firestore ইনভাইট লেখা + ডক শোনা হয়, no-answer টাইমার আছে', () => {
   assert.ok(pagesSrc.includes('showCallFailure'))
-  assert.ok(pagesSrc.includes('onInviteSent('))
-  assert.ok(pagesSrc.includes('inviteSentToFailureReason'))
-  assert.ok(pagesSrc.includes('inviteResponseToFailureReason'))
+  assert.ok(pagesSrc.includes('createCallInvite(payload)'))
+  assert.ok(pagesSrc.includes('subscribeCallInviteDoc(inviteId'))
+  assert.ok(pagesSrc.includes('callInviteStatusToFailureReason(doc.status)'))
   assert.ok(pagesSrc.includes('armNoAnswerTimer()'))
   assert.ok(pagesSrc.includes('NO_ANSWER_TIMEOUT_MS'))
+  assert.ok(!pagesSrc.includes("from './presence'"), 'CallPage এখনো presence ইমপোর্ট করে')
 })
 check('CallPage: onClose — উত্তর অপেক্ষায় সকেট মরলে no-answer, আগে মরলে server', () => {
   assert.ok(pagesSrc.includes('closeWhileWaitingToFailureReason(noAnswerTimerRef.current !== null)'), 'onClose টাইমারের অবস্থা দেখে কারণ বেছে নেয় না')
@@ -290,11 +262,11 @@ try {
   const up = await waitForHealth()
   assert.ok(up, `টেস্ট সার্ভার চালু হয়নি: ${serverErr.slice(0, 500)}`)
 
-  await checkAsync('live: GET /api/health — version 6.1.0', async () => {
+  await checkAsync('live: GET /api/health — version 6.2.0', async () => {
     const r = await fetch(`${BASE}/api/health`)
     assert.equal(r.status, 200)
     const body = await r.json()
-    assert.equal(body.version, '6.1.0')
+    assert.equal(body.version, '6.2.0')
   })
 
   const alice = wsClient()

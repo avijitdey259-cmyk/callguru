@@ -70,6 +70,12 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
+    // বেনামি সেশন (OTP লগইন) — টোকেনের জন্য মাত্র; বেনামি UID কখনো
+    // অ্যাপ-পরিচয় হয় না, তাই callInvites-এর ক্ষেত্রে বেনামি ব্যবহারকারী
+    // শুধু কড়া যাচাই করা ডক নিয়েই কাজ করতে পারে (নিচে দেখুন)।
+    function isAnon() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
     function isAdmin() {
       return isSignedIn() && request.auth.token.email == 'avijitdey259@gmail.com';
     }
@@ -155,6 +161,50 @@ service cloud.firestore {
         && ((resource.data.toUid == request.auth.uid && request.resource.data.status in ['accepted', 'declined'])
           || (resource.data.fromUid == request.auth.uid && request.resource.data.status == 'cancelled'));
       allow delete: if false;
+    }
+
+    // কল ইনভাইট (callInvites) — Firestore-ভিত্তিক কল ইনভাইট (২০২৬-১১-২৫
+    // রিবিল্ড)। তৈরি করেন কলকারী নিজে (ringing, কোড ৬ অক্ষর, ধরন চারটির
+    // একটা, নাম ১–৬০ অক্ষর); পড়তে পারেন কলকারী/গ্রহণকারী; বদলাতে পারেন
+    // গ্রহণকারী (ধরা/কাটা/ব্যস্ত/বন্ধু নয়/গ্রহণ করে না — ringing থেকে
+    // শুধু status) বা কলকারী (cancelled); মুছতে পারেন কলকারী। বেনামি
+    // (OTP লগইন) ব্যবহারকারীও একই নিয়মে পারেন — তাঁর app uid (cg-…)
+    // Firebase uid নয়, তাই নিয়মে (fromUid == auth.uid OR isAnon())
+    // দেওয়া হয়েছে; ক্ষেত্রগুলো কড়া যাচাই করা (status enum, কোডের
+    // আকৃতি, নামের দৈর্ঘ্য) আর ইনভাইট ৬০ সেকেন্ডের বেশি টেকে না।
+    // ⚠️ নিয়ম কনসোলে publish না হওয়া পর্যন্ত কল ইনভাইট যাবে না:
+    //   firebase deploy --only firestore:rules --project picall-76185
+    match /callInvites/{inviteId} {
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid is string
+        && request.resource.data.fromUid.size() > 0
+        && request.resource.data.fromUid.size() <= 80
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid.size() > 0
+        && request.resource.data.toUid.size() <= 80
+        && request.resource.data.fromUid != request.resource.data.toUid
+        && request.resource.data.status == 'ringing'
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^[a-z0-9]{6}$')
+        && request.resource.data.kind in ['friend', 'expert', 'dating', 'service']
+        && request.resource.data.fromName is string
+        && request.resource.data.fromName.size() >= 1
+        && request.resource.data.fromName.size() <= 60
+        && (request.resource.data.fromUid == request.auth.uid || isAnon());
+      allow read: if isSignedIn()
+        && (resource.data.fromUid == request.auth.uid
+          || resource.data.toUid == request.auth.uid
+          || isAnon());
+      allow update: if isSignedIn() && resource.data.status == 'ringing'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((resource.data.toUid == request.auth.uid
+          && request.resource.data.status in ['accepted', 'declined', 'busy', 'not-friend', 'not-accepting'])
+          || (resource.data.fromUid == request.auth.uid
+            && request.resource.data.status == 'cancelled')
+          || (isAnon()
+            && request.resource.data.status in ['accepted', 'declined', 'busy', 'not-friend', 'not-accepting', 'cancelled']));
+      allow delete: if isSignedIn()
+        && (resource.data.fromUid == request.auth.uid || isAnon());
     }
 
     // Pi ট্রান্সফার (piTransfers) — অপরিবর্তনীয় রেকর্ড। তৈরি করেন শুধু পাঠক

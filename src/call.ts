@@ -1,8 +1,9 @@
 // PiCall 1-to-1 call client — real peer-to-peer calls over the same Railway
 // WebSocket server as Dating Live (separate room map, see server/index.js).
-// Call-by-link for now: no real user directory/presence exists yet, so the
-// caller shares a link (https://picallbd.web.app/call/<code>) and the callee
-// opens it to join the same room. Media is WebRTC peer-to-peer — STUN +
+// ইনভাইট যায় Firestore callInvites ডক দিয়ে (src/callInvites.ts);
+// সিগন্যালিং (offer/answer/ICE) এই রুম-WS-এ চলে — কলকারী লিংক শেয়ার
+// করলেও গ্রহণকারী একই রুমে ঢোকেন (https://picallbd.web.app/call/<code>)।
+// Media is WebRTC peer-to-peer — STUN +
 // free shared TURN (OpenRelay, public test credentials, testing only; a paid
 // TURN is needed for production). When the backend is unreachable every
 // function here returns null and the call page shows a Bangla error —
@@ -96,8 +97,14 @@ export function connectCall(code: string, role: 'caller' | 'callee', name: strin
       default: break
     }
   }
-  ws.onclose = () => h.onClose?.()
+  ws.onclose = () => { clearInterval(beat); h.onClose?.() }
   ws.onerror = () => { /* onclose follows */ }
+  // হার্টবিট (২০ সেকেন্ড) — অপেক্ষার সময় সকেট নিষ্ক্রিয় থাকলে মোবাইল
+  // নেটওয়ার্ক/NAT সেটা কেটে দেয়; ছোট ping-এ সংযোগ জেগে থাকে। সার্ভার
+  // অচেনা type চুপচাপ ফেলে দেয় (roomId ছাড়া ping কোনো রুমে যায় না)।
+  const beat = setInterval(() => {
+    try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' })) } catch { /* ignore */ }
+  }, 20000)
   return ws
 }
 

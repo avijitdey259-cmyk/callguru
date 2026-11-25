@@ -39,6 +39,10 @@
 //       ('declined' | 'busy' | 'not-friend' | 'not-accepting').
 //     POST /api/call-invite/decline (service-worker Decline) -> the caller
 //       gets 'call-declined' {reason:'declined'}.
+//     POST /api/call-invite/push { toUid, inviteId, code, fromName } (new
+//       Firestore callInvites path, 2026-11-25) -> sends the lock-screen
+//       call push to the callee; {ok:true, pushed} (pushed:false when the
+//       callee has no push subscription for that uid, e.g. OTP logins).
 //   Media is WebRTC peer-to-peer — STUN + free shared TURN (OpenRelay,
 //   public test credentials, testing only; paid TURN needed for production).
 import express from 'express'
@@ -97,7 +101,7 @@ const experts = [
   { id: 'exp-4', name: 'Mehjabin Chowdhury', rate: 10, online: true }
 ]
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.1.0' }))
+app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.2.0' }))
 app.get('/api/experts', (_req, res) => res.json(experts))
 app.post('/api/topup', (req, res) => {
   const { amount, method } = req.body || {}
@@ -474,6 +478,23 @@ app.post('/api/call-invite/decline', (req, res) => {
     }
   }
   res.json({ ok: true })
+})
+
+// POST /api/call-invite/push { toUid, inviteId, code, fromName } — নতুন
+// Firestore কল ইনভাইটের পুশ (২০২৬-১১-২৫ রিবিল্ড)। কলকারী ইনভাইট ডক
+// লেখার পর একবার ডাকে; অ্যাপ বন্ধ থাকা গ্রহণকারীর কাছে পুশ যায়।
+// পুশ সাবস্ক্রিপশন Firebase uid দিয়ে বাঁধা — OTP/লোকাল ব্যবহারকারীর
+// (app uid = cg-…) কাছে মেলে না, তখন pushed:false ফেরে; অ্যাপ খোলা
+// গ্রহণকারী ইনভাইট ডক দেখতেই পায়। কখনো ইনভাইট বদলায় না।
+app.post('/api/call-invite/push', requireAuth, pushIpLimit, async (req, res) => {
+  const { toUid, inviteId, code, fromName } = req.body || {}
+  if (typeof toUid !== 'string' || !toUid || typeof inviteId !== 'string' || !inviteId
+    || typeof code !== 'string' || !/^[a-z0-9]{6}$/.test(code)
+    || typeof fromName !== 'string' || !fromName.trim() || fromName.length > 60) {
+    return res.status(400).json({ error: 'bad_payload' })
+  }
+  const pushed = await sendCallPush(toUid, { code, fromId: req.auth.uid, fromName: fromName.trim() })
+  res.json({ ok: true, pushed })
 })
 
 // ---------- Live rooms (in-memory; a restart clears them) ----------

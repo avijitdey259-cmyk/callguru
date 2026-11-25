@@ -1,10 +1,10 @@
 // PiCall call-failure reasons — one user calls another and the video call
 // does not go through: the caller must see EXACTLY why, in plain English,
 // on the call screen — never just "Could not connect to the server".
-// The reason travels back to the caller through signalling (server/index.js
-// relays the callee's decline-with-reason, and reports busy/offline itself),
-// so no new Firestore collection is needed. Pure module — no imports, fully
-// covered by tests/call-failure-reasons.test.mjs.
+// The reason travels back to the caller through the Firestore callInvites
+// doc status (src/callInvites.ts: declined/busy/not-friend/not-accepting),
+// plus the room WS for declines via the service-worker push action.
+// Pure module — no imports, fully covered by tests/call-failure-reasons.test.mjs.
 
 /** Every reason a 1-to-1 call can fail before connecting. */
 export type CallFailureReason =
@@ -69,35 +69,6 @@ export function gateReasonToFailureReason(gateReason: string): CallFailureReason
     case 'expired': return 'no-answer'
     default: return null
   }
-}
-
-/**
- * The server's call-invite-sent ack → the reason, if the invite never
- * reached the callee. delivered=true (or a lock-screen push went out) means
- * the callee may still answer — no failure yet.
- */
-export function inviteSentToFailureReason(
-  delivered: boolean,
-  pushed: boolean,
-  reason?: string | null,
-): CallFailureReason | null {
-  const r = parseFailureReason(reason)
-  if (r === 'busy') return 'busy'
-  if (r === 'offline') return 'offline'
-  if (!delivered && !pushed) return 'offline'
-  return null
-}
-
-/**
- * The callee's invite response → the reason. accepted=true is never a
- * failure. A decline with no reason attached is just "declined".
- */
-export function inviteResponseToFailureReason(
-  accepted: boolean,
-  reason?: string | null,
-): CallFailureReason | null {
-  if (accepted) return null
-  return parseFailureReason(reason) ?? 'declined'
 }
 
 /** A signalling error code from the call room → the reason the caller sees. */

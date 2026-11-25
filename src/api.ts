@@ -194,6 +194,22 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+// কল ইনভাইটের পুশ (গ্রহণকারীর অ্যাপ বন্ধ থাকলে): ইনভাইট ডক লেখার পর
+// একবার চেষ্টা — সার্ভার গ্রহণকারীর সাবস্ক্রিপশনে পুশ পাঠায়। ৫ সেকেন্ডে
+// না হলে ছেড়ে দেওয়া হয়; পুশ না গেলেও ইনভাইট ডক থাকে, অ্যাপ খোলা
+// গ্রহণকারী সেটা দেখতে পায়। কখনো throw করে না।
+export async function triggerCallInvitePush(input: { toUid: string; inviteId: string; code: string; fromName: string }): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/call-invite/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(5000),
+    })
+    return res.ok
+  } catch { return false }
+}
+
 export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {
   if (!API_BASE) return false
   const ctrl = new AbortController()

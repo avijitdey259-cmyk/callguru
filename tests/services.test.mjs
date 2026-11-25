@@ -200,7 +200,7 @@ check('pages.tsx: prepaid service call — auto-cut, no balance no call, own ser
   for (const s of ['Service not found', 'This is your own service', 'will cut itself when your Pi balance ends', 'Prepaid service call']) {
     assert.ok(pages.includes(s), `"${s}" নেই`)
   }
-  assert.ok(pages.includes("kind: 'service'"), 'service ইনভাইট kind নেই')
+  assert.ok(pages.includes("type === 'service' ? 'service'"), 'service ইনভাইট kind নেই')
 })
 
 check('firestore.ts: services + reviews functions exist', () => {

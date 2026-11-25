@@ -5,11 +5,13 @@
 // রিংটোন শেয়ার্ড সাউন্ড ইঞ্জিন দিয়ে বাজে (সেটিংস মেনে); ধরলে/কাটলে/
 // মেয়াদ শেষ হলে (৬০ সেকেন্ড) সঙ্গে সঙ্গে থামে। কল-চলা পেজে (/call/*,
 // /dating-live/*) ওভারলে ওঠে না — চলমান কলে রিং বাজে না।
+// ইনভাইট আসে Firestore callInvites ডক থেকে (২০২৬-১১-২৫ রিবিল্ড) —
+// পুরোনো presence-WebSocket পথ বাদ; কলকারী ডক লেখে, গ্রহণকারীর অ্যাপ
+// শোনে, ধরলে/কাটলে স্ট্যাটাস বদলায় আর কলকারী কারণ জানতে পারে।
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
 import { Avatar } from './avatar'
-import { connectPresence, disconnectPresence, sendInviteResponse } from './presence'
 import {
   INVITE_TTL_MS,
   idleOverlayState,
@@ -21,9 +23,10 @@ import {
   type CallInvite,
   type InviteOverlayState,
 } from './incomingCall'
+import { gateReasonToInviteStatus, inviteDocToCallInvite, type CallInviteDoc } from './callInvites'
+import { subscribeCallInviteDoc, subscribeIncomingCallInvites, updateCallInviteStatus } from './firestore'
 import { shouldPlayRingtone, startRingtone } from './sounds'
 import { colourForUid } from './newMembers'
-import { gateReasonToFailureReason } from './callFailure'
 
 /** এই পাথগুলোতে থাকলে ব্যবহারকারী কলে আছেন — নতুন ইনভাইটে ওভারলে নয়। */
 function isInCallPath(pathname: string): boolean {
@@ -85,6 +88,9 @@ export function IncomingCallHost() {
   const [overlay, setOverlay] = useState<InviteOverlayState>(idleOverlayState())
   const ringStopRef = useRef<(() => void) | null>(null)
   const expireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // এখন বাজতে থাকা ইনভাইট ডক — ধরো/কাটোতে এর স্ট্যাটাস বদলায়
+  const inviteDocRef = useRef<CallInviteDoc | null>(null)
+  const dismissUnsubRef = useRef<(() => void) | null>(null)
   // কলব্যাকের ভেতরে সবসময় তাজা মান — বন্ধু তালিকা/সেটিংস/পাথ বদলালেও ঠিক থাকে
   const liveRef = useRef({ friends, soundSettings, callPrivacy, blockedUids, pathname: loc.pathname })
   liveRef.current = { friends, soundSettings, callPrivacy, blockedUids, pathname: loc.pathname }
@@ -98,42 +104,58 @@ export function IncomingCallHost() {
   const clearOverlay = () => {
     stopRingtone()
     clearExpireTimer()
+    inviteDocRef.current = null
+    if (dismissUnsubRef.current) { dismissUnsubRef.current(); dismissUnsubRef.current = null }
     setOverlay(reduceInviteCleared)
   }
 
   // ইনভাইট এলে: গেটিং → ওভারলে + রিংটোন (৬০ সেকেন্ডের মধ্যে না ধরলে নিজে থেকে থামে)
   useEffect(() => {
-    const presenceId = uid ?? referralCode
-    if (!user || !presenceId) return
-    const conn = connectPresence(presenceId, user.name, {
-      onInvite: (invite) => {
-        const { friends: fr, soundSettings: ss, callPrivacy: cp, blockedUids: bl, pathname } = liveRef.current
-        const gate = shouldShowInvite(invite, {
-          privacy: cp,
-          isFriend: fr.some((f) => f.id === invite.fromId),
-          inCall: isInCallPath(pathname),
-          selfId: presenceId,
-          isBlocked: bl.includes(invite.fromId),
-        })
-        if (!gate.show) {
-          // ব্যস্ত/ব্লক/কল-প্রাইভেসি থাকলে কলকারীকে সঙ্গে সঙ্গে কারণসহ
-          // জানিয়ে দেওয়া — উনি "কল যাচ্ছে না কেন" না বুঝে অপেক্ষায় থাকেন না
-          if (gate.reason === 'in-call' || gate.reason === 'privacy-nobody' || gate.reason === 'privacy-friends' || gate.reason === 'blocked') {
-            sendInviteResponse(invite.fromId, invite.code, false, gateReasonToFailureReason(gate.reason) ?? undefined)
-          }
-          return
+    const myId = uid ?? referralCode
+    if (!user || !myId) return
+    const unsub = subscribeIncomingCallInvites(myId, (docs) => {
+      const doc = docs[0]
+      if (!doc) {
+        // বাজতে থাকা ইনভাইট মুছে গেছে (কলকারী কাটলেন/কল শেষ) — ওভারলে সরে
+        if (inviteDocRef.current) clearOverlay()
+        return
+      }
+      if (inviteDocRef.current?.id === doc.id) return // একই ইনভাইট আবার নয়
+      const invite = inviteDocToCallInvite(doc)
+      const { friends: fr, soundSettings: ss, callPrivacy: cp, blockedUids: bl, pathname } = liveRef.current
+      const gate = shouldShowInvite(invite, {
+        privacy: cp,
+        isFriend: fr.some((f) => f.id === invite.fromId),
+        inCall: isInCallPath(pathname),
+        selfId: myId,
+        isBlocked: bl.includes(invite.fromId),
+      })
+      if (!gate.show) {
+        // ব্যস্ত/ব্লক/কল-প্রাইভেসি থাকলে কলকারীকে সঙ্গে সঙ্গে কারণসহ
+        // জানিয়ে দেওয়া — উনি "কল যাচ্ছে না কেন" না বুঝে অপেক্ষায় থাকেন না
+        if (gate.reason === 'in-call' || gate.reason === 'privacy-nobody' || gate.reason === 'privacy-friends' || gate.reason === 'blocked') {
+          const status = gateReasonToInviteStatus(gate.reason)
+          if (status) void updateCallInviteStatus(doc.id, status)
         }
-        clearExpireTimer()
-        setOverlay((prev) => reduceInviteArrived(prev, invite))
-        if (shouldPlayRingtone(ss, false)) {
-          stopRingtone()
-          try { ringStopRef.current = startRingtone(ss) } catch { ringStopRef.current = null }
-        }
-        const remaining = Math.max(0, INVITE_TTL_MS - (Date.now() - invite.at))
-        expireTimerRef.current = setTimeout(() => { clearOverlay() }, remaining)
-      },
+        // মেয়াদোত্তীর্ণ হলে কিছু জানানো নয় — কলকারী ৬৫ সেকেন্ডে "No answer" দেখেন
+        return
+      }
+      inviteDocRef.current = doc
+      clearExpireTimer()
+      setOverlay((prev) => reduceInviteArrived(prev, invite))
+      if (shouldPlayRingtone(ss, false)) {
+        stopRingtone()
+        try { ringStopRef.current = startRingtone(ss) } catch { ringStopRef.current = null }
+      }
+      const remaining = Math.max(0, INVITE_TTL_MS - (Date.now() - invite.at))
+      expireTimerRef.current = setTimeout(() => { clearOverlay() }, remaining)
+      // ডক বদলালে/মুছলে (কলকারী কাটলেন, অন্য ডিভাইসে ধরলেন) ওভারলে সরে
+      if (dismissUnsubRef.current) dismissUnsubRef.current()
+      dismissUnsubRef.current = subscribeCallInviteDoc(doc.id, (d2) => {
+        if (!d2 || d2.status !== 'ringing') clearOverlay()
+      })
     })
-    return () => { conn?.close(); disconnectPresence(); clearOverlay() }
+    return () => { unsub?.(); clearOverlay() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, uid, referralCode])
 
@@ -148,7 +170,8 @@ export function IncomingCallHost() {
   const accept = () => {
     stopRingtone()
     clearExpireTimer()
-    sendInviteResponse(invite.fromId, invite.code, true)
+    const docId = inviteDocRef.current?.id
+    if (docId) void updateCallInviteStatus(docId, 'accepted')
     setOverlay((prev) => reduceInviteAnswered(prev))
     setOverlay(idleOverlayState())
     navigate(`/call/${invite.code}`)
@@ -156,9 +179,10 @@ export function IncomingCallHost() {
   const decline = () => {
     stopRingtone()
     clearExpireTimer()
-    sendInviteResponse(invite.fromId, invite.code, false, 'declined')
+    const docId = inviteDocRef.current?.id
+    if (docId) void updateCallInviteStatus(docId, 'declined')
     setOverlay((prev) => reduceInviteDeclined(prev))
     setOverlay(idleOverlayState())
   }
-  return <IncomingCallCard invite={invite} photo={friends.find(f => f.id === invite.fromId)?.photo} onAccept={accept} onDecline={decline} />
+  return <IncomingCallCard invite={invite} photo={friends.find(f => f.id === invite.fromId)?.photo ?? inviteDocRef.current?.fromPhoto} onAccept={accept} onDecline={decline} />
 }

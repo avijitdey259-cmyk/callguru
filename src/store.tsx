@@ -99,6 +99,11 @@ type Store = {
   isBanned: boolean
   setBannedUids: (list: string[]) => Promise<boolean>
   login: (name: string, email: string) => void
+  // OTP লগইন — শুধু user বসে; uid/fsState ছোঁয়া হয় না। OTP ব্যবহারকারীর
+  // Firebase সেশন নেই (বেনামি সেশন শুধু টোকেনের জন্য), তাই এই ডিভাইসে
+  // আগের কোনো লোকাল পরিচয় (uid) থাকলে সেটাই থাকে, না থাকলে uid null-ই
+  // থাকে আর পরিচয় referralCode হয়। বেনামি UID কখনো uid হয় না।
+  loginOtp: (name: string, email: string) => void
   logout: () => void
   freeFirstMinuteUsed: boolean
   markFreeMinuteUsed: () => void
@@ -1147,7 +1152,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setUid(u)
       if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }
     },
-    logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null },
+    // OTP লগইন: শুধু user বসে — uid/fsState ছোঁয়া হয় না (টাইপ দেখুন)।
+  // ডিভাইসের আগের লোকাল পরিচয় থাকলে সেটাই কলকারী-পরিচয় হয়।
+  loginOtp: (name, email) => {
+    setUser({ name, email })
+  },
+  logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null },
     // (ব্যাংক তাৎক্ষণিক টপ-আপ বাদ দেওয়া হয়েছে — মালিকের নির্দেশে ২০২৬-১১-২০; এখন সব টপ-আপ ম্যানুয়াল অনুমোদনের মাধ্যমে হয়, approveTopUp-এ Pi যোগ হয়)
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),

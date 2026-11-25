@@ -3,7 +3,7 @@
 // অনুমতি না থাকলে, প্রতিটি ফাংশন null/false ফেরায় — অ্যাপ তখন ঠিক আগের মতো
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction, type Firestore, type Unsubscribe } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction, type Firestore, type Unsubscribe } from 'firebase/firestore'
 import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc } from './numericUid'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import { roundPi } from './data'
@@ -19,6 +19,8 @@ export type { PiTransferDoc } from './piTransfer'
 export { ADMIN_UID } from './piTransfer'
 import { mapPaymentRequestDoc, type PaymentRequestDoc } from './paymentRequest'
 export type { PaymentRequestDoc, PaymentRequestStatus } from './paymentRequest'
+import { mapCallInviteDoc, type CallInviteDoc, type CallInviteStatus } from './callInvites'
+export type { CallInviteDoc, CallInviteStatus } from './callInvites'
 
 let db: Firestore | null = null
 
@@ -264,6 +266,85 @@ export function subscribeSentFriendRequests(uid: string, cb: (docs: FriendReques
       docs.sort((a, b) => b.createdAtMs - a.createdAtMs)
       cb(docs)
     }, () => { /* subscription failed — the sent state keeps its last value */ })
+  } catch { return null }
+}
+
+// ---------- callInvites — 1-to-1 কল ইনভাইট (Firestore-ভিত্তিক) ----------
+// পুরোনো presence-WebSocket ইনভাইট পথের বদলে (২০২৬-১১-২৫ রিবিল্ড): কলকারী
+// একটা ডক লেখে (ringing); গ্রহণকারীর অ্যাপ সাবস্ক্রাইব করে ওভারলে দেখায়;
+// ধরলে accepted, কাটলে/গেটে আটকালে কারণসহ স্ট্যাটাস বদলায়; কলকারী সেই
+// ডক শুনে কারণ জানতে পারে। কোনো presence সকেট নেই — শুধু Firestore auth
+// (Firebase সেশন; OTP লগইনে বেনামি সেশন)। মিডিয়া সিগন্যালিং আগের মতোই
+// Railway রুম-WS-এ চলে। কখনো throw করে না।
+
+// কল ইনভাইট লেখা — কলকারী (fromUid নিজের অ্যাপ-পরিচয়: Firebase uid বা
+// OTP/লোকাল ব্যবহারকারীর cg- referralCode)। ভুল আকৃতি হলে null — লেখা
+// হয় না, লিংক-পথ তখনো চলে।
+export async function createCallInvite(data: Omit<CallInviteDoc, 'id' | 'status' | 'createdAtMs'>): Promise<string | null> {
+  const d = getDb()
+  if (!d || !data.fromUid || !data.toUid || data.fromUid === data.toUid) return null
+  try {
+    const ref = await addDoc(collection(d, 'callInvites'), {
+      ...data,
+      status: 'ringing',
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp(),
+    })
+    return ref.id
+  } catch { return null }
+}
+
+// স্ট্যাটাস বদল — গ্রহণকারী accepted/declined/busy/not-friend/not-accepting,
+// কলকারী cancelled (নিয়মে বাঁধা); অন্য স্ট্যাটাস বা অন্য ক্ষেত্র বদলাতে
+// গেলে নিয়মে আটকায়, false ফেরে।
+export async function updateCallInviteStatus(id: string, status: CallInviteStatus): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id) return false
+  try {
+    await updateDoc(doc(d, 'callInvites', id), { status })
+    return true
+  } catch { return false }
+}
+
+// কল শেষে/বাতিলে ডক মোছা (কলকারীর পরিষ্কার) — না মুছলেও ক্ষতি নেই,
+// ringing-শুধু শোনা হয় বলে পুরোনো ডক আর কাউকে দেখায় না।
+export async function deleteCallInvite(id: string): Promise<boolean> {
+  const d = getDb()
+  if (!d || !id) return false
+  try {
+    await deleteDoc(doc(d, 'callInvites', id))
+    return true
+  } catch { return false }
+}
+
+// একটা ইনভাইট ডক শোনা — কলকারী নিজের লেখা ডকের স্ট্যাটাস দেখেন
+// (ধরলেন/কাটলেন/ব্যস্ত/বন্ধু নয়); ডক না থাকলে null আসে।
+export function subscribeCallInviteDoc(id: string, cb: (doc: CallInviteDoc | null) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !id) return null
+  try {
+    return onSnapshot(doc(d, 'callInvites', id), (snap) => {
+      cb(snap.exists() ? mapCallInviteDoc(snap.id, snap.data() as Record<string, unknown>) : null)
+    }, () => { /* subscription failed — the caller keeps waiting on the timer */ })
+  } catch { return null }
+}
+
+// আমার কাছে আসা বাজতে থাকা ইনভাইট (toUid == আমি, status ringing) — লাইভ
+// সাবস্ক্রিপশন; Firestore না থাকলে null (ওভারলে তখন ওঠে না, লিংক-পথই
+// থাকে)। স্ট্যাটাস এখানেই ছাঁকা হয় — toUid + status দুই where একসাথে
+// কম্পোজিট ইনডেক্স চায়, তাই শুধু toUid-তে শুনে ক্লায়েন্টে ছাঁকা হয়।
+export function subscribeIncomingCallInvites(uid: string, cb: (docs: CallInviteDoc[]) => void): Unsubscribe | null {
+  const d = getDb()
+  if (!d || !uid) return null
+  try {
+    const q = query(collection(d, 'callInvites'), where('toUid', '==', uid), limit(50))
+    return onSnapshot(q, (snap) => {
+      const docs = snap.docs
+        .map(s => mapCallInviteDoc(s.id, s.data() as Record<string, unknown>))
+        .filter((x): x is CallInviteDoc => x !== null && x.status === 'ringing')
+      docs.sort((a, b) => b.createdAtMs - a.createdAtMs)
+      cb(docs)
+    }, () => { /* subscription failed — the overlay stays down, the link path remains */ })
   } catch { return null }
 }
 

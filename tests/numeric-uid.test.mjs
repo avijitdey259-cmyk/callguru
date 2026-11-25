@@ -150,7 +150,7 @@ check('friendRequests — রিকোয়েস্ট ডকে UID যায
 })
 
 check('firestore.ts — কাউন্টার ট্রানজ্যাকশনে বরাদ্দ; ব্যাকফিল ক্রমানুসারে', () => {
-  assert.ok(firestoreSrc.includes("import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction"), 'runTransaction আমদানি নেই')
+  assert.ok(firestoreSrc.includes("import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction"), 'runTransaction আমদানি নেই')
   assert.ok(firestoreSrc.includes('export async function ensureNumericUid(uid: string)'), 'ensureNumericUid নেই')
   assert.ok(firestoreSrc.includes("doc(d, 'config', 'uidCounter')"), 'কাউন্টার ডক config/uidCounter নয়')
   assert.ok(firestoreSrc.includes('runTransaction(d, async (tx)'), 'বরাদ্দ ট্রানজ্যাকশনে নয়')

@@ -1,10 +1,11 @@
 // Email + password login — registration with a real email + password
 // (Firebase createUserWithEmailAndPassword, visible Sign up option),
-// returning login with email + password only (NO OTP), Google 1-click
-// login untouched. SMS OTP is OFF entirely (owner decision 2026-11-24):
-// no mobile tab on the login page, no SMS verification in Profile
-// Settings. Firebase Auth is mocked (in-memory accounts, no network,
-// no real SMS, no real keys). Run: node tests/password-auth.test.mjs
+// returning login with email + password, plus email-code (OTP) login
+// (owner order 2026-11-25 — calls must work on OTP login too), Google
+// 1-click login untouched. SMS OTP is OFF entirely (owner decision
+// 2026-11-24): no mobile tab on the login page, no SMS verification in
+// Profile Settings. Firebase Auth is mocked (in-memory accounts, no
+// network, no real SMS, no real keys). Run: node tests/password-auth.test.mjs
 import { build } from 'esbuild'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -128,14 +129,20 @@ await check('SMS / mobile tab is ABSENT from the login page', () => {
   }
 })
 
-await check('Google 1-click login stays at the bottom; Email Link + Email OTP are gone from the login page', () => {
+await check('Google 1-click login stays at the bottom; Email Link stays gone, Email OTP login is back (owner order 2026-11-25)', () => {
   assert.ok(login.includes('1-Click Login with Gmail'), 'Gmail লগইন নেই')
   assert.ok(login.includes('googleLogin') && login.includes('signInWithGoogle'), 'Google হ্যান্ডলার নেই')
-  // মালিকের সিদ্ধান্ত ২০২৬-১১-২৪: Email Link ও Email OTP লগইন পেজ থেকে গেছে
-  for (const s of ['sendLink', 'finishLinkWithEmail', 'completeEmailLink', 'sendEmailLink', 'sendOtp', 'verifyOtp', 'sendEmailOtp', 'verifyEmailOtp', 'Send Login Link by Email', 'Or log in with email OTP']) {
+  // Email Link এখনো লগইন পেজ থেকে সরানোই আছে
+  for (const s of ['sendLink', 'finishLinkWithEmail', 'completeEmailLink', 'sendEmailLink', 'Send Login Link by Email']) {
     assert.ok(!login.includes(s), `${s} এখনো আছে — লগইন পেজ থেকে সরানোর কথা`)
   }
-  assert.ok(login.includes('Email + Password • Gmail 1-Click Login'), 'সাবটাইটেল নতুন ক্রমে নেই')
+  // Email OTP লগইন ফিরেছে — পাসওয়ার্ডের পরে, Gmail-এর আগে
+  for (const s of ['Log in with email code', 'Send code', 'Verify & log in', 'sendOtpLoginCode', 'verifyOtpLogin', 'sendEmailOtp', 'verifyEmailOtp', 'loginOtp']) {
+    assert.ok(login.includes(s), `OTP লগইন নেই: '${s}'`)
+  }
+  assert.ok(login.indexOf('Log in with email code') > login.indexOf('Forgot password?'), 'OTP সেকশন পাসওয়ার্ড ফর্মের পরে নেই')
+  assert.ok(login.indexOf('Log in with email code') < login.indexOf('1-Click Login with Gmail'), 'OTP সেকশন Gmail-এর আগে নেই')
+  assert.ok(login.includes('Email + Password • Email Code • Gmail 1-Click Login'), 'সাবটাইটেল নতুন ক্রমে নেই')
 })
 
 await check('Profile Settings: recovery-mobile SMS verification is ABSENT, number field stays as plain storage', () => {
@@ -162,6 +169,7 @@ export const getAdditionalUserInfo = () => ({ isNewUser: true })
 export const sendSignInLinkToEmail = async () => {}
 export const signInWithEmailLink = async () => ({ user: { email: 'e@x.com', displayName: null } })
 export const isSignInWithEmailLink = () => false
+export const signInAnonymously = async (_auth) => { const user = { uid: 'anon-uid', isAnonymous: true, email: null }; __auth.currentUser = user; return { user } }
 export const onAuthStateChanged = () => () => {}
 export const updateProfile = async (user, { displayName }) => { user.displayName = displayName }
 export const createUserWithEmailAndPassword = async (_auth, email, password) => {

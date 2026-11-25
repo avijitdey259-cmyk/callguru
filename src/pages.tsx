@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import { useStore, type Friend } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, ADMIN_TIMEOUT_MS } from './api'
+import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, triggerCallInvitePush, ADMIN_TIMEOUT_MS } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
-import { sendCallInvite, onInviteResponse, onInviteSent } from './presence'
-import { callFailureMessage, inviteResponseToFailureReason, inviteSentToFailureReason, callErrorToFailureReason, parseFailureReason, closeWhileWaitingToFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
+import { callFailureMessage, callErrorToFailureReason, parseFailureReason, closeWhileWaitingToFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
+import { buildCallInvitePayload, callInviteStatusToFailureReason, isCallableInviteTarget } from './callInvites'
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { BUDDIES, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
 import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSend, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
@@ -29,10 +29,10 @@ import { PAYMENTS_ALL_DISABLED_MESSAGE, PI_DEPOSIT_DISABLED_MESSAGE, PAYMENT_MET
 import { computeTransfer } from './piTransfer'
 import { pendingIncomingCount, paymentRequestStatusLabel } from './paymentRequest'
 import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
-import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, PASSWORD_MIN_LENGTH } from './firebase'
+import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, ensureAnonymousSession, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, backfillNumericUids, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, backfillNumericUids, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc, createCallInvite, deleteCallInvite, subscribeCallInviteDoc } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
 import { probeChannels, sortChannelsByPlayability, getCachedProbe, clearProbeCache, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
@@ -273,7 +273,7 @@ export function Landing() {
 
 // ---------- Login ----------
 export function LoginPage() {
-  const { login, dark, toggleDark, adminSettings } = useStore()
+  const { login, loginOtp, dark, toggleDark, adminSettings } = useStore()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -293,6 +293,55 @@ export function LoginPage() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  // ইমেইল-কোড (OTP) লগইন — পাসওয়ার্ড ছাড়া, ৬ অঙ্কের কোড ইমেইলে আসে।
+  // কোড ঠিক হলে বেনামি Firebase সেশন (শুধু টোকেনের জন্য) + loginOtp —
+  // uid ছোঁয়া হয় না, ডিভাইসের আগের পরিচয়ই থাকে। SMTP না বসানো
+  // থাকলে সার্ভার not_configured ফেরে — সৎ বার্তা দেখানো হয়।
+  const [otpCode, setOtpCode] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpBusy, setOtpBusy] = useState(false)
+  const otpMessage = (error: string | null | undefined, sending: boolean): string => {
+    switch (error) {
+      case 'not_configured': return 'Email OTP is not on yet — the admin is setting it up.'
+      case 'expired': return 'The code has expired — send OTP again.'
+      case 'rate_limited':
+      case 'too_many_attempts': return 'Too many attempts — please try again in a little while.'
+      case 'invalid_code': return 'The code is wrong — check and enter it again.'
+      default: return sending ? 'Could not send the code — please try again.' : 'The code is wrong — check and enter it again.'
+    }
+  }
+  const sendOtpLoginCode = async () => {
+    const mail = email.trim().toLowerCase()
+    if (!mail.includes('@')) { setErrorMsg('Enter a valid email.'); return }
+    setOtpBusy(true); clearMsg()
+    try {
+      const r = await sendEmailOtp(mail)
+      if (!r) { setErrorMsg('Could not reach the server — check your connection and try again.'); return }
+      if (!r.ok) { setErrorMsg(otpMessage(r.error, true)); return }
+      setOtpSent(true)
+      setInfoMsg('Code sent to your email — enter the 6-digit code.')
+    } finally {
+      setOtpBusy(false)
+    }
+  }
+  const verifyOtpLogin = async () => {
+    const mail = email.trim().toLowerCase()
+    if (otpCode.length !== 6) { setErrorMsg('Enter the 6-digit code from your email.'); return }
+    setOtpBusy(true); clearMsg()
+    try {
+      const r = await verifyEmailOtp(mail, otpCode)
+      if (!r) { setErrorMsg('Could not reach the server — check your connection and try again.'); return }
+      if (!r.ok) { setErrorMsg(otpMessage(r.error, false)); return }
+      // টোকেনের জন্য বেনামি সেশন (সেরা চেষ্টা — না হলে লগইন তবু হয়,
+      // কল ইনভাইট তখন যাবে না, লিংক-পথ থাকে)।
+      await ensureAnonymousSession()
+      const otpName = mail.split('@')[0] || 'PiCall'
+      loginOtp(otpName, mail)
+      navigate('/feed')
+    } finally {
+      setOtpBusy(false)
+    }
+  }
   // সাইন-আপে দুই পাসওয়ার্ড অমিল — টাইপ করার সময়ই (দুটো ঘর ভরা থাকলে)
   // অথবা Create account চাপার পর; ট্যাব বদলে মুছে না।
   const passwordsMismatch = authMode === 'signup' && ((password.length > 0 && confirmPassword.length > 0 && password !== confirmPassword) || signupMismatch)
@@ -425,7 +474,7 @@ export function LoginPage() {
         </div>
         <Card className="mt-5 !p-5 sm:!p-6 !shadow-md">
           <h1 className="text-2xl font-bold text-center">Welcome to PiCall</h1>
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Email + Password • Gmail 1-Click Login</p>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-1">Email + Password • Email Code • Gmail 1-Click Login</p>
           <p className="text-xs text-center text-gray-400 mt-1">Email sign up only, mobile sign up is off for now.</p>
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 dark:bg-slate-800 p-1 mt-4" role="tablist" aria-label="Log in or create account">
           <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); clearMsg() }} className={`py-2 rounded-lg text-sm font-semibold ${authMode === 'login' ? 'bg-white dark:bg-slate-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>Log in</button>
@@ -447,6 +496,22 @@ export function LoginPage() {
             <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy} onClick={passwordLogin}>Log in</Btn>
             <p className="text-xs text-center text-gray-400 mt-2">No code needed — just the password you chose when you created your account.</p>
             <button type="button" className="w-full text-center text-sm text-fb-blue font-medium mt-3" disabled={busy} onClick={sendPasswordReset}>Forgot password?</button>
+            <div className="my-4 border-t border-gray-100 dark:border-white/10" />
+            <p className="text-sm font-semibold text-center flex items-center justify-center gap-2"><IconMail className="w-4 h-4 text-violet-500" />Log in with email code</p>
+            <p className="text-xs text-center text-gray-400 mt-1">No password needed — a 6-digit code is sent to your email.</p>
+            {!otpSent ? (
+              <Btn className="w-full mt-3 !py-3 !rounded-xl" disabled={busy || otpBusy} onClick={sendOtpLoginCode}>Send code</Btn>
+            ) : (
+              <>
+                <label className="text-sm font-medium mt-3 block">6-digit code</label>
+                <div className="relative mt-1">
+                  <IconLock className={inputIconCls} />
+                  <input className={inputCls + ' pl-10'} value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))} placeholder="123456" inputMode="numeric" maxLength={6} />
+                </div>
+                <Btn className="w-full mt-4 !py-3 !rounded-xl" disabled={busy || otpBusy} onClick={verifyOtpLogin}>Verify & log in</Btn>
+                <button type="button" className="w-full text-center text-sm text-fb-blue font-medium mt-3" disabled={busy || otpBusy} onClick={sendOtpLoginCode}>Send the code again</button>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -1343,9 +1408,17 @@ export function CallPage() {
     }, NO_ANSWER_TIMEOUT_MS)
   }
   // পেজ ছাড়লে উত্তর-অপেক্ষার টাইমারও থামে — আনমাউন্টের পর setState নয়
-  useEffect(() => () => clearNoAnswerTimer(), [])
+  useEffect(() => () => { clearNoAnswerTimer(); clearCallInvite() }, [])
+  // Firestore কল ইনভাইট — এই কলের ইনভাইট ডক + তার সাবস্ক্রিপশন; কল
+  // শেষে/বাতিলে ডক মোছা হয় (গ্রহণকারীর ওভারলেও সরে যায়)।
+  const inviteDocRef = useRef<string | null>(null)
+  const inviteUnsubRef = useRef<(() => void) | null>(null)
+  function clearCallInvite() {
+    if (inviteUnsubRef.current) { inviteUnsubRef.current(); inviteUnsubRef.current = null }
+    if (inviteDocRef.current) { const id = inviteDocRef.current; inviteDocRef.current = null; void deleteCallInvite(id) }
+  }
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned, profilePhoto, numericUid } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -1702,32 +1775,6 @@ export function CallPage() {
     if (!ws) showCallFailure('server')
   }
 
-  // গ্রহণকারী কলটি কাটলে / গেটে আটকালে কলকারীকে কারণসহ জানানো —
-  // অপেক্ষার স্ক্রিনেই ঠিক কারণটা দেখাবে (বন্ধু নয়/ব্যস্ত/কাটা)
-  useEffect(() => {
-    const off = onInviteResponse((res) => {
-      if (res.code === callCodeRef.current && !endedRef.current) {
-        const reason = inviteResponseToFailureReason(res.accepted, res.reason)
-        if (reason) showCallFailure(reason)
-      }
-    })
-    return off
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // ইনভাইট পৌঁছাল কি না — অফলাইন/ব্যস্ত হলে সঙ্গে সঙ্গে কারণ দেখানো;
-  // পৌঁছালে (বা পুশ গেলে) উত্তর-অপেক্ষার টাইমার চলতে থাকে
-  useEffect(() => {
-    const off = onInviteSent((res) => {
-      if (!callCodeRef.current || endedRef.current || connectedRef.current) return
-      const reason = inviteSentToFailureReason(res.delivered, res.pushed, res.reason)
-      if (reason) showCallFailure(reason)
-      else if (res.delivered || res.pushed) armNoAnswerTimer()
-    })
-    return off
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
   async function startCall() {
     if (!canStart) return
@@ -1761,22 +1808,44 @@ export function CallPage() {
     setStarted(true)
     ensurePc()
     joinCallRoom(code, 'caller')
-    // বন্ধুর কল: বন্ধু অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল ওভারলে যাবে
-    // (presence ইনভাইট); না পৌঁছালেও শেয়ার লিংক আগের মতোই কাজ করে।
-    // ইনভাইটের উত্তর না এলে ৬৫ সেকেন্ডে "No answer" দেখাবে (টাইমার)।
-    if (type === 'friend') {
-      const target = friends.find((f) => f.name === name)
-      if (target) {
-        sendCallInvite(target.id, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'friend' })
+    // নতুন ইনভাইট পথ (Firestore callInvites): কলকারী একটা ringing ডক
+    // লেখে — গ্রহণকারীর অ্যাপ সেটা শুনে ওভারলে দেখায়; ধরলে/কাটলে/
+    // গেটে আটকালে স্ট্যাটাস বদলায় আর এই ডকের সাবস্ক্রিপশনে কারণ এসে
+    // পৌঁছায়। presence সকেট নেই, টোকেন-গেটেড ইনভাইট পথ নেই। ডেটিং
+    // কলেও এখন ইনভাইট যায় (আগে যেত না)। না লিখতে পারলে (Firestore
+    // নেই/অফলাইন) শেয়ার লিংক আগের মতোই কাজ করে। ইনভাইটের উত্তর না
+    // এলে ৬৫ সেকেন্ডে "No answer" দেখাবে (টাইমার)।
+    if (type === 'friend' || type === 'service' || isDating) {
+      const inviteTarget = type === 'friend'
+        ? friends.find((f) => f.name === name)?.id
+        : type === 'service' ? service?.providerUid
+        : id
+      if (inviteTarget && isCallableInviteTarget(inviteTarget)) {
+        const payload = buildCallInvitePayload({
+          fromUid: uid ?? referralCode,
+          toUid: inviteTarget,
+          fromName: (user?.name || '').trim() || 'You',
+          fromColour: colourForUid(uid ?? referralCode),
+          fromPhoto: profilePhoto || undefined,
+          fromNumericUid: numericUid ?? undefined,
+          kind: type === 'service' ? 'service' : isDating ? 'dating' : 'friend',
+          code,
+        })
+        if (payload) {
+          createCallInvite(payload).then((inviteId) => {
+            if (!inviteId || endedRef.current) return
+            inviteDocRef.current = inviteId
+            void triggerCallInvitePush({ toUid: inviteTarget, inviteId, code, fromName: (user?.name || '').trim() || 'You' })
+            const unsub = subscribeCallInviteDoc(inviteId, (doc) => {
+              if (!doc) return
+              const reason = callInviteStatusToFailureReason(doc.status)
+              if (reason) showCallFailure(reason)
+              // accepted: ধরেছেন — পিয়ার জয়েনের অপেক্ষায় থাকি
+            })
+            if (unsub) inviteUnsubRef.current = unsub
+          })
+        }
       }
-      armNoAnswerTimer()
-    }
-    // সার্ভিস কল: প্রোভাইডার অনলাইনে থাকলে তার হোম পেজে ইনকামিং-কল
-    // ওভারলে যাবে (presence ইনভাইট, kind 'service'); না পৌঁছালে শেয়ার
-    // লিংক আগের মতোই কাজ করে। প্রোভাইডারের কল-প্রাইভেসি 'friends' হলে
-    // অপরিচিত কলকারীর ইনভাইট ওভারলেতে উঠবে না — তখন লিংকই পথ।
-    if (type === 'service' && service) {
-      sendCallInvite(service.providerUid, { code, fromId: uid ?? referralCode, fromName: user?.name || 'You', kind: 'service' })
       armNoAnswerTimer()
     }
   }
@@ -1820,6 +1889,7 @@ export function CallPage() {
     if (endedRef.current) return
     endedRef.current = true
     clearNoAnswerTimer()
+    clearCallInvite()
     closeCallResources()
     setEnded(true); setEndReason(reason || 'Call ended')
     // লিংক-কলে গ্রহণকারী দেন না — খরচ ০, ফ্রি মিনিটও খরচ হয় না; কলকারী আগের মতোই দেবেন

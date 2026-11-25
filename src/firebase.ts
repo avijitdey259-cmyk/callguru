@@ -7,6 +7,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, getAdditionalUserInfo,
   sendSignInLinkToEmail, signInWithEmailLink, isSignInWithEmailLink,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile,
+  signInAnonymously,
   onAuthStateChanged, type Auth, type User,
 } from 'firebase/auth'
 
@@ -43,6 +44,25 @@ export function getFirebaseApp(): FirebaseApp | null {
   return app
 }
 
+// ---------- বেনামি সেশন (শুধু টোকেনের জন্য — OTP লগইন) ----------
+// OTP-তে যাচাই করা ইমেইল দিয়ে লগইন করা ব্যবহারকারীর Firebase সেশন নেই —
+// Firestore লেখা/পড়া (কল ইনভাইট, বন্ধু রিকোয়েস্ট) আর সুরক্ষিত API-তে
+// টোকেন লাগে। এই ফাংশন বেনামি সাইন-ইন করে শুধু টোকেন দেয়: পরিচয় নয়।
+// আগে থেকে কোনো সেশন (Google/পাসওয়ার্ড/ইমেইল-লিংক) থাকলে সেটাই থাকে,
+// কিছু বদলায় না। Anonymous প্রোভাইডার কনসোলে চালু না থাকলে false ফেরে
+// (কখনো throw করে না) — তখন OTP লগইন লোকালই থাকে, কল ইনভাইট যাবে না।
+// বেনামি UID কখনো অ্যাপ-পরিচয় হয় না: onFirebaseAuthUser-এর গার্ড
+// (store.tsx) বেনামি ব্যবহারকারীর UID বসায় না, Firestore সিঙ্কও চালায় না।
+export async function ensureAnonymousSession(): Promise<boolean> {
+  const a = getFirebaseAuth()
+  if (!a) return false
+  try {
+    if (a.currentUser) return true
+    await signInAnonymously(a)
+    return true
+  } catch { return false }
+}
+
 // এখন লগইন করা Firebase ব্যবহারকারীর UID (users/{uid} ডকের চাবি)।
 // লগইন না থাকলে, বা Firebase সেটআপ না থাকলে, বা OTP লগইনে (Firebase সেশন নেই) null।
 export function getCurrentUid(): string | null {
@@ -50,8 +70,9 @@ export function getCurrentUid(): string | null {
 }
 
 // এখন লগইন করা Firebase ব্যবহারকারীর ID token — সুরক্ষিত API রুট
-// (অ্যাডমিন সেটিংস, লাইভ রুম, পুশ সাবস্ক্রিপশন) + WebSocket presence-এ
-// Authorization হিসেবে পাঠানো হয়। লগইন না থাকলে null। টোকেন কখনো লগ হয় না।
+// (অ্যাডমিন সেটিংস, লাইভ রুম, পুশ সাবস্ক্রিপশন, কল-ইনভাইট পুশ) +
+// কল রুম-WS-এ Authorization হিসেবে পাঠানো হয়। লগইন না থাকলে null।
+// টোকেন কখনো লগ হয় না।
 export async function getIdToken(forceRefresh = false): Promise<string | null> {
   try {
     const u = getFirebaseAuth()?.currentUser
