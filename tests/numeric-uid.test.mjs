@@ -163,7 +163,8 @@ check('firestore.ts — কাউন্টার ট্রানজ্যাক�
 
 check('store — লগইনে বরাদ্দ/ব্যাকফিল, প্রোফাইল + users ডকে লেখা হয়', () => {
   assert.ok(storeSrc.includes('ensureNumericUid'), 'store-এ ensureNumericUid আমদানি/ব্যবহার নেই')
-  assert.ok(storeSrc.includes('const myNumericUid = await ensureNumericUid(uid)'), 'লগইন সিঙ্কে বরাদ্দ নেই')
+  assert.ok(storeSrc.includes('let myNumericUid = await ensureNumericUid(uid)'), 'লগইন সিঙ্কে বরাদ্দ নেই')
+  assert.ok(storeSrc.includes('if (myNumericUid === null && !cancelled) {'), 'বরাদ্দ ব্যর্থ হলে সাথে সাথে আবার চেষ্টা হয় না')
   assert.ok(storeSrc.includes('numericUid: number | null'), 'store-এ numericUid অবস্থা নেই')
   assert.ok(storeSrc.includes("useEffect(() => save('numericUid', numericUid), [numericUid])"), 'numericUid স্থানীয়ভাবে সংরক্ষণ হয় না')
   assert.ok(storeSrc.includes('numericUid,'), 'collectSnapshot-এ numericUid নেই')

@@ -912,7 +912,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // বরাদ্দ (১০০০০১ থেকে); ব্যর্থ হলে null — পরের লগইনে আবার চেষ্টা হয়।
         // ব্যর্থ হলেও state শূন্য করা হয় — আগের ব্যবহারকারীর নম্বর যেন এই
         // অ্যাকাউন্টে না লাগে (write-through sync-এ ডুপ্লিকেট উঠত)।
-        const myNumericUid = await ensureNumericUid(uid)
+        // ক্ষণিক ব্যর্থতা (নেটওয়ার্ক/টোকেন-দেরি) হলে একবার সাথে সাথেও
+        // চেষ্টা হয় — নইলে নতুন ব্যবহারকারী UID ছাড়াই থেকে যায়।
+        let myNumericUid = await ensureNumericUid(uid)
+        if (myNumericUid === null && !cancelled) {
+          await new Promise(r => setTimeout(r, 2000))
+          if (cancelled) return
+          myNumericUid = await ensureNumericUid(uid)
+        }
         setNumericUidState(myNumericUid)
         if (cancelled) return
         // রেফারেল কোড — ডকে থাকলে ডকেরটাই (কখনো বদলায় না); না থাকলে

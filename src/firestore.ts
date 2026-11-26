@@ -4,7 +4,7 @@
 // localStorage-এই চলে (অফলাইন ক্যাশ / graceful degradation)। কোনো ফাংশন throw করে না।
 // NID/সেলফি/ভিডিও এখানে কখনো লেখা হয় না — ম্যাপিংটাই (firestoreMapping.ts) সেগুলো বাদ দেয়।
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, addDoc, onSnapshot, deleteField, increment, arrayUnion, arrayRemove, runTransaction, type Firestore, type Unsubscribe } from 'firebase/firestore'
-import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc } from './numericUid'
+import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc, assignNumericUidTx } from './numericUid'
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import { roundPi } from './data'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
@@ -160,10 +160,16 @@ export async function writePublicProfile(uid: string, displayName: string, refer
 }
 
 // সংখ্যার UID বরাদ্দ — publicProfiles/{uid}-এ আগে থেকে বৈধ UID থাকলে
-// সেটাই ফেরে (আর বদলায় না); না থাকলে config/uidCounter ট্রানজ্যাকশনে
-// পরের নম্বর নিয়ে বসানো হয় — একই মুহূর্তে দুজন সাইন আপ করলেও একই নম্বর
-// পায় না (ট্রানজ্যাকশন দ্বন্দ্বে আবার চেষ্টা করে)। ব্যর্থ হলে null —
-// তখন UID ছাড়াই চলতে থাকে, পরের লগইনে আবার চেষ্টা হয়। কখনো throw করে না।
+// সেটাই ফেরে (আর বদলায় না); না থাকলে users/{uid}-এ আগের বরাদ্দ আছে কি
+// না দেখা হয় — প্রোফাইলে লেখা ব্যর্থ হলে users ডকে নম্বর থেকে যেতে
+// পারে, তখন কাউন্টার থেকে নতুন না নিয়ে সেটাই নেওয়া হয় (নম্বরটা অন্য
+// কারো প্রোফাইলে থাকলে নেওয়া হয় না — লিক হওয়া নম্বর ছড়ায় না)।
+// দুটোতেই না থাকলে config/uidCounter ট্রানজ্যাকশনে পরের নম্বর নিয়ে
+// বসানো হয় — একই মুহূর্তে দুজন সাইন আপ করলেও একই নম্বর পায় না
+// (ট্রানজ্যাকশন দ্বন্দ্বে আবার চেষ্টা করে)। ব্যর্থ হলে null — তখন UID
+// ছাড়াই চলতে থাকে, পরের লগইনে আবার চেষ্টা হয় (store-এ একবার
+// সাথে সাথেও চেষ্টা হয়)। ব্যর্থতা console.warn-এ দেখা যায় — চুপচাপ
+// হারায় না। কখনো throw করে না।
 // ⚠️ নিয়ম publish না হওয়া পর্যন্ত (config/uidCounter) কাউন্টার লেখা
 // যাবে না — firestore.rules-এ কাউন্টার ম্যাচ publish করতে হয়।
 export async function ensureNumericUid(uid: string): Promise<number | null> {
@@ -174,25 +180,27 @@ export async function ensureNumericUid(uid: string): Promise<number | null> {
     const snap = await getDoc(ref)
     const existing = snap.exists() ? numericUidFromDoc((snap.data() as Record<string, unknown>).numericUid) : undefined
     if (existing !== undefined) return existing
+    // users/{uid}-এ আগের বরাদ্দ — প্রোফাইলে লেখা ব্যর্থ হলে সেখানেই
+    // নম্বর থেকে যেতে পারে; তখন নতুন নম্বর না নিয়ে সেটাই নেওয়া হয়।
+    // প্রোফাইল না থাকলে এখানে বানানো হয় না — খালি {numericUid} ডকে
+    // createdAt থাকে না; নম্বরটা কলার (writePublicProfile) লিখে দেয়।
+    const userSnap = await getDoc(doc(d, 'users', uid))
+    const userUid = userSnap.exists() ? numericUidFromDoc((userSnap.data() as Record<string, unknown>).numericUid) : undefined
+    if (userUid !== undefined) {
+      const takenBy = await findUserByNumericUid(userUid)
+      if (!takenBy || takenBy.uid === uid) {
+        if (snap.exists()) await setDoc(ref, { numericUid: userUid }, { merge: true })
+        return userUid
+      }
+      // নম্বরটা অন্য কারো প্রোফাইলে — নিচে কাউন্টার থেকে নতুন নেওয়া হয়।
+    }
     const counterRef = doc(d, 'config', 'uidCounter')
-    const assigned = await runTransaction(d, async (tx) => {
-      const cSnap = await tx.get(counterRef)
-      const last = cSnap.exists() && typeof (cSnap.data() as Record<string, unknown>).next === 'number'
-        ? (cSnap.data() as Record<string, unknown>).next as number
-        : UID_COUNTER_START
-      const next = nextNumericUid(last)
-      if (next === null) throw new Error('Numeric UIDs exhausted')
-      tx.set(counterRef, { next })
-      // প্রোফাইল ডক না থাকলে এখানে বানানো হয় না — খালি {numericUid} ডক
-      // হলে writePublicProfile create-শাখা নেয় না, createdAt ছাড়া ডক
-      // তৈরি হয় আর খোঁজা/নতুন সদস্যে চিরকাল অদৃশ্য থাকে (2026-11-25)।
-      // প্রোফাইল লেখে writePublicProfile (লগইন সিঙ্কে এর পরেই চলে)।
-      const pSnap = await tx.get(ref)
-      if (pSnap.exists()) tx.set(ref, { numericUid: next }, { merge: true })
-      return next
-    })
+    const assigned = await runTransaction(d, async (tx) => assignNumericUidTx(tx, counterRef, ref))
     return assigned
-  } catch { return null }
+  } catch (err) {
+    console.warn('[numericUid] assignment failed for', uid, err)
+    return null
+  }
 }
 
 // অ্যাডমিনের ব্যাকফিল — UID নেই এমন ব্যবহারকারীদের যোগদানের ক্রমে

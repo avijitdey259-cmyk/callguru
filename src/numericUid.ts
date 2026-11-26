@@ -36,6 +36,34 @@ export function normalizeUidQuery(q: string): string {
   return q.replace(/\D/g, '')
 }
 
+// কাউন্টার ট্রানজ্যাকশনের ধাপ — Firestore-এ ট্রানজ্যাকশনে সব পড়া
+// লেখার আগে করতে হয় ("Firestore transactions require all reads to be
+// executed before all writes" — লেখার পর tx.get করলে SDK-ই throw করে)।
+// 2026-11-26 রিগ্রেশন: 0c71c004-এ প্রোফাইল-অস্তিত্ব যাচাই tx.set-এর পরে
+// বসেছিল বলে প্রতিটি বরাদ্দ ব্যর্থ হতো, কাউন্টার বাড়ত না, নতুন
+// ব্যবহারকারীর numericUid থাকত না (console: next 100006-এ আটকে)।
+// তাই পড়া দুটোই (কাউন্টার + প্রোফাইল) আগে, লেখা পরে। প্রোফাইল না
+// থাকলে এখানে বানানো হয় না — খালি {numericUid} ডকে createdAt থাকে না,
+// খোঁজা/নতুন সদস্যে চিরকাল অদৃশ্য থাকে (2026-11-25); প্রোফাইল লেখে
+// writePublicProfile (লগইন সিঙ্কে এর পরেই চলে)।
+export type NumericUidTxSnap = { exists: () => boolean; data: () => Record<string, unknown> }
+export type NumericUidTx = {
+  get: (ref: unknown) => Promise<NumericUidTxSnap>
+  set: (ref: unknown, data: Record<string, unknown>, opts?: { merge?: boolean }) => void
+}
+export async function assignNumericUidTx(tx: NumericUidTx, counterRef: unknown, profileRef: unknown): Promise<number> {
+  const cSnap = await tx.get(counterRef)
+  const pSnap = await tx.get(profileRef)
+  const last = cSnap.exists() && typeof cSnap.data().next === 'number'
+    ? (cSnap.data().next as number)
+    : UID_COUNTER_START
+  const next = nextNumericUid(last)
+  if (next === null) throw new Error('Numeric UIDs exhausted')
+  tx.set(counterRef, { next })
+  if (pSnap.exists()) tx.set(profileRef, { numericUid: next }, { merge: true })
+  return next
+}
+
 // UID দিয়ে খোঁজা — সংখ্যার অংশ মিললেই হয় (100 লিখলে 100001-ও মেলে)
 export function uidQueryMatches(numericUid: number | undefined, query: string): boolean {
   const digits = normalizeUidQuery(query)

@@ -41,6 +41,7 @@ const NM = await import(join(outDir, 'newMembers.js'))
 const FS = await import(join(outDir, 'friendSearch.js'))
 
 const firestoreSrc = readFileSync(join(root, 'src/firestore.ts'), 'utf8')
+const numericUidSrc = readFileSync(join(root, 'src/numericUid.ts'), 'utf8')
 const storeSrc = readFileSync(join(root, 'src/store.tsx'), 'utf8')
 const rulesSrc = readFileSync(join(root, 'firestore.rules'), 'utf8')
 
@@ -115,10 +116,13 @@ check('ensureNumericUid আর খালি {numericUid} ডক বানায�
   // আগে ট্রানজ্যাকশনেই tx.set(ref, { numericUid }, { merge: true }) হতো —
   // ডক না থাকলে খালি ডক তৈরি হতো, writePublicProfile create-শাখা নিত না,
   // createdAt চিরকাল বসত না। এখন ডক থাকলেই শুধু UID merge হয়।
-  assert.ok(firestoreSrc.includes('const pSnap = await tx.get(ref)'), 'ট্রানজ্যাকশনে প্রোফাইল ডক পড়া হয় না')
-  assert.ok(firestoreSrc.includes('if (pSnap.exists()) tx.set(ref, { numericUid: next }, { merge: true })'), 'UID merge ডক-থাকা শর্তে বাঁধা নয়')
+  // 2026-11-26: ট্রানজ্যাকশন ধাপ assignNumericUidTx-এ গেছে — পড়া সব
+  // লেখার আগে (লেখার পর tx.get করলে SDK throw করে, বরাদ্দ ব্যর্থ হতো)।
+  assert.ok(numericUidSrc.includes('const pSnap = await tx.get(profileRef)'), 'ট্রানজ্যাকশনে প্রোফাইল ডক পড়া হয় না')
+  assert.ok(numericUidSrc.includes('if (pSnap.exists()) tx.set(profileRef, { numericUid: next }, { merge: true })'), 'UID merge ডক-থাকা শর্তে বাঁধা নয়')
   assert.ok(!firestoreSrc.includes('tx.set(counterRef, { next })\n      tx.set(ref, { numericUid: next }, { merge: true })'), 'খালি ডক বানানো পুরোনো লাইন এখনো আছে')
-  assert.ok(firestoreSrc.includes("tx.set(counterRef, { next })"), 'কাউন্টার লেখা নেই')
+  assert.ok(numericUidSrc.includes('tx.set(counterRef, { next })'), 'কাউন্টার লেখা নেই')
+  assert.ok(firestoreSrc.includes('assignNumericUidTx(tx, counterRef, ref)'), 'ensureNumericUid হেলপার ব্যবহার করে না')
 })
 
 check('writeUserDoc প্রথমবার createdAt লেখে, পরের লেখায় আগেরটা রাখে', () => {
@@ -128,7 +132,7 @@ check('writeUserDoc প্রথমবার createdAt লেখে, পরে�
 })
 
 check('লগইন সিঙ্ক — ensureNumericUid আগে, writePublicProfile পরে', () => {
-  const syncStart = storeSrc.indexOf('const myNumericUid = await ensureNumericUid(uid)')
+  const syncStart = storeSrc.indexOf('let myNumericUid = await ensureNumericUid(uid)')
   assert.ok(syncStart >= 0, 'লগইন সিঙ্কে ensureNumericUid নেই')
   const writeAfter = storeSrc.indexOf('await writePublicProfile(uid, user.name, myReferralCode, profileExtra)', syncStart)
   assert.ok(writeAfter > syncStart, 'writePublicProfile বরাদ্দের পরে নয়')
