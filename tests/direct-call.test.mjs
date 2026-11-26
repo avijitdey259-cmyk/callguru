@@ -210,11 +210,11 @@ try {
   const up = await waitForHealth()
   assert.ok(up, `টেস্ট সার্ভার চালু হয়নি: ${serverErr.slice(0, 500)}`)
 
-  await checkAsync('live: GET /api/health — version 6.3.0', async () => {
+  await checkAsync('live: GET /api/health — version 6.4.0', async () => {
     const r = await fetch(`${BASE}/api/health`)
     assert.equal(r.status, 200)
     const body = await r.json()
-    assert.equal(body.version, '6.3.0')
+    assert.equal(body.version, '6.4.0')
   })
 
   await checkAsync('live: যাচাই-করা টোকেনে call-join → call-joined (আসল রিগ্রেশন: আসল টোকেনে আগে unauthorized আসত)', async () => {

@@ -34,7 +34,7 @@ export function TopBar() {
         <div className="hidden md:block w-60 shrink-0"><HeaderSearch /></div>
         <div className="hidden md:flex flex-1 justify-center gap-1">
           {CENTER_NAV.map(n => (
-            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}><n.icon className="w-5 h-5" /> {n.label}</NavLink>
+            <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `relative flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'pb-gradient text-white shadow-sm' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'}`}><n.icon className="w-5 h-5" /> {n.label}{n.to === '/friends' && pendingCount > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}</NavLink>
           ))}
         </div>
         <div className="flex-1 md:hidden" />
@@ -60,14 +60,18 @@ export function TopBar() {
 // বেগুনি পিল, আইকনের নিচে নাম, টাচ টার্গেট ৫৪px। কম্পিউটারে দেখায় না।
 // (কম্পিউটারের মাঝের নেভে গ্রেডিয়েন্ট পিলই থাকে — সেটা Style 6-এর চিহ্ন।)
 export function BottomNav() {
+  // ঝুলে থাকা বন্ধু-অনুরোধের ব্যাজ — Friends আইকনে সোনালি সংখ্যা; রিকোয়েস্ট
+  // এলেই লাইভ সাবস্ক্রিপশনে সংখ্যা ওঠে, গ্রহণ/বাতিলে মিলিয়ে যায়।
+  const { requests } = useStore()
+  const pendingCount = requests.length
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#211a30] border-t border-[#e7e0f2] dark:border-[#372b52] shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
       <div className="flex px-2 py-2">
         {CENTER_NAV.map(n => (
-          <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `flex flex-1 flex-col items-center gap-[3px] py-[5px] text-[11.5px] font-semibold rounded-[14px] min-h-[54px] ${isActive ? 'text-pi-purple dark:text-[#a78bfa]' : 'text-gray-500 dark:text-gray-400'}`}>
+          <NavLink key={n.to} to={n.to} title={n.label} className={({ isActive }) => `relative flex flex-1 flex-col items-center gap-[3px] py-[5px] text-[11.5px] font-semibold rounded-[14px] min-h-[54px] ${isActive ? 'text-pi-purple dark:text-[#a78bfa]' : 'text-gray-500 dark:text-gray-400'}`}>
             {({ isActive }) => (
               <>
-                <span className={`w-[46px] h-[30px] rounded-full grid place-items-center ${isActive ? 'bg-[#f1ecf9] dark:bg-[#2b2142]' : ''}`}><n.icon className="w-[23px] h-[23px]" /></span>
+                <span className={`relative w-[46px] h-[30px] rounded-full grid place-items-center ${isActive ? 'bg-[#f1ecf9] dark:bg-[#2b2142]' : ''}`}><n.icon className="w-[23px] h-[23px]" />{n.to === '/friends' && pendingCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}</span>
                 {n.label}
               </>
             )}
@@ -79,7 +83,8 @@ export function BottomNav() {
 }
 
 export function Sidebar() {
-  const { user, isAdmin, profilePhoto } = useStore()
+  const { user, isAdmin, profilePhoto, requests } = useStore()
+  const pendingCount = requests.length
   const links = [
     { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
     { to: '/dating', label: 'Dating 18+', icon: IconDating }, { to: '/live-tv', label: 'Live TV', icon: IconLiveTV },
@@ -99,7 +104,7 @@ export function Sidebar() {
           {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
-          <NavLink key={l.to} to={l.to} className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}><l.icon className="w-5 h-5 shrink-0" />{l.label}</NavLink>
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => `relative flex items-center gap-2.5 px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}><l.icon className="w-5 h-5 shrink-0" />{l.label}{l.to === '/friends' && pendingCount > 0 && <span className="absolute right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}</NavLink>
         ))}
         <div className="mt-4 p-3 bg-violet-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
           <b className="text-fb-blue">First call's first 1 minute free</b><br />Only for the first user / first friend. Not 2 minutes free.

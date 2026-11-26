@@ -43,6 +43,11 @@
 //       Firestore callInvites path, 2026-11-25) -> sends the lock-screen
 //       call push to the callee; {ok:true, pushed} (pushed:false when the
 //       callee has no push subscription for that uid, e.g. OTP logins).
+//     POST /api/friend-request/push { toUid, requestId, fromName } (new,
+//       2026-11-26) -> sends the "sent you a friend request" push to the
+//       receiver; {ok:true, pushed} (pushed:false when the receiver has
+//       no push subscription for that uid, e.g. OTP logins — the in-app
+//       badge is the fallback then).
 //   Media is WebRTC peer-to-peer — STUN + free shared TURN (OpenRelay,
 //   public test credentials, testing only; paid TURN needed for production).
 import express from 'express'
@@ -101,7 +106,7 @@ const experts = [
   { id: 'exp-4', name: 'Mehjabin Chowdhury', rate: 10, online: true }
 ]
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.3.0' }))
+app.get('/api/health', (_req, res) => res.json({ ok: true, app: 'callguru', version: '6.4.0' }))
 app.get('/api/experts', (_req, res) => res.json(experts))
 app.post('/api/topup', (req, res) => {
   const { amount, method } = req.body || {}
@@ -449,6 +454,30 @@ async function sendCallPush(userId, invite) {
   }
 }
 
+/** বন্ধু রিকোয়েস্টের পুশ — প্রাপকের অ্যাপ বন্ধ/লক থাকলেও নোটিফিকেশন
+ * যায় (\"<নাম> sent you a friend request\", ট্যাপে /friends)। tag-এ
+ * requestId থাকে, তাই একই রিকোয়েস্টের নোটিফিকেশন ডুপ্লিকেট হয় না —
+ * ব্রাউজার একই tag বদলে দেয়। সাবস্ক্রিপশন না থাকলে (OTP লগইন)
+ * false — তখন ইন-অ্যাপ ব্যাজই ভরসা। */
+async function sendFriendRequestPush(userId, req) {
+  const sub = pushSubscriptions.get(userId)
+  if (!sub) return false
+  const wp = await getWebPush()
+  if (!wp) return false
+  const payload = JSON.stringify({
+    title: `👥 ${req.fromName} sent you a friend request`,
+    body: 'Tap to view — accept or decline in Friends',
+    tag: `picall-friend-request-${req.requestId}`,
+    data: { requestId: req.requestId, fromId: req.fromId, fromName: req.fromName, kind: 'friend-request', url: '/friends' },
+    actions: [{ action: 'view', title: '👀 View' }, { action: 'dismiss', title: 'Later' }],
+  })
+  try { await wp.sendNotification(sub, payload); return true }
+  catch (e) {
+    if (e && (e.statusCode === 404 || e.statusCode === 410)) pushSubscriptions.delete(userId)
+    return false
+  }
+}
+
 app.get('/api/push/vapid-public-key', (_req, res) => {
   const pub = process.env.VAPID_PUBLIC_KEY || ''
   if (!pub) return res.json({ configured: false })
@@ -494,6 +523,24 @@ app.post('/api/call-invite/push', requireAuth, pushIpLimit, async (req, res) => 
     return res.status(400).json({ error: 'bad_payload' })
   }
   const pushed = await sendCallPush(toUid, { code, fromId: req.auth.uid, fromName: fromName.trim() })
+  res.json({ ok: true, pushed })
+})
+
+// POST /api/friend-request/push { toUid, requestId, fromName } — বন্ধু
+// রিকোয়েস্টের পুশ (২০২৬-১১-২৬): প্রেরক রিকোয়েস্ট ডক লেখার পর একবার
+// ডাকে; অ্যাপ বন্ধ থাকা প্রাপকের কাছে \"sent you a friend request\"
+// পুশ যায় (ট্যাপে /friends)। পুশ সাবস্ক্রিপশন Firebase uid দিয়ে বাঁধা
+// — OTP/লোকাল প্রাপকের কাছে মেলে না, তখন pushed:false ফেরে; অ্যাপ
+// খোলা প্রাপক ইন-অ্যাপ ব্যাজেই রিকোয়েস্ট দেখতে পায়। ব্লক করা প্রাপককে
+// রিকোয়েস্টই পাঠানো যায় না (ক্লায়েন্টে canSendFriendRequest 'blocked'
+// ফেরে), তাই এখানে আলাদা ব্লক-যাচাই লাগে না। কখনো রিকোয়েস্ট বদলায় না।
+app.post('/api/friend-request/push', requireAuth, pushIpLimit, async (req, res) => {
+  const { toUid, requestId, fromName } = req.body || {}
+  if (typeof toUid !== 'string' || !toUid || typeof requestId !== 'string' || !requestId
+    || typeof fromName !== 'string' || !fromName.trim() || fromName.length > 60) {
+    return res.status(400).json({ error: 'bad_payload' })
+  }
+  const pushed = await sendFriendRequestPush(toUid, { requestId, fromId: req.auth.uid, fromName: fromName.trim() })
   res.json({ ok: true, pushed })
 })
 

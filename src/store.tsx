@@ -8,6 +8,7 @@ import { identityMatchesSync } from './syncGuard'
 import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
 import { validatePaymentRequest, canPayRequest, canDeclineRequest, canCancelRequest, type PaymentRequestDoc } from './paymentRequest'
 import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry, mergeAcceptedFriends, addUnfriendedUid, removeUnfriendedUid } from './friendRequests'
+import { triggerFriendRequestPush } from './friendRequestNotify'
 import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
@@ -1339,6 +1340,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // প্রাপক আবার বন্ধু তালিকায় উঠবে।
         clearUnfriended(f.id)
         setSentRequests(prev => prev.some(s => s.toUid === f.id) ? prev : [...prev, { toUid: f.id, requestId }])
+        // প্রাপককে জানানো (বেস্ট এফর্ট — পুশ না গেলেও রিকোয়েস্ট ডক থাকে,
+        // অ্যাপ খোলা প্রাপক ব্যাজেই দেখতে পায়): অ্যাপ বন্ধ থাকলে লক-স্ক্রিন
+        // পুশ, ট্যাপে /friends। পারসোনা/লোকাল/OTP পথে এখানে আসা যায় না —
+        // ওগুলো createFriendRequest-এর আগেই ফিরে যায়।
+        void triggerFriendRequestPush({ toUid: f.id, requestId, fromName: (user?.name || '').trim() || 'User' })
         return true
       } finally {
         sendInFlightRef.current.delete(f.id)

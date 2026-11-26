@@ -162,8 +162,8 @@ check('server: call-invite-response-এ কারণ রিলে হয় (all
 check('server: সার্ভিস-ওয়ার্কার Decline-এ call-declined-এ reason declined', () => {
   assert.ok(serverSrc.includes("type: 'call-declined', roomId: `call-${code}`, reason: 'declined'"))
 })
-check('server: health version 6.3.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
-  assert.ok(serverSrc.includes("version: '6.3.0'"))
+check('server: health version 6.4.0 (Railway আপডেট যাচাইয়ের চিহ্ন)', () => {
+  assert.ok(serverSrc.includes("version: '6.4.0'"))
 })
 check('overlay: গেটে আটকালে কারণসহ স্ট্যাটাস লেখে; Decline-এ declined', () => {
   assert.ok(overlaySrc.includes('gateReasonToInviteStatus(gate.reason)'))
@@ -265,11 +265,11 @@ try {
   const up = await waitForHealth()
   assert.ok(up, `টেস্ট সার্ভার চালু হয়নি: ${serverErr.slice(0, 500)}`)
 
-  await checkAsync('live: GET /api/health — version 6.3.0', async () => {
+  await checkAsync('live: GET /api/health — version 6.4.0', async () => {
     const r = await fetch(`${BASE}/api/health`)
     assert.equal(r.status, 200)
     const body = await r.json()
-    assert.equal(body.version, '6.3.0')
+    assert.equal(body.version, '6.4.0')
   })
 
   const alice = wsClient()

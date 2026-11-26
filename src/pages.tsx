@@ -2726,6 +2726,23 @@ export function FriendsPage() {
         </div>
         <p className="text-xs text-gray-400 mt-1">Type a name to search by name, an ID to search by ID — all real users.</p>
       </Card>
+      {/* বন্ধু রিকোয়েস্টের কার্ড সবসময় দেখায় — খুঁজতে থাকলেও (আগে খোঁজা
+          চললে এই কার্ডটাই লুকিয়ে যেত, তাই আসা রিকোয়েস্ট চোখে পড়ত না)।
+          রিকোয়েস্ট থাকলে কার্ডটা চোখে পড়ার মতো — বেগুনি বর্ডার + ব্যাজ। */}
+      <Card className={requests.length > 0 ? 'border-2 border-[#7C3AED] bg-[#f5f0ff] dark:bg-[#2b2142]' : ''}>
+        <h2 className="font-bold flex items-center gap-2">🔔 Friend Requests ({requests.length}){requests.length > 0 && <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-pi-gold text-white text-xs font-bold flex items-center justify-center">{requests.length > 9 ? '9+' : requests.length}</span>}</h2>
+        {requests.length > 0 && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">New request — accept to become friends, then you can chat and call directly.</p>}
+        {requests.length === 0 && <p className="text-sm text-gray-500 mt-1">No new requests.</p>}
+        {reqError && <p className="text-sm text-red-600 mt-1">{reqError}</p>}
+        {requests.map(r => (
+          <div key={r.requestId ?? r.id} className="flex items-center gap-3 py-2">
+            <Avatar photo={r.photo} name={r.name} color={r.color} className="w-10 h-10" />
+            <span className="flex-1 min-w-0"><span className="font-medium block truncate">{r.name}</span>{r.numericUid !== undefined && <span className="block text-xs text-gray-400">ID: {r.numericUid}</span>}</span>
+            <Btn onClick={() => handleAccept(r)}>Accept</Btn>
+            <Btn variant="ghost" onClick={() => handleDecline(r)}>Decline</Btn>
+          </div>
+        ))}
+      </Card>
       {searching ? (
         <Card>
           <h2 className="font-bold flex items-center gap-2"><IconSearch className="w-5 h-5" /> {results.length} people found</h2>
@@ -2744,19 +2761,6 @@ export function FriendsPage() {
         </Card>
       ) : (
         <>
-      <Card>
-        <h2 className="font-bold">Friend Requests ({requests.length})</h2>
-        {requests.length === 0 && <p className="text-sm text-gray-500 mt-1">No new requests.</p>}
-        {reqError && <p className="text-sm text-red-600 mt-1">{reqError}</p>}
-        {requests.map(r => (
-          <div key={r.requestId ?? r.id} className="flex items-center gap-3 py-2">
-            <Avatar photo={r.photo} name={r.name} color={r.color} className="w-10 h-10" />
-            <span className="flex-1 min-w-0"><span className="font-medium block truncate">{r.name}</span>{r.numericUid !== undefined && <span className="block text-xs text-gray-400">ID: {r.numericUid}</span>}</span>
-            <Btn onClick={() => handleAccept(r)}>Accept</Btn>
-            <Btn variant="ghost" onClick={() => handleDecline(r)}>Decline</Btn>
-          </div>
-        ))}
-      </Card>
       <Card>
         <h2 className="font-bold">My Friends ({friends.length}) — Chat free, calls prepaid π 0.1/minute</h2>
         {friends.length === 0 && <p className="text-sm text-gray-500 mt-1">No friends yet — find and add friends.</p>}

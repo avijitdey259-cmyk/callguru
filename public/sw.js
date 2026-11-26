@@ -56,18 +56,22 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
-// ---------- Web Push: ইনকামিং কল ----------
+// ---------- Web Push: ইনকামিং কল + বন্ধু রিকোয়েস্ট ----------
 // সার্ভার (server/index.js) এই আকৃতির পেলোড পাঠায়:
-//   { title, body, tag, data: { code, fromId, fromName, url: '/call/<code>' },
+//   কল: { title, body, tag, data: { code, fromId, fromName, url: '/call/<code>' },
 //     actions: [{ action: 'answer', title: '📞 Answer' }, { action: 'decline', title: '❌ Decline' }] }
+//   বন্ধু রিকোয়েস্ট: { title, body, tag, data: { requestId, fromId, fromName,
+//     kind: 'friend-request', url: '/friends' },
+//     actions: [{ action: 'view', title: '👀 View' }, { action: 'dismiss', title: 'Later' }] }
 self.addEventListener('push', (event) => {
   let payload = null
   try { payload = event.data ? event.data.json() : null } catch { payload = null }
   if (!payload || !payload.data || typeof payload.data.url !== 'string') return
-  const title = typeof payload.title === 'string' ? payload.title : '📞 Incoming PiCall'
+  const isFriendRequest = payload.data.kind === 'friend-request'
+  const title = typeof payload.title === 'string' ? payload.title : (isFriendRequest ? '👥 New friend request' : '📞 Incoming PiCall')
   const options = {
-    body: typeof payload.body === 'string' ? payload.body : 'Tap to answer — PiCall video call',
-    tag: typeof payload.tag === 'string' ? payload.tag : 'picall-call',
+    body: typeof payload.body === 'string' ? payload.body : (isFriendRequest ? 'Tap to view — accept or decline in Friends' : 'Tap to answer — PiCall video call'),
+    tag: typeof payload.tag === 'string' ? payload.tag : (isFriendRequest ? 'picall-friend-request' : 'picall-call'),
     data: payload.data,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
@@ -81,6 +85,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
   const code = typeof data.code === 'string' ? data.code : ''
+  // Dismiss (বন্ধু রিকোয়েস্টের Later): শুধু নোটিফিকেশন বন্ধ, কিছু পাঠানো হয় না
+  if (event.action === 'dismiss') return
   // Decline: শুধু নোটিফিকেশন বন্ধ + কলারকে জানানো (বেস্ট এফর্ট — সার্ভার না পেলে শুধু বন্ধ)
   // SW ফায়ারবেস হোস্টিং থেকে চলে, API রেলওয়েতে — তাই পুরো URL (api.ts-এর ডিফল্টের মতোই)
   if (event.action === 'decline') {
@@ -95,8 +101,9 @@ self.addEventListener('notificationclick', (event) => {
     }
     return
   }
-  // Answer (বা নোটিফিকেশনের গায়ে ট্যাপ): অ্যাপ খুলে সরাসরি কলে ঢোকা
-  const url = typeof data.url === 'string' && data.url.startsWith('/call/') ? data.url : '/feed'
+  // Answer / View (বা নোটিফিকেশনের গায়ে ট্যাপ): অ্যাপ খুলে সরাসরি সেখানে
+  // ঢোকা — কল হলে /call/<code>, বন্ধু রিকোয়েস্ট হলে /friends।
+  const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/feed'
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
