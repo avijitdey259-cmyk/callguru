@@ -5,7 +5,7 @@ import { useStore, type CallRecord, type Friend } from './store'
 import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, triggerCallInvitePush, triggerMessagePush, ADMIN_TIMEOUT_MS } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
-import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
+import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, sendCallSignal } from './call'
 import { callFailureMessage, callErrorToFailureReason, parseFailureReason, closeWhileWaitingToFailureReason, NO_ANSWER_TIMEOUT_MS, type CallFailureReason } from './callFailure'
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { buildCallInvitePayload, callInviteStatusToFailureReason, isCallableInviteTarget } from './callInvites'
@@ -1420,7 +1420,6 @@ export function CallPage() {
   const [callError, setCallError] = useState('')
   const [linkInfo, setLinkInfo] = useState<{ callerName: string } | null>(null)
   const [linkState, setLinkState] = useState<'loading' | 'ready' | 'not-found'>(isLinkCall ? 'loading' : 'ready')
-  const [copied, setCopied] = useState(false)
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const callCodeRef = useRef<string | null>(linkCode || null)
@@ -2033,12 +2032,6 @@ export function CallPage() {
     joinCallRoom(linkCode, 'callee')
   }
 
-  async function copyCallLink() {
-    if (!callCode) return
-    const res = await shareLink('PiCall Video Call', `${name} is calling you on PiCall — open the link to answer`, callLink(callCode))
-    if (res === 'copied' || res === 'shared') setCopied(true)
-  }
-
   function toggleMute() {
     const next = !muted
     setMuted(next)
@@ -2177,7 +2170,7 @@ export function CallPage() {
         <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
           <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
             <h1 className="text-xl font-bold">Call not found</h1>
-            <p className="text-sm text-gray-300 mt-2">The link may be wrong, or the call may have ended. Ask the caller to send the link again.</p>
+            <p className="text-sm text-gray-300 mt-2">The call may have ended. Ask the caller to call again.</p>
             <div className="flex gap-2 mt-5 justify-center">
               <Btn variant="green" onClick={loadLinkInfo}>↻ Try Again</Btn>
               <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/feed')}>Back to Feed</Btn>
@@ -2202,7 +2195,7 @@ export function CallPage() {
     )
   }
 
-  // কল শুরু হয়েছে কিন্তু পিয়ার এখনো সংযুক্ত হননি — অপেক্ষার পর্দা (লিংকসহ)
+  // কল শুরু হয়েছে কিন্তু পিয়ার এখনো সংযুক্ত হননি — অপেক্ষার পর্দা
   if (started && !connected && !ended) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
@@ -2215,15 +2208,8 @@ export function CallPage() {
           {pushDelivered === false && !callError && !isLinkCall && (
             <p className="text-xs text-amber-300 mt-2">Couldn't reach them by notification — their app may be closed or notifications off. The call will ring when they open the app.</p>
           )}
-          {!isLinkCall && callCode && (
-            <div className="mt-4 text-left">
-              <p className="text-sm text-gray-300">Call link — send it to the person you are calling, the call will connect as soon as they open the link:</p>
-              <p className="text-sm mt-2 break-all bg-slate-700 rounded-lg px-3 py-2">{callLink(callCode)}</p>
-              <div className="flex gap-2 mt-3">
-                <Btn className="flex-1" onClick={copyCallLink}>{copied ? '✅ Copied!' : '🔗 Copy Link'}</Btn>
-              </div>
-              <p className="text-xs text-gray-400 mt-2">No money will be cut while waiting — the timer and billing start only after connecting.</p>
-            </div>
+          {!isLinkCall && (
+            <p className="text-xs text-gray-400 mt-4">No money will be cut while waiting — the timer and billing start only after connecting.</p>
           )}
           <button onClick={() => hangUp('Call cancelled')} className="mt-5 px-6 py-2 rounded-full bg-red-600 text-white font-bold">❌ Reject</button>
         </Card>
@@ -2284,7 +2270,6 @@ export function CallPage() {
             <p className="text-xs text-gray-400 mt-1">You can switch cameras with the 🔄 button below even during a call.</p>
           </div>
           {!canStart && <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">⚠️ You cannot call without a Pi balance. Prepaid calls — buy Pi first.</p>}
-          <p className="text-xs text-gray-400 mt-3">Once the call starts you will get a link — send it to the person you are calling, the call will connect as soon as they open the link.</p>
           <div className="flex gap-2 mt-5">
             <Btn variant="green" className="flex-1" disabled={!canStart} onClick={startCall}>▶️ Start Call</Btn>
             <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/wallet')}>Buy Pi</Btn>
