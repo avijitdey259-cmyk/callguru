@@ -98,7 +98,7 @@ check('loginOtp — শুধু user বসে; uid/fsState ছোঁয়া 
 })
 
 check('বেনামি গার্ড — onFirebaseAuthUser বেনামি UID বসায় না', () => {
-  assert.ok(storeSrc.includes('if (fbUser && !fbUser.isAnonymous && userRef.current) setUid('), 'বেনামি গার্ড নেই')
+  assert.ok(storeSrc.includes('if (!fbUser || fbUser.isAnonymous || !userRef.current) return'), 'বেনামি গার্ড নেই')
   assert.ok(!storeSrc.includes('if (fbUser && userRef.current) setUid('), 'গার্ড ছাড়া পুরোনো লাইন এখনো আছে')
 })
 

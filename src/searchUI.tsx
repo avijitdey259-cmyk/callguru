@@ -8,7 +8,7 @@
 // পুরো ফলের পেজ (/search) খোলে, খালি বাক্সে ফোকাস করলে সাম্প্রতিক খোঁজা আসে।
 // মানুষের ফলে ট্যাপ করলে তার প্রোফাইল খোলে (কোয়েরি বসে না) — raw Firebase
 // uid কোথাও দেখানো হয় না, শুধু referralCode থাকলে সেটাই ID হিসেবে দেখায়।
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from './store'
 import { Avatar } from './avatar'
@@ -32,22 +32,37 @@ export function useDebouncedValue(value: string, delayMs: number): string {
 }
 
 // সব আসল ব্যবহারকারীসহ খোঁজা — লোকাল (বন্ধু + People You May Know + ৫ পারসোনা)
-// + Firestore publicProfiles। টাইপ শুরু করলেই publicProfiles একবার আনে; না পেলে
-// (নিয়ম/নেটওয়ার্ক নেই) লোকাল তালিকাতেই খোঁজা চলে — কখনো ক্র্যাশ করে না, ভুয়া
-// কাউকে দেখায় না। নিজেকে কখনো দেখায় না। সাজেশন সর্বোচ্চ ৮টি।
+// + Firestore publicProfiles। টাইপ শুরু করলেই publicProfiles আনা হয় —
+// একবার আনা তালিকা আর তাজা করা হতো না, তাই পরে রেজিস্টার করা ব্যবহারকারী
+// খোঁজায় আসত না (২০২৬-১১-২৫: নতুন C/D "0 people found")। এখন প্রতি
+// খোঁজায় আবার আনা হয় (৩০ সেকেন্ডের ক্যাশে); অ্যাকাউন্ট বদলালে তালিকা
+// শূন্য করে নতুন করে আনা হয়। না পেলে (নিয়ম/নেটওয়ার্ক নেই) লোকাল
+// তালিকাতেই খোঁজা চলে — কখনো ক্র্যাশ করে না, ভুয়া কাউকে দেখায় না।
+// নিজেকে কখনো দেখায় না। সাজেশন সর্বোচ্চ ৮টি।
 export function useAllUserSearch(
   friends: { id: string; name: string; color: string; online: boolean }[],
   query: string,
 ) {
   const { uid } = useStore()
   const [allUsers, setAllUsers] = useState<NewMember[] | null>(null)
+  const fetchedAtRef = useRef(0)
+  const fetchedUidRef = useRef<string | null>(null)
   const debounced = useDebouncedValue(query, 250)
+  // অ্যাকাউন্ট বদলালে আগের অ্যাকাউন্টের তালিকা ফেলে দেওয়া হয় — নইলে
+  // নতুন অ্যাকাউন্টের খোঁজায় পুরোনো তালিকা দেখাত।
   useEffect(() => {
-    if (!debounced.trim() || allUsers !== null) return
+    setAllUsers(null)
+    fetchedAtRef.current = 0
+    fetchedUidRef.current = null
+  }, [uid])
+  useEffect(() => {
+    if (!debounced.trim()) return
+    const now = Date.now()
+    if (allUsers !== null && fetchedUidRef.current === uid && now - fetchedAtRef.current < 30000) return
     let cancelled = false
-    fetchAllPublicProfiles(100).then(list => { if (!cancelled) setAllUsers(list) })
+    fetchAllPublicProfiles(100).then(list => { if (!cancelled) { setAllUsers(list); fetchedAtRef.current = Date.now(); fetchedUidRef.current = uid } })
     return () => { cancelled = true }
-  }, [debounced, allUsers])
+  }, [debounced, allUsers, uid])
   const local = useMemo(() => buildSearchablePeople(friends, FRIEND_SUGGESTIONS, BUDDIES), [friends])
   const searchable = useMemo(() => mergeAllUsers(local, allUsers ?? [], uid), [local, allUsers, uid])
   const results = useMemo(() => searchPeople(searchable, query), [searchable, query])

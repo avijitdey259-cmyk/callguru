@@ -98,6 +98,20 @@ export function filterNewMembers(members: NewMember[], selfUid: string | null): 
   return members.filter(m => m.id !== selfUid)
 }
 
+// একই ব্যবহারকারী দুবার নয় — uid দিয়ে ডুপ্লিকেট বাদ (নাম দিয়ে নয়:
+// দুজন আলাদা মানুষের একই নাম হতে পারে, তাঁরা দুজনেই দেখাবেন। ২০২৬-১১-২৫:
+// দূষিত প্রোফাইলে "Susmita" নাম দুটো ডকে থাকায় নতুন সদস্যে সুস্মিতা দুবার এসেছিল।)
+export function dedupeMembers(members: NewMember[]): NewMember[] {
+  const seen = new Set<string>()
+  const out: NewMember[] = []
+  for (const m of members) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    out.push(m)
+  }
+  return out
+}
+
 // অ্যাডমিন Users তালিকার খোঁজা — নাম, সংখ্যার UID বা referral code দিয়ে (case-insensitive)।
 // ফাঁকা খোঁজায় পুরো তালিকাই ফেরে। Pure — পেজ/ফায়ারবেস ছাড়া পরীক্ষা করা যায়।
 export function filterAdminUsers(members: NewMember[], query: string): NewMember[] {

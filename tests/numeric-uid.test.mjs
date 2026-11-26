@@ -99,7 +99,9 @@ check('UID দিয়ে খোঁজা — সংখ্যার অংশ �
 check('friendSearch — নামের পাশাপাশি UID দিয়েও খোঁজা মেলে', () => {
   const p = { id: 'u1', name: 'Avijit Dey', referralCode: 'cg-x1', numericUid: 100001 }
   assert.ok(FS.personMatches(p, '100001'))
-  assert.ok(FS.personMatches(p, '100'))
+  // ২০২৬-১১-২৫: শুধু সংখ্যা লিখলে হুবহু মিলতে হবে — আংশিক "100" দিয়ে
+  // 100001 মিলত বলে "100005" খুঁজে সুস্মিতা (100001) এসেছিল। পুরো UID-ই লিখতে হয়।
+  assert.ok(!FS.personMatches(p, '100'))
   assert.ok(FS.personMatches(p, 'avijit'))
   assert.ok(!FS.personMatches(p, '100002'))
   assert.ok(!FS.personMatches({ id: 'u2', name: 'Rima' }, '100'))

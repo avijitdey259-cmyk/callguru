@@ -8,7 +8,7 @@ import { UID_COUNTER_START, isValidNumericUid, nextNumericUid, numericUidFromDoc
 import { getFirebaseApp, isFirebaseConfigured } from './firebase'
 import { roundPi } from './data'
 import type { PublicConfigDoc, TopUpDoc, UserDoc } from './firestoreMapping'
-import { colourForUid, mapPublicProfile, toCreatedAtMs, type NewMember } from './newMembers'
+import { colourForUid, dedupeMembers, mapPublicProfile, toCreatedAtMs, type NewMember } from './newMembers'
 import { mapAdDoc, type UserAd } from './ads'
 import { mapGroupDoc, mapGroupPostDoc, mapPageDoc, mapPagePostDoc, type GroupItem, type GroupPost, type PageItem, type PagePost } from './groups'
 import { mapReviewDoc, mapServiceDoc, type ServiceListing, type ServiceReview } from './services'
@@ -33,14 +33,24 @@ export function getDb(): Firestore | null {
 }
 
 // ---------- users/{uid} ----------
-export async function fetchUserDoc(uid: string): Promise<(UserDoc & Record<string, unknown>) | null> {
+// users/{uid} পড়া — 'found' / 'missing' / 'error' আলাদা। 'error' (নিয়ম/
+// নেটওয়ার্ক/টোকেন-দেরি) কে 'missing' ধরে ডক আবার লেখা যাবে না —
+// ২০২৬-১১-২৫ রাতে সাইন-ইনে প্রোমা/সুস্মিতার ডক এভাবেই আবার লেখা হয়ে
+// createdAt বদলে গিয়েছিল। fetchUserDoc আগের মতো ডেটা বা null-ই ফেরায়।
+export type UserDocReadResult = { status: 'found' | 'missing' | 'error'; data: (UserDoc & Record<string, unknown>) | null }
+export async function fetchUserDocResult(uid: string): Promise<UserDocReadResult> {
   const d = getDb()
-  if (!d) return null
+  if (!d) return { status: 'error', data: null }
   try {
     const snap = await getDoc(doc(d, 'users', uid))
-    if (!snap.exists()) return null
-    return snap.data() as UserDoc & Record<string, unknown>
-  } catch { return null }
+    if (!snap.exists()) return { status: 'missing', data: null }
+    return { status: 'found', data: snap.data() as UserDoc & Record<string, unknown> }
+  } catch { return { status: 'error', data: null } }
+}
+
+export async function fetchUserDoc(uid: string): Promise<(UserDoc & Record<string, unknown>) | null> {
+  const r = await fetchUserDocResult(uid)
+  return r.status === 'found' ? r.data : null
 }
 
 export async function writeUserDoc(uid: string, data: UserDoc): Promise<boolean> {
@@ -48,10 +58,22 @@ export async function writeUserDoc(uid: string, data: UserDoc): Promise<boolean>
   if (!d) return false
   try {
     const ref = doc(d, 'users', uid)
-    const snap = await getDoc(ref)
-    const existing = snap.exists() ? (snap.data() as Record<string, unknown>) : null
     // createdAt শুধু প্রথমবার বসে — পরের লেখায় আগের যোগদানের সময়ই
     // থাকে; না থাকলে (পুরোনো ডক) এখনই ব্যাকফিল হয় (2026-11-25)।
+    // পড়া ব্যর্থ হলে (নিয়ম/নেটওয়ার্ক) createdAt নতুন করে বসিয়ে ডক
+    // উড়িয়ে দেওয়া যাবে না — merge-এ লেখা হয়, আগের createdAt থাকলে
+    // সেটাই থাকে; ডক না থাকলে createdAt ছাড়াই তৈরি হয়, পরের সিঙ্কে ব্যাকফিল হয়।
+    let existing: Record<string, unknown> | null = null
+    let readOk = false
+    try {
+      const snap = await getDoc(ref)
+      readOk = true
+      existing = snap.exists() ? (snap.data() as Record<string, unknown>) : null
+    } catch { readOk = false }
+    if (!readOk) {
+      await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true })
+      return true
+    }
     const createdAt = existing && toCreatedAtMs(existing.createdAt) != null
       ? existing.createdAt as ReturnType<typeof serverTimestamp>
       : serverTimestamp()
@@ -506,7 +528,7 @@ export async function fetchNewMembers(limitN = 10): Promise<NewMember[]> {
   if (!d) return []
   try {
     const snap = await getDocs(query(collection(d, 'publicProfiles'), orderBy('createdAt', 'desc'), limit(limitN)))
-    return snap.docs.map(s => mapPublicProfile(s.id, s.data() as Record<string, unknown>))
+    return dedupeMembers(snap.docs.map(s => mapPublicProfile(s.id, s.data() as Record<string, unknown>)))
   } catch { return [] }
 }
 
@@ -519,7 +541,7 @@ export async function fetchAllPublicProfiles(limitN = 100): Promise<NewMember[]>
   if (!d) return []
   try {
     const snap = await getDocs(query(collection(d, 'publicProfiles'), orderBy('createdAt', 'desc'), limit(limitN)))
-    return snap.docs.map(s => mapPublicProfile(s.id, s.data() as Record<string, unknown>))
+    return dedupeMembers(snap.docs.map(s => mapPublicProfile(s.id, s.data() as Record<string, unknown>)))
   } catch { return [] }
 }
 

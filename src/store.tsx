@@ -2,8 +2,9 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT, type Post } from './data'
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
-import { getCurrentUid, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
+import { getCurrentUid, getCurrentAuthIdentity, onFirebaseAuthUser } from './firebase'
+import { fetchUserDoc, fetchUserDocResult, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
+import { identityMatchesSync } from './syncGuard'
 import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
 import { validatePaymentRequest, canPayRequest, canDeclineRequest, canCancelRequest, type PaymentRequestDoc } from './paymentRequest'
 import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
@@ -601,6 +602,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const friendPhotoUidRef = useRef<string | null>(null)
   const fsWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userRef = useRef(user)
+  const uidRef = useRef(uid)
 
   // সাবস্ক্রিপশন কলব্যাকের জন্য ব্লক তালিকার সবশেষ কপি (ক্লোজার বাসি হলে ব্লক করা প্রেরকের রিকোয়েস্ট দেখা যেত)।
   const blockedUidsRef = useRef<string[]>([])
@@ -622,15 +624,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // চলছে এমন id মনে রাখা হয় (sendFriendRequest-এ ব্যবহার হয়)।
   const sendInFlightRef = useRef<Set<string>>(new Set())
   userRef.current = user
+  uidRef.current = uid
 
   // Firebase সেশন ফিরে এলে UID ধরা হয় (রিলোডের পর সেশন async ফেরে)।
   // বেনামি (anonymous) সেশন শুধু টোকেনের জন্য হতে পারে — এতে কখনো UID
   // বসে না, Firestore সিঙ্কও চলে না; আসল পরিচয় সবসময় লোকাল
   // ব্যবহারকারীর (Google/পাসওয়ার্ড লগইনের) UID-ই থাকে।
+  // অ্যাকাউন্ট বদলালে (uid বদলায়) user-ও একই রেন্ডারে Firebase
+  // ব্যবহারকারীর পরিচয় থেকে বসে — নইলে সিঙ্ক ইফেক্ট (uid নতুন, user
+  // পুরোনো) অবস্থায় আগের ব্যবহারকারীর নাম/ইমেইল নতুন ডকে লিখে দিত
+  // (২০২৬-১১-২৫: D-র ডকে সুস্মিতার পরিচয়)। একই অ্যাকাউন্টে কিছু বদলায়
+  // না (প্রোফাইলে বদলানো নাম অটুট থাকে); লগআউটে user null থাকায় কিছুই বসে না।
   useEffect(() => {
     const unsub = onFirebaseAuthUser((fbUser) => {
       setAuthReady(true)
-      if (fbUser && !fbUser.isAnonymous && userRef.current) setUid((prev) => (prev === fbUser.uid ? prev : fbUser.uid))
+      if (!fbUser || fbUser.isAnonymous || !userRef.current) return
+      const prevUid = uidRef.current
+      if (fbUser.uid === prevUid) return
+      const prevEmail = userRef.current.email.trim().toLowerCase()
+      const nextEmail = (fbUser.email || '').trim().toLowerCase()
+      // অ্যাকাউন্ট বদল — সিঙ্ক করা অবস্থা আগেই শূন্য করা হয়, তারপর uid +
+      // user একই ব্যাচে বসে (ক্লোজারে আগের অ্যাকাউন্টের ডেটা থাকে না)।
+      resetSyncableState()
+      setUid(fbUser.uid)
+      if (nextEmail && nextEmail !== prevEmail) {
+        setUser({ name: fbUser.displayName || fbUser.email?.split('@')[0] || 'PiCall User', email: fbUser.email || '' })
+      }
     })
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -834,22 +853,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // প্রথম সিঙ্ক — লগইনে একবার: ডক থাকলে ক্লাউড থেকে নেওয়া হয় (hydrate),
   // না থাকলে localStorage-র অবস্থা একবারই ক্লাউডে ওঠে (migration, কোনো মান বানানো হয় না)।
   // Firestore না থাকলে/ব্যর্থ হলে error হয় — অ্যাপ localStorage মোডেই চলতে থাকে।
+  // সিঙ্ক-চিহ্ন (fsSyncUidRef) শুধু সফল শেষেই বসে — মাঝপথে বাতিল হলে
+  // পরের রেন্ডারে আবার চেষ্টা হয়; আগে চিহ্ন আগেই বসত বলে বাতিল হওয়া
+  // সিঙ্ক আর কখনো শেষ হতো না, অ্যাপ 'syncing'-এ আটকে থাকত।
   useEffect(() => {
     if (!user || !uid || !authReady) {
       if (!user) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }
       return
     }
     if (fsSyncUidRef.current === uid) return
-    fsSyncUidRef.current = uid
     let cancelled = false
     const run = async () => {
+      // পরিচয়-গার্ড — এই uid-র সঙ্গে user-এর ইমেইল বর্তমান Firebase
+      // ব্যবহারকারীর সঙ্গে না মিললে কিছুই লেখা হয় না। অ্যাকাউন্ট
+      // বদলের মাঝখানে (uid নতুন, user এখনো পুরোনো) লিখলে আগের
+      // ব্যবহারকারীর নাম/ইমেইল/কল হিসাব নতুন ডকে উঠে যেত (২০২৬-১১-২৫:
+      // D-র ডকে সুস্মিতার পরিচয়)। গার্ড ফেল করলে সিঙ্ক-চিহ্ন বসে না —
+      // user বসলে ইফেক্ট আবার চলে, তখন পরিচয় মিলে যায়।
+      if (!identityMatchesSync({ uid, userEmail: user.email }, getCurrentAuthIdentity())) return
       const cachedUid = load<string | null>('fsCacheUid', null)
       if (cachedUid && cachedUid !== uid) resetSyncableState()
       save('fsCacheUid', uid)
       setFsState('syncing')
       fsReadyRef.current = false
       try {
-        const docData = await fetchUserDoc(uid)
+        // ডক পড়া — 'missing' (ডক নেই) আর 'error' (পড়া যায়নি: নিয়ম/
+        // নেটওয়ার্ক/টোকেন এখনো আসেনি) আলাদা। error-কে missing ধরে
+        // ডক আবার লেখা যাবে না — সাইন-ইনে প্রোমা/সুস্মিতার ডক এভাবেই
+        // আবার লেখা হয়ে createdAt বদলে গিয়েছিল (২০২৬-১১-২৫ রাত)।
+        let docResult = await fetchUserDocResult(uid)
+        if (cancelled) return
+        if (docResult.status === 'error') {
+          // সাইন-ইনের ঠিক পরের টোকেন-দেরি নিজে থেকেই সেরে যায় — একবার আবার চেষ্টা।
+          await new Promise(r => setTimeout(r, 1200))
+          if (cancelled) return
+          docResult = await fetchUserDocResult(uid)
+          if (cancelled) return
+        }
+        if (docResult.status === 'error') {
+          if (!cancelled) setFsState('error')
+          return
+        }
+        const docData = docResult.status === 'found' ? docResult.data : null
         if (cancelled) return
         // সংখ্যার UID — আগে থেকে থাকলে সেটাই, না থাকলে কাউন্টার থেকে নতুন
         // বরাদ্দ (১০০০০১ থেকে); ব্যর্থ হলে null — পরের লগইনে আবার চেষ্টা হয়।
@@ -858,22 +903,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const myNumericUid = await ensureNumericUid(uid)
         setNumericUidState(myNumericUid)
         if (cancelled) return
+        // রেফারেল কোড — ডকে থাকলে ডকেরটাই (কখনো বদলায় না); না থাকলে
+        // (নতুন ব্যবহারকারী) এখনই নতুন কোড বানানো হয়। ক্লোজারের
+        // referralCode ভরসা করা যায় না — অ্যাকাউন্ট বদলের মাঝখানে আগের
+        // অ্যাকাউন্টের কোড থাকতে পারে (D-র প্রোফাইলে সুস্মিতার cg-b4rk4e
+        // এভাবেই উঠেছিল)।
+        const docReferralCode = docData && typeof (docData as Record<string, unknown>).referralCode === 'string'
+          ? ((docData as Record<string, unknown>).referralCode as string).trim()
+          : ''
+        const myReferralCode = docReferralCode || randomCode()
+        if (!docReferralCode) setReferralCodeState(myReferralCode)
         const profileExtra = { gender, district, interests, photo: profilePhoto, ...(myNumericUid !== null ? { numericUid: myNumericUid } : {}) }
         if (docData) {
           applyHydrated(fromUserDoc(docData))
           // পুরোনো প্রোফাইলে referralCode না থাকলে লগইনে ব্যাকফিল — নাম/আইডি
           // খোঁজায় যাতে সব আসল ব্যবহারকারী মেলে। অ্যাডমিনও সাধারণ ব্যবহারকারীর
           // মতো — তার প্রোফাইলও লেখা হয়, নতুন সদস্যের তালিকায় আসে।
-          await writePublicProfile(uid, user.name, referralCode, profileExtra)
+          await writePublicProfile(uid, user.name, myReferralCode, profileExtra)
           if (cancelled) return
         } else {
-          await writeUserDoc(uid, toUserDoc({ ...collectSnapshot(), numericUid: myNumericUid }))
+          await writeUserDoc(uid, toUserDoc({ ...collectSnapshot(), referralCode: myReferralCode, numericUid: myNumericUid }))
           if (cancelled) return
           // প্রথম লগইন — পাবলিক প্রোফাইল (নাম + যোগদানের সময় + রং + পাবলিক আইডি)
           // লেখা হয়, যাতে "নতুন সদস্য" সেকশনে আর নাম/আইডি খোঁজায় আসল নতুন
           // ব্যবহারকারীরা দেখা যায়। অ্যাডমিনও সাধারণ ব্যবহারকারীর মতো — তার
           // প্রোফাইলও লেখা হয়।
-          await writePublicProfile(uid, user.name, referralCode, profileExtra)
+          await writePublicProfile(uid, user.name, myReferralCode, profileExtra)
           if (cancelled) return
         }
         const cfg = await fetchPublicConfig()
@@ -929,6 +984,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const reqs = await fetchMyPaymentRequests(uid)
         if (cancelled) return
         setPaymentRequests(reqs)
+        // সিঙ্ক শেষ — তবেই এই uid-র জন্য সিঙ্ক-চিহ্ন বসে; মাঝপথে বাতিল
+        // হলে চিহ্ন বসে না, পরের রেন্ডারে আবার পুরো সিঙ্ক চলে।
+        fsSyncUidRef.current = uid
         fsReadyRef.current = true
         setFsState('on')
       } catch {
@@ -993,6 +1051,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
     if (fsWriteTimer.current) clearTimeout(fsWriteTimer.current)
     fsWriteTimer.current = setTimeout(() => {
+      // পরিচয়-গার্ড — সাইন-ইন করা ব্যবহারকারীর সঙ্গে না মিললে লেখা হয়
+      // না; অ্যাকাউন্ট বদলের মাঝখানে পুরোনো অবস্থা নতুন ডকে উঠত।
+      if (!identityMatchesSync({ uid, userEmail: user.email }, getCurrentAuthIdentity())) return
       writeUserDoc(uid, toUserDoc(collectSnapshot())).catch(() => { /* localStorage ক্যাশেই থাকে */ })
       if (user.email.trim().toLowerCase() === ADMIN_EMAIL) {
         writePublicConfig(toPublicConfig({ piRateBDT, usdtRateBDT, piWithdrawFeePct, piTransferFeePct, piMinTransfer, datingRate, liveRate }, adminSettings.payments, tvPlaylistUrl, adminSettings.analytics, adminSettings.ads, bannedUids)).catch(() => { /* ignore */ })
@@ -1009,6 +1070,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (fsState !== 'on' || !uid || !user || !fsReadyRef.current) return
     const t = setTimeout(() => {
+      // পরিচয়-গার্ড — সাইন-ইন করা ব্যবহারকারীর সঙ্গে না মিললে লেখা হয়
+      // না; অ্যাকাউন্ট বদলের মাঝখানে পুরোনো নাম/কোড নতুন প্রোফাইলে উঠত।
+      if (!identityMatchesSync({ uid, userEmail: user.email }, getCurrentAuthIdentity())) return
       writePublicProfile(uid, user.name, referralCode, { gender, district, interests, photo: profilePhoto }).catch(() => { /* ignore */ })
     }, 800)
     return () => clearTimeout(t)
@@ -1146,9 +1210,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     uid,
     isAdmin: !!user && user.email.trim().toLowerCase() === ADMIN_EMAIL,
     login: (name, email) => {
+      // অ্যাকাউন্ট বদলালে (আগের uid থেকে আলাদা) সিঙ্ক করা অবস্থা আগেই
+      // শূন্য করা হয় — একই ব্যাচে user/uid-র সঙ্গে বসে, তাই সিঙ্ক
+      // ইফেক্টের ক্লোজারে আগের অ্যাকাউন্টের বন্ধু/কল/কোড থাকে না।
+      const u = getCurrentUid()
+      if (u && uidRef.current && u !== uidRef.current) resetSyncableState()
       setUser({ name, email })
       // Firebase লগইন হলে (Google/ইমেইল লিংক/পাসওয়ার্ড) UID ধরা হয় — OTP লগইনে Firebase সেশন নেই, uid null থাকে
-      const u = getCurrentUid()
       setUid(u)
       if (!u) { setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null }
     },
@@ -1157,7 +1225,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   loginOtp: (name, email) => {
     setUser({ name, email })
   },
-  logout: () => { setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null },
+  logout: () => {
+    // লগআউটে সিঙ্ক করা অবস্থা শূন্য করা হয় আর ক্যাশের UID মোছা হয় —
+    // নইলে পরের অ্যাকাউন্টের লগইনে আগের ব্যবহারকারীর বন্ধু/কল/কোড
+    // স্থানীয় অবস্থায় থেকে যেত, আর সিঙ্কের গার্ড-জানালায় ডকে উঠত।
+    resetSyncableState()
+    save('fsCacheUid', null)
+    setUser(null); setUid(null); setFsState('off'); fsReadyRef.current = false; fsSyncUidRef.current = null; friendPhotoUidRef.current = null
+  },
     // (ব্যাংক তাৎক্ষণিক টপ-আপ বাদ দেওয়া হয়েছে — মালিকের নির্দেশে ২০২৬-১১-২০; এখন সব টপ-আপ ম্যানুয়াল অনুমোদনের মাধ্যমে হয়, approveTopUp-এ Pi যোগ হয়)
     freeFirstMinuteUsed,
     markFreeMinuteUsed: () => setFreeUsed(true),

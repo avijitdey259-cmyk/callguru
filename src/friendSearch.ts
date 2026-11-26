@@ -29,8 +29,14 @@ export function normalizeQuery(q: string): string {
 export function personMatches(p: Pick<SearchablePerson, 'name' | 'id' | 'referralCode' | 'numericUid'>, query: string): boolean {
   const q = normalizeQuery(query)
   if (!q) return true
-  // UID দিয়ে খোঁজা — লেখায় সংখ্যা থাকলে UID-র সংখ্যার অংশেও মেলে
+  // UID দিয়ে খোঁজা — শুধু সংখ্যা লিখলে হুবহু মিলতে হবে; আংশিক সংখ্যায়
+  // (যেমন "10000") অন্য কারো UID (100001) মিলে ভুল মানুষ আসত (২০২৬-১১-২৫:
+  // "100005" খুঁজে সুস্মিতা এসেছিল)। নাম হুবহু সংখ্যা হলে সেটাও মেলে।
   const digits = q.replace(/\D/g, '')
+  if (digits !== '' && digits === q) {
+    return (p.numericUid !== undefined && String(p.numericUid) === digits)
+      || p.name.toLowerCase() === q
+  }
   return p.name.toLowerCase().includes(q)
     || p.id.toLowerCase().includes(q)
     || (typeof p.referralCode === 'string' && p.referralCode.toLowerCase().includes(q))
@@ -45,10 +51,12 @@ export function searchPeople(people: SearchablePerson[], query: string): Searcha
 
 // সব আসল ব্যবহারকারী (Firestore publicProfiles থেকে) লোকাল তালিকার সাথে মেশানো।
 // নিজেকে কখনো দেখায় না (selfUid বাদ); একই ব্যবহারকারী বন্ধু হিসেবেও থাকলে একবারই
-// দেখায় (id দিয়ে, তারপর নাম দিয়ে ডুপ্লিকেট বাদ — বন্ধুর তথ্যই থাকে)। আসল
-// ব্যবহারকারীর আইডি = তার Firebase uid (পাবলিক প্রোফাইলের চাবি); referralCode
-// থাকলে সেটাও ম্যাচ করে। কোনো ডেমো/ভুয়া ব্যবহারকারী এখানে আসে না — ডেটা শুধু
-// publicProfiles থেকে আসে, না পেলে লোকাল তালিকাই থাকে।
+// দেখায় (id দিয়ে ডুপ্লিকেট বাদ)। নাম দিয়ে বাদ দেওয়া হয় না — দুজন আলাদা
+// মানুষের একই নাম হতে পারে, তাঁরা দুজনেই দেখাবেন (আইডি + ছবি দিয়ে আলাদা
+// চেনা যায়); নামে বাদ দিলে আসল ব্যবহারকারী খোঁজায় হারিয়ে যেত (২০২৬-১১-২৫)।
+// আসল ব্যবহারকারীর আইডি = তার Firebase uid (পাবলিক প্রোফাইলের চাবি);
+// referralCode থাকলে সেটাও ম্যাচ করে। কোনো ডেমো/ভুয়া ব্যবহারকারী এখানে
+// আসে না — ডেটা শুধু publicProfiles থেকে আসে, না পেলে লোকাল তালিকাই থাকে।
 export function mergeAllUsers(
   local: SearchablePerson[],
   allUsers: { id: string; displayName: string; colour: string; referralCode?: string; numericUid?: number; photo?: string }[],
@@ -56,14 +64,10 @@ export function mergeAllUsers(
 ): SearchablePerson[] {
   const out: SearchablePerson[] = [...local]
   const seenIds = new Set(local.map(p => p.id))
-  const seenNames = new Set(local.map(p => p.name.trim().toLowerCase()))
   for (const u of allUsers) {
     if (selfUid && u.id === selfUid) continue
     if (seenIds.has(u.id)) continue
-    const nameKey = u.displayName.trim().toLowerCase()
-    if (seenNames.has(nameKey)) continue
     seenIds.add(u.id)
-    seenNames.add(nameKey)
     out.push({ id: u.id, name: u.displayName, color: u.colour, online: true, isFriend: false, ...(u.referralCode ? { referralCode: u.referralCode } : {}), ...(u.numericUid !== undefined ? { numericUid: u.numericUid } : {}), ...(u.photo ? { photo: u.photo } : {}) })
   }
   return out

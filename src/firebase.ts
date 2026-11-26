@@ -69,6 +69,18 @@ export function getCurrentUid(): string | null {
   try { return getFirebaseAuth()?.currentUser?.uid ?? null } catch { return null }
 }
 
+// এখন সাইন-ইন করা Firebase ব্যবহারকারীর পরিচয় (uid + ইমেইল + নাম) —
+// সিঙ্কের গার্ডের জন্য: লেখার আগে এই পরিচয়ের সঙ্গে মিলিয়ে নেওয়া হয়,
+// যাতে আগের সেশনের পরিচয় অন্য কারো ডকে না ওঠে (২০২৬-১১-২৫)। বেনামি
+// (OTP) সেশনে null — বেনামি UID কখনো অ্যাপ-পরিচয় হয় না।
+export function getCurrentAuthIdentity(): { uid: string; email: string; displayName: string } | null {
+  try {
+    const u = getFirebaseAuth()?.currentUser
+    if (!u || u.isAnonymous) return null
+    return { uid: u.uid, email: u.email || '', displayName: u.displayName || '' }
+  } catch { return null }
+}
+
 // এখন লগইন করা Firebase ব্যবহারকারীর ID token — সুরক্ষিত API রুট
 // (অ্যাডমিন সেটিংস, লাইভ রুম, পুশ সাবস্ক্রিপশন, কল-ইনভাইট পুশ) +
 // কল রুম-WS-এ Authorization হিসেবে পাঠানো হয়। লগইন না থাকলে null।

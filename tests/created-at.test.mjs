@@ -91,7 +91,9 @@ check('খোঁজার শৃঙ্খল — createdAt থাকা প্�
   assert.ok(FS.personMatches(merged[0], 'Call Test A'))
   assert.ok(FS.personMatches(merged[0], 'call test a'))
   assert.ok(FS.personMatches(merged[0], '100003'))
-  assert.ok(FS.personMatches(merged[0], '100'))
+  // ২০২৬-১১-২৫: শুধু সংখ্যা লিখলে হুবহু মিলতে হবে — আংশিক "100" দিয়ে
+  // 100003 মিলত বলে "100005" খুঁজে ভুল ব্যবহারকারী (100001) এসেছিল।
+  assert.ok(!FS.personMatches(merged[0], '100'))
   assert.ok(!FS.personMatches(merged[0], '100004'))
   assert.ok(!FS.personMatches(merged[0], 'Call Test B'))
 })
@@ -106,7 +108,7 @@ check('writePublicProfile merge-শাখায় createdAt না থাকল
   // (displayName + numericUid আছে, createdAt নেই) পরের লগইনেই সেরে যায়।
   assert.ok(firestoreSrc.includes('toCreatedAtMs(existing.createdAt) == null ? { createdAt: serverTimestamp() } : {}'), 'merge-শাখায় createdAt ব্যাকফিল নেই')
   assert.ok(firestoreSrc.includes('...backfill }, { merge: true })'), 'ব্যাকফিল merge-লেখায় যায় না')
-  assert.ok(firestoreSrc.includes("import { colourForUid, mapPublicProfile, toCreatedAtMs, type NewMember } from './newMembers'"), 'toCreatedAtMs আমদানি নেই')
+  assert.ok(firestoreSrc.includes("import { colourForUid, dedupeMembers, mapPublicProfile, toCreatedAtMs, type NewMember } from './newMembers'"), 'toCreatedAtMs আমদানি নেই')
 })
 
 check('ensureNumericUid আর খালি {numericUid} ডক বানায় না', () => {
@@ -128,7 +130,7 @@ check('writeUserDoc প্রথমবার createdAt লেখে, পরে�
 check('লগইন সিঙ্ক — ensureNumericUid আগে, writePublicProfile পরে', () => {
   const syncStart = storeSrc.indexOf('const myNumericUid = await ensureNumericUid(uid)')
   assert.ok(syncStart >= 0, 'লগইন সিঙ্কে ensureNumericUid নেই')
-  const writeAfter = storeSrc.indexOf('await writePublicProfile(uid, user.name, referralCode, profileExtra)', syncStart)
+  const writeAfter = storeSrc.indexOf('await writePublicProfile(uid, user.name, myReferralCode, profileExtra)', syncStart)
   assert.ok(writeAfter > syncStart, 'writePublicProfile বরাদ্দের পরে নয়')
 })
 
