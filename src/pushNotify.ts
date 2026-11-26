@@ -132,3 +132,58 @@ export async function enableCallPush(userId: string): Promise<{ ok: boolean; rea
 export function wasPushEnabled(): boolean {
   try { return localStorage.getItem('callguru:pushEnabled') === '1' } catch { return false }
 }
+
+export type EnsurePushResult = { ok: boolean; reason: 'ok' | 'already-subscribed' | 'unsupported' | 'no-user' | 'not-granted' | 'not-configured' | 'subscribe-failed' }
+
+/**
+ * অ্যাপ খোলা/লগইনে পুশ সাবস্ক্রিপশন নিশ্চিত করা — অনুমতি চাওয়া হয় না
+ * (ব্রাউজার প্রম্পট ছাড়া), শুধু আগে দেওয়া অনুমতি থাকলে চুপচাপ
+ * (আবার) জমা দেওয়া হয়। সার্ভারের সাবস্ক্রিপশন ইন-মেমোরি (রিস্টার্টে
+ * মুছে যায়) — অ্যাপ খুললেই আবার জমা পড়ে, নইলে রিস্টার্টের পরের কল আর
+ * পুশ পেত না। অনুমতি 'default' থাকলে 'not-granted' ফেরে — তখন
+ * অ্যাপের ভেতরের ব্যানার/সেটিংস বোতামই পথ (এক ট্যাপে enableCallPush)।
+ */
+export async function ensureCallPushOnOpen(userId: string): Promise<EnsurePushResult> {
+  if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { ok: false, reason: 'unsupported' }
+  }
+  if (!userId) return { ok: false, reason: 'no-user' }
+  if (Notification.permission !== 'granted') return { ok: false, reason: 'not-granted' }
+  const vapidKey = await fetchVapidPublicKey()
+  if (!vapidKey) return { ok: false, reason: 'not-configured' }
+  try {
+    const reg = await navigator.serviceWorker.ready
+    const existing = await reg.pushManager.getSubscription()
+    const sub = existing ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource }))
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${API_BASE}/api/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ userId, subscription: sub.toJSON() }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) return { ok: false, reason: 'subscribe-failed' }
+    } finally {
+      clearTimeout(timer)
+    }
+    try { localStorage.setItem('callguru:pushEnabled', '1') } catch { /* ignore */ }
+    return { ok: true, reason: existing ? 'already-subscribed' : 'ok' }
+  } catch {
+    return { ok: false, reason: 'subscribe-failed' }
+  }
+}
+
+/** এই ডিভাইসে পুশ সাবস্ক্রিপশন আসলেই আছে কি না (সার্ভারে নয়, ব্রাউজারে)। */
+export async function getPushSubscriptionState(): Promise<{ status: PushStatus; subscribed: boolean }> {
+  const base = getPushStatus()
+  if (base.status !== 'granted') return { ...base, subscribed: false }
+  try {
+    const reg = await navigator.serviceWorker.ready
+    const sub = await reg.pushManager.getSubscription()
+    return { status: base.status, subscribed: !!sub }
+  } catch {
+    return { ...base, subscribed: false }
+  }
+}

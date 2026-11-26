@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
-import { useStore, type Friend } from './store'
-import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, triggerCallInvitePush, ADMIN_TIMEOUT_MS } from './api'
+import { useStore, type CallRecord, type Friend } from './store'
+import { useExperts, sendEmailOtp, verifyEmailOtp, saveAdminSmtp, saveAdminSms, getAdminSettingsStatus, triggerCallInvitePush, triggerMessagePush, ADMIN_TIMEOUT_MS } from './api'
 import { normalizeBdPhone } from './phone'
 import { connectLive, createLiveRoom, endLiveRoom, fetchLiveRooms, sendSignal, ICE_SERVERS, type LiveRoom } from './live'
 import { connectCall, createCallPeerConnection, fetchCallInfo, makeCallCode, callLink, sendCallSignal } from './call'
@@ -10,6 +10,8 @@ import { callFailureMessage, callErrorToFailureReason, parseFailureReason, close
 import { CALL_PRIVACY_LABELS, type CallPrivacy } from './incomingCall'
 import { buildCallInvitePayload, callInviteStatusToFailureReason, isCallableInviteTarget } from './callInvites'
 import { enableCallPush, getPushStatus } from './pushNotify'
+import { startRingback, stopRingback } from './sounds'
+import { pickCameraDevice, cameraConstraintAttempts, countCameras, isSameCameraDevice, getScreenShareSupport } from './cameraSwitch'
 import { BUDDIES, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
 import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSend, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
@@ -32,7 +34,7 @@ import { DATING_KYC_CHAT_LIMIT } from './firestoreMapping'
 import { isFirebaseConfigured, signInWithGoogle, getFirebaseAuth, signUpWithPassword, signInWithPassword, requestPasswordReset, ensureAnonymousSession, PASSWORD_MIN_LENGTH } from './firebase'
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_NETWORK_MESSAGE, uploadVideoFile } from './videoUpload'
 import { updateProfile } from 'firebase/auth'
-import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, type ChatRoomSummary, updatePublicProfileName, backfillNumericUids, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc, createCallInvite, deleteCallInvite, subscribeCallInviteDoc } from './firestore'
+import { fetchNewMembers, fetchAllPublicProfiles, fetchChatRoomDoc, sendChatMessage, subscribeChatMessages, subscribeMyChatRooms, chatRoomId, otherRoomMember, type ChatRoomSummary, updatePublicProfileName, backfillNumericUids, fetchServices, fetchService, createServiceDoc, fetchServiceReviews, submitServiceReview, subscribeServices, subscribeServiceReviews, fetchAds, fetchApprovedAds, createAdDoc, subscribeApprovedAds, updateAdStatus, recordAdView, recordAdClick, fetchGroups, fetchGroup, subscribeGroups, createGroupDoc, joinGroup, leaveGroup, addGroupMember, removeGroupMember, fetchGroupPosts, subscribeGroupPosts, createGroupPostDoc, fetchPages, fetchPage, subscribePages, createPageDoc, followPage, unfollowPage, fetchPagePosts, subscribePagePosts, createPagePostDoc, createCallInvite, deleteCallInvite, subscribeCallInviteDoc, updateCallInviteStatus } from './firestore'
 import { filterBlockedMessages, filterBlockedRooms } from './blocking'
 import { probeChannels, sortChannelsByPlayability, getCachedProbe, clearProbeCache, type ProbeStatus } from './tvProbe'
 import { averageRating, canStartServiceCall, isOwnService, loadLocalServices, mergeServiceLists, ratingSummary, saveLocalServices, serviceRateLabel, validateReviewInput, validateServiceInput, type ServiceListing, type ServiceReview } from './services'
@@ -41,6 +43,7 @@ import { followerCount, isFollower, isMember, loadLocalGroups, loadLocalPages, m
 import { profileCompletion, type Gender } from './profile'
 import { mergeFeedPosts, splitFeedPosts } from './feedCache'
 import { buildPostShareUrl, isOwnPost, parsePostDeepLink } from './feedPosts'
+import { missedCallsOf } from './missedCall'
 import { inviteQrUrl, shareErrorToResult, type ShareResult } from './share'
 import type { Post } from './data'
 import { colourForUid, formatJoinTime, filterNewMembers, filterAdminUsers, type NewMember } from './newMembers'
@@ -611,6 +614,7 @@ export function ServicesSection() {
 
 function ServiceCard({ service, uid, totalPi, freeMinuteAvailable }: { service: ServiceListing; uid: string | null; totalPi: number; freeMinuteAvailable: boolean }) {
   const navigate = useNavigate()
+  const { ringingCall } = useStore()
   const [reviews, setReviews] = useState<ServiceReview[]>([])
   const [reviewsLoaded, setReviewsLoaded] = useState(false)
   const [showReviews, setShowReviews] = useState(false)
@@ -642,12 +646,16 @@ function ServiceCard({ service, uid, totalPi, freeMinuteAvailable }: { service: 
           <span className="text-sm font-medium text-gray-500">This is your service</span>
         ) : (
           <>
-            <Btn variant="green" disabled={!canCall} onClick={() => navigate(`/call/service/${service.id}`)}>📞 Call</Btn>
+            <Btn variant="green" disabled={!canCall} onClick={() => navigate(`/call/service/${service.id}`)}>💼 Service — {serviceRateLabel(service.ratePiPerMin)}</Btn>
+            <Btn variant="ghost" onClick={() => navigate('/chat', { state: { with: service.providerName, peerId: service.providerUid } })}>💬 Chat</Btn>
             {!canCall && <button className="text-sm text-fb-blue font-medium" onClick={() => navigate('/wallet')}>Top up Pi to call</button>}
           </>
         )}
         <Btn variant="ghost" onClick={() => setShowReviews(v => !v)}>Reviews ({count})</Btn>
       </div>
+      {ringingCall?.kind === 'Service' && ringingCall.peerId === service.providerUid && (
+        <p className="text-sm font-medium text-violet-600 mt-2">📞 Calling {service.providerName}… waiting for an answer</p>
+      )}
       {showReviews && (
         <div className="mt-3 space-y-2">
           {reviews.length === 0 && <p className="text-sm text-gray-500">No reviews yet.</p>}
@@ -783,6 +791,44 @@ function HomeTvSection() {
       </div>
       <p className="text-xs text-gray-400 mt-2">Free live TV — tap a channel to watch.</p>
     </Card>
+  )
+}
+
+// কল নোটিফিকেশন চালুর ব্যানার — অ্যাপ বন্ধ থাকলেও কল পৌঁছাতে অনুমতি
+// লাগে; অনুমতি এখনো চাওয়া হয়নি ('default') এমন ডিভাইসেই শুধু দেখায়।
+// এক ট্যাপে enableCallPush (ব্যবহারকারীর জেসচার) — অ্যাপ খোলায় নিজে
+// থেকে অনুমতি চাওয়া হয় না। একবার বন্ধ করলে আর দেখায় না।
+function PushEnableBanner() {
+  const { uid, referralCode } = useStore()
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem('callguru:pushBannerDismissed') === '1' } catch { return false }
+  })
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [msg, setMsg] = useState('')
+  const status = getPushStatus()
+  if (dismissed || done || status.status !== 'default') return null
+  const dismiss = () => {
+    try { localStorage.setItem('callguru:pushBannerDismissed', '1') } catch { /* ignore */ }
+    setDismissed(true)
+  }
+  const enable = async () => {
+    setBusy(true); setMsg('')
+    const res = await enableCallPush(uid ?? referralCode)
+    setBusy(false)
+    if (res.ok) setDone(true)
+    else setMsg(res.reason === 'denied' ? 'Permission not given — turn on notifications from browser settings.' : 'Could not turn it on — try again from Menu → Sound Settings.')
+  }
+  return (
+    <div className="rounded-xl p-4 bg-violet-50 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800">
+      <p className="font-bold text-sm">📞 Never miss a call — turn on call notifications</p>
+      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">When the app is closed, a call reaches you as a notification — tap it to answer straight into the call.</p>
+      <div className="flex gap-2 mt-3">
+        <Btn variant="green" disabled={busy} onClick={enable}>{busy ? 'Turning on…' : '🔔 Turn on notifications'}</Btn>
+        <Btn variant="ghost" onClick={dismiss}>Not now</Btn>
+      </div>
+      {msg && <p className="text-xs text-amber-600 mt-2">{msg}</p>}
+    </div>
   )
 }
 
@@ -976,6 +1022,7 @@ export function Feed() {
   }
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
+      <PushEnableBanner />
       {installBonusClaimed ? (
         <p className="text-sm text-green-600">✅ Install bonus received — 5 π gift Pi added</p>
       ) : (
@@ -1390,6 +1437,11 @@ export function CallPage() {
   // NO_ANSWER_TIMEOUT_MS পরে "No answer" দেখানো হয়।
   const noAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const failureShownRef = useRef(false)
+  // পুশ পৌঁছাল কি না (null = অজানা/অপেক্ষায়) — না পৌঁছালে অপেক্ষার
+  // পর্দায় সৎ ইঙ্গিত দেখায় (নোটিফিকেশন বন্ধ থাকলে কলটা তখনই যাবে না)
+  const [pushDelivered, setPushDelivered] = useState<boolean | null>(null)
+  // এই কলের ইনভাইট ডকের শেষ জানা স্ট্যাটাস — ডক মোছা/রাখার সিদ্ধান্তে লাগে
+  const inviteStatusRef = useRef<string | null>(null)
   // ডিরেক্ট বন্ধু-কল: /call/friend/<নাম> খুললেই একবারই auto-start হবে
   const autoStartRef = useRef(false)
   function clearNoAnswerTimer() {
@@ -1400,27 +1452,46 @@ export function CallPage() {
     if (endedRef.current || connectedRef.current || failureShownRef.current) return
     failureShownRef.current = true
     clearNoAnswerTimer()
+    stopRingback()
+    setRingingCall(null)
     setCallError(callFailureMessage(reason, name))
   }
   function armNoAnswerTimer() {
     clearNoAnswerTimer()
     noAnswerTimerRef.current = setTimeout(() => {
       noAnswerTimerRef.current = null
+      // উত্তর এলো না — ইনভাইট 'cancelled' চিহ্নিত করা হয়, যাতে অ্যাপ বন্ধ
+      // থাকা গ্রহণকারীর লগইন-সিঙ্ক এটা মিসড কল হিসেবে তুলে নেয়
+      if (inviteDocRef.current) { const id = inviteDocRef.current; inviteStatusRef.current = 'cancelled'; void updateCallInviteStatus(id, 'cancelled') }
       showCallFailure('no-answer')
     }, NO_ANSWER_TIMEOUT_MS)
   }
   // পেজ ছাড়লে উত্তর-অপেক্ষার টাইমারও থামে — আনমাউন্টের পর setState নয়
-  useEffect(() => () => { clearNoAnswerTimer(); clearCallInvite() }, [])
+  useEffect(() => () => { clearNoAnswerTimer(); stopRingback(); setRingingCall(null); clearCallInvite() }, [])
   // Firestore কল ইনভাইট — এই কলের ইনভাইট ডক + তার সাবস্ক্রিপশন; কল
   // শেষে/বাতিলে ডক মোছা হয় (গ্রহণকারীর ওভারলেও সরে যায়)।
   const inviteDocRef = useRef<string | null>(null)
   const inviteUnsubRef = useRef<(() => void) | null>(null)
   function clearCallInvite() {
     if (inviteUnsubRef.current) { inviteUnsubRef.current(); inviteUnsubRef.current = null }
-    if (inviteDocRef.current) { const id = inviteDocRef.current; inviteDocRef.current = null; void deleteCallInvite(id) }
+    if (inviteDocRef.current) {
+      const id = inviteDocRef.current
+      inviteDocRef.current = null
+      const st = inviteStatusRef.current
+      if (st === 'accepted' || st === 'busy' || st === 'not-friend' || st === 'not-accepting') {
+        // ধরেছেন/গেটে আটকেছে — মিসড নয়, ডক মুছে পরিষ্কার করা যায়
+        void deleteCallInvite(id)
+      } else if (st === 'declined' || st === 'cancelled') {
+        // ইতিমধ্যে মিসড হিসেবে চিহ্নিত — গ্রহণকারীর সিঙ্কের জন্য ডক থাকে
+      } else {
+        // এখনো বাজছে (কলকারী কাটলেন/পেজ ছাড়লেন) — মুছে ফেলা নয়, বরং
+        // 'cancelled' চিহ্নিত করা হয়, যাতে গ্রহণকারী মিসড কল দেখতে পান
+        void updateCallInviteStatus(id, 'cancelled')
+      }
+    }
   }
   const remoteStreamRef = useRef<MediaStream | null>(null)
-  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned, profilePhoto, numericUid } = useStore()
+  const { totalPi, addPi, freeFirstMinuteUsed, markFreeMinuteUsed, addCall, user, datingRate, datingKycRequired, soundSettings, friends, uid, referralCode, blockedUids, isBanned, profilePhoto, numericUid, setRingingCall } = useStore()
   const navigate = useNavigate()
   const { experts: liveExperts } = useExperts()
   const expert = type === 'expert' ? liveExperts.find(e => e.id === id) : undefined
@@ -1535,7 +1606,11 @@ export function CallPage() {
   }, [isLinkCall, linkCode])
 
   // চলমান কলে রিংটোন বাজবে না — ইনকামিং কলের রিংটোন এই ফ্ল্যাগ দেখে থামে
-  useEffect(() => { setInCallActive(connected); return () => setInCallActive(false) }, [connected])
+  useEffect(() => {
+    setInCallActive(connected)
+    if (connected) { stopRingback(); setRingingCall(null) }
+    return () => setInCallActive(false)
+  }, [connected])
 
   // ইনকামিং লিংক-কল: ধরার আগের পর্দায় (লিংক খুলে কে কল করছেন দেখালে) রিংটোন
   // বাজে — ধরলে/কাটলে/আনমাউন্ট হলে থামে, ৬০ সেকেন্ডে নিজে থামে। মোবাইলে
@@ -1549,14 +1624,40 @@ export function CallPage() {
   useEffect(() => {
     if (!started) return
     let cancelled = false
-    // ক্যামেরা কয়টি আছে গুনে নেওয়া (অনুমতি পাওয়ার পর লেবেলসহ গোনা যায়)
-    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
-      if (!cancelled) setCamCount(devices.filter(d => d.kind === 'videoinput').length)
-    }).catch(() => { /* গোনা না গেলেও কল চলবে */ })
-    navigator.mediaDevices?.getUserMedia?.({ video: { facingMode: facingRef.current }, audio: true }).then(s => {
+    navigator.mediaDevices?.getUserMedia?.({ video: { facingMode: facingRef.current }, audio: true }).then(async s => {
       if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
-      streamRef.current = s
-      if (selfRef.current) selfRef.current.srcObject = s
+      // অনুমতির পরেই ক্যামেরা গোনা যায় (আগে গুনলে Android-এ ১/০ আসে,
+      // বোতাম ভুল করে বন্ধ হয়ে যেত); লেবেলও তখনই পাওয়া যায়
+      try {
+        const devices = await navigator.mediaDevices?.enumerateDevices?.()
+        if (!cancelled && devices) setCamCount(countCameras(devices))
+      } catch { /* গোনা না গেলেও কল চলবে */ }
+      let stream = s
+      // আগে থেকে পেছনের ক্যামেরা বাছা থাকলে (সেটআপ পর্দা) ideal মোড
+      // সামনের ক্যামেরা ফিরিয়ে দিলে আসল পেছনের ক্যামেরায় নেওয়া হয়
+      if (facingRef.current === 'environment') {
+        try {
+          const devices = await navigator.mediaDevices?.enumerateDevices?.()
+          const currentTrack = s.getVideoTracks()[0]
+          const currentDeviceId = currentTrack?.getSettings?.().deviceId ?? null
+          const currentFacing = currentTrack?.getSettings?.().facingMode
+          const target = devices ? pickCameraDevice(devices, currentDeviceId, 'environment') : null
+          if (!cancelled && target && currentFacing !== 'environment') {
+            const back = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: target.deviceId } }, audio: false })
+            if (cancelled) { back.getTracks().forEach(t => t.stop()); s.getTracks().forEach(t => t.stop()); return }
+            const backVideo = back.getVideoTracks()[0]
+            if (backVideo && !isSameCameraDevice(currentDeviceId, backVideo.getSettings?.().deviceId)) {
+              s.getVideoTracks().forEach(t => t.stop())
+              stream = new MediaStream([...back.getVideoTracks(), ...s.getAudioTracks()])
+            } else {
+              back.getTracks().forEach(t => t.stop())
+            }
+          }
+        } catch { /* পেছনের ক্যামেরা না মিললে সামনের ক্যামেরাতেই কল চলবে */ }
+      }
+      if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+      streamRef.current = stream
+      if (selfRef.current) selfRef.current.srcObject = stream
       maybeCreateOffer()
       maybeAnswerOffer()
     }).catch(() => { /* camera unavailable in demo — placeholder stays */ })
@@ -1566,22 +1667,45 @@ export function CallPage() {
   // সামনের ↔ পেছনের ক্যামেরা বদলান — কল, টাইমার বা বিলিং থামবে না; অডিও ট্র্যাক চালু থাকবে
   // স্ক্রিন শেয়ার চলাকালীন ক্যামেরা বদলানো যায় না — পিয়ারে তখন স্ক্রিনের
   // ট্র্যাক যাচ্ছে, ক্যামেরা বদলালে শেয়ার ভেঙে যেত।
+  // ঠিক করা (২০২৬-১১-২৬): আগে অনুমতির আগেই গোনা camCount ১ দেখিয়ে
+  // বোতাম বন্ধ করে দিত, আর {facingMode: ideal} চুপচাপ সামনের ক্যামেরাই
+  // ফিরিয়ে দিত — তাই ট্যাপে কিছুই বদলাত না। এখন deviceId দিয়ে বেছে
+  // নেওয়া হয়, আর নতুন ট্র্যাক আসলেই অন্য ক্যামেরা কি না যাচাই করা হয়।
   async function switchCamera() {
-    if (switching || camCount === 1 || sharing) return
+    if (switching || sharing) return
+    // ক্যামেরার সংখ্যা শুধু অনুমতির পরের গোনায় ১ প্রমাণিত হলেই বোতাম বন্ধ
+    // (null = এখনো গোনা হয়নি — তখন চেষ্টা করতে দেওয়া হয়)
+    if (camCount !== null && camCount <= 1) return
     const next = facingRef.current === 'user' ? 'environment' : 'user'
     setSwitching(true); setCamError('')
+    const oldTrack = streamRef.current?.getVideoTracks()[0] ?? null
+    const oldDeviceId = oldTrack?.getSettings?.().deviceId ?? null
+    let devices: MediaDeviceInfo[] = []
+    try { devices = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [] } catch { /* লেবেল ছাড়াই চেষ্টা চলবে */ }
+    const target = pickCameraDevice(devices, oldDeviceId, next)
     let newStream: MediaStream | null = null
-    try {
-      // প্রথমে exact চাওয়া — না হলে (ডিভাইসে ওই ক্যামেরা নেই) সাধারণ facingMode দিয়ে চেষ্টা
-      newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: next } }, audio: false })
-    } catch {
-      try {
-        newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next }, audio: false })
-      } catch {
-        setCamError('This camera could not be started — staying on the previous camera.')
-        setSwitching(false)
-        return
+    for (const constraints of cameraConstraintAttempts(target?.deviceId ?? null, next)) {
+      try { newStream = await navigator.mediaDevices.getUserMedia({ ...constraints, audio: false }); break } catch { /* পরের চেষ্টা */ }
+    }
+    if (!newStream) {
+      setCamError('This camera could not be started — staying on the previous camera.')
+      setSwitching(false)
+      return
+    }
+    const newVideo = newStream.getVideoTracks()[0]
+    const newDeviceId = newVideo?.getSettings?.().deviceId ?? null
+    // ideal ফলব্যাকে একই ক্যামেরা ফিরে এলে "বদল হয়েছে" বলে মিথ্যা বলা হয় না
+    if (newVideo && isSameCameraDevice(oldDeviceId, newDeviceId)) {
+      newStream.getTracks().forEach(t => t.stop())
+      const total = countCameras(devices)
+      if (total <= 1) {
+        setCamCount(total)
+        setCamError('This device has only one camera — you cannot switch cameras.')
+      } else {
+        setCamError(`Could not switch to the ${next === 'environment' ? 'back' : 'front'} camera on this phone — it kept the previous camera. Try again.`)
       }
+      setSwitching(false)
+      return
     }
     // পুরোনো ভিডিও ট্র্যাকই শুধু বন্ধ করা — অডিও ট্র্যাক চালু থাকবে, কল চলতেই থাকবে
     const oldAudio = streamRef.current?.getAudioTracks() ?? []
@@ -1591,22 +1715,35 @@ export function CallPage() {
     if (selfRef.current) selfRef.current.srcObject = combined
     // আসল কলে পিয়ারকেও নতুন ভিডিও ট্র্যাক পাঠাতে হয়
     const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === 'video')
-    const newVideo = combined.getVideoTracks()[0]
     if (sender && newVideo) sender.replaceTrack(newVideo).catch(() => {})
-    setFacingBoth(next)
+    // ট্র্যাকের আসল facing-ই সত্য (চাওয়া facing নয়) — আয়না সেটাই মেনে চলে
+    const actualFacing = newVideo?.getSettings?.().facingMode
+    setFacingBoth(actualFacing === 'environment' ? 'environment' : actualFacing === 'user' ? 'user' : next)
     // ক্যামেরা গোনা আবার আপডেট করা (কিছু ডিভাইসে অনুমতির পরেই সঠিক সংখ্যা আসে)
-    navigator.mediaDevices?.enumerateDevices?.().then(devices => {
-      setCamCount(devices.filter(d => d.kind === 'videoinput').length)
-    }).catch(() => { /* ignore */ })
+    try {
+      const fresh = await navigator.mediaDevices?.enumerateDevices?.()
+      if (fresh) setCamCount(countCameras(fresh))
+    } catch { /* ignore */ }
     setSwitching(false)
   }
 
   // স্ক্রিন শেয়ার চালু/বন্ধ — ১-টু-১ কলে পিয়ার স্ক্রিন দেখে; থামালে ক্যামেরা ফেরে।
   // অনুমতি না দিলে (বা পিকার বাতিল করলে) চুপচাপ বন্ধ থাকে — ক্র্যাশ নয়, বোতাম অফই থাকে।
+  // ঠিক করা (২০২৬-১১-২৬): Android-এ (Chrome/PWA/WebView — সবখানেই)
+  // getDisplayMedia() আদৌ নেই, ডেস্কটপ-অনলি API; আগের "browser not
+  // supported" বার্তাটা শেষ-মাথা ছিল (ফোনের Chrome-এও হবে না)। এখন সৎ
+  // বার্তা দেয় — স্ক্রিন শেয়ার করতে কম্পিউটার ব্রাউজার লাগবে।
   async function toggleShare() {
     if (sharingRef.current) { stopShare(); return }
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setShareError('Screen sharing is not supported in this browser.')
+    const support = getScreenShareSupport({
+      hasGetDisplayMedia: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      coarsePointer: typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse)').matches
+        : false,
+    })
+    if (!support.supported) {
+      setShareError(support.message)
       return
     }
     let screen: MediaStream
@@ -1737,6 +1874,9 @@ export function CallPage() {
       onJoined: (_peerId, peers) => {
         if (peers.length > 0) {
           clearNoAnswerTimer()
+          // পিয়ার রুমে ঢুকেছেন — কলটা ধরেছেন (পুশ-লিংক দিয়ে ঢুকলেও);
+          // ইনভাইট 'accepted' চিহ্নিত করা হয়, নইলে পরে ভুল করে মিসড হতো
+          if (inviteDocRef.current) { inviteStatusRef.current = 'accepted'; void updateCallInviteStatus(inviteDocRef.current, 'accepted') }
           peerPeerIdRef.current = peers[0].peerId
           peerNameRef.current = peers[0].name
           setPeerName(peers[0].name)
@@ -1745,6 +1885,7 @@ export function CallPage() {
       },
       onPeerJoined: (peer) => {
         clearNoAnswerTimer()
+        if (inviteDocRef.current) { inviteStatusRef.current = 'accepted'; void updateCallInviteStatus(inviteDocRef.current, 'accepted') }
         peerPeerIdRef.current = peer.peerId
         peerNameRef.current = peer.name
         setPeerName(peer.name)
@@ -1810,6 +1951,18 @@ export function CallPage() {
     setStarted(true)
     ensurePc()
     joinCallRoom(code, 'caller')
+    // কলকারী অপেক্ষা করছেন — রিংব্যাক বাজে + যেখান থেকে কল শুরু হলো
+    // (সার্ভিস কার্ড/চ্যাট থ্রেড) সেখানেও "অপেক্ষা" দেখায়; লিংক-কলে
+    // গ্রহণকারী ঢুকছেন — তাঁর জন্য রিংব্যাক নয় (রিংটোন আগেই বাজছিল)
+    if (!isLinkCall) {
+      setRingingCall({
+        kind: expert ? 'Expert' : isService ? 'Service' : isDating ? 'Dating' : 'Friend',
+        peerId: type === 'friend' ? (friends.find((f) => f.name === name)?.id ?? '') : type === 'service' ? (service?.providerUid ?? '') : expert ? expert.id : isDating ? (id ?? '') : '',
+        peerName: name,
+        startedAtMs: Date.now(),
+      })
+      try { startRingback(soundSettings) } catch { /* রিংব্যাক ছাড়াও কল চলবে */ }
+    }
     // নতুন ইনভাইট পথ (Firestore callInvites): কলকারী একটা ringing ডক
     // লেখে — গ্রহণকারীর অ্যাপ সেটা শুনে ওভারলে দেখায়; ধরলে/কাটলে/
     // গেটে আটকালে স্ট্যাটাস বদলায় আর এই ডকের সাবস্ক্রিপশনে কারণ এসে
@@ -1837,9 +1990,13 @@ export function CallPage() {
           createCallInvite(payload).then((inviteId) => {
             if (!inviteId || endedRef.current) return
             inviteDocRef.current = inviteId
-            void triggerCallInvitePush({ toUid: inviteTarget, inviteId, code, fromName: (user?.name || '').trim() || 'You' })
+            inviteStatusRef.current = 'ringing'
+            // পুশ গেল কি না মনে রাখা হয় — না গেলে (সাবস্ক্রিপশন নেই/OTP)
+            // অপেক্ষার পর্দায় সৎ ইঙ্গিত দেখায়
+            void triggerCallInvitePush({ toUid: inviteTarget, inviteId, code, fromName: (user?.name || '').trim() || 'You' }).then(r => { if (!endedRef.current) setPushDelivered(r.pushed) }).catch(() => {})
             const unsub = subscribeCallInviteDoc(inviteId, (doc) => {
               if (!doc) return
+              inviteStatusRef.current = doc.status
               const reason = callInviteStatusToFailureReason(doc.status)
               if (reason) showCallFailure(reason)
               // accepted: ধরেছেন — পিয়ার জয়েনের অপেক্ষায় থাকি
@@ -1906,6 +2063,8 @@ export function CallPage() {
     if (endedRef.current) return
     endedRef.current = true
     clearNoAnswerTimer()
+    stopRingback()
+    setRingingCall(null)
     clearCallInvite()
     closeCallResources()
     setEnded(true); setEndReason(reason || 'Call ended')
@@ -1913,7 +2072,13 @@ export function CallPage() {
     const cost = isLinkCall ? 0 : roundPi(Math.ceil(Math.max(0, secondsRef.current - freeSeconds) / 60) * rate)
     if (cost > 0) addPi(-cost, 'Call Cost', `Call — ${name}`)
     if (!isLinkCall && isFreeAvailable && secondsRef.current > 0) markFreeMinuteUsed()
-    addCall({ name, type: expert ? 'Expert' : isService ? 'Service' : isDating ? 'Dating' : 'Friend', rate, durationSec: secondsRef.current, cost, freeMinute: !isLinkCall && isFreeAvailable && secondsRef.current > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed' })
+    // peerId — হিস্ট্রি থেকে সরাসরি কল-ব্যাক/চ্যাটে লাগে (বন্ধু: নামে,
+    // ডেটিং: id, এক্সপার্ট: expert.id, সার্ভিস: providerUid)
+    const peerId = type === 'friend' ? friends.find((f) => f.name === name)?.id
+      : type === 'service' ? service?.providerUid
+      : expert ? expert.id
+      : isDating ? id : undefined
+    addCall({ name, type: expert ? 'Expert' : isService ? 'Service' : isDating ? 'Dating' : 'Friend', rate, durationSec: secondsRef.current, cost, freeMinute: !isLinkCall && isFreeAvailable && secondsRef.current > 0, status: reason.startsWith('Auto-cut') ? 'Auto-cut' : 'Completed', peerId })
   }
 
   function fmt(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
@@ -2047,6 +2212,9 @@ export function CallPage() {
           {callError
             ? <p className="mt-3 bg-red-600 rounded-lg px-3 py-2 text-sm font-medium">{callError}</p>
             : <p className="text-sm text-gray-300 mt-2">{isLinkCall ? 'Connecting…' : 'Waiting for the other person…'}</p>}
+          {pushDelivered === false && !callError && !isLinkCall && (
+            <p className="text-xs text-amber-300 mt-2">Couldn't reach them by notification — their app may be closed or notifications off. The call will ring when they open the app.</p>
+          )}
           {!isLinkCall && callCode && (
             <div className="mt-4 text-left">
               <p className="text-sm text-gray-300">Call link — send it to the person you are calling, the call will connect as soon as they open the link:</p>
@@ -2162,7 +2330,7 @@ export function CallPage() {
           <button onClick={toggleMute} className="w-14 h-14 rounded-full glass text-2xl" title="Mic">{muted ? '🔇' : '🎤'}</button>
           <button onClick={toggleCam} className="w-14 h-14 rounded-full glass text-2xl" title="Camera">{camOff ? '📷' : '📹'}</button>
           <button onClick={toggleShare} className={`w-14 h-14 rounded-full text-2xl ${sharing ? 'pb-gradient' : 'glass'}`} title="Screen Share">🖥️</button>
-          <button onClick={switchCamera} disabled={switching || camCount === 1 || sharing} className="h-14 px-3 rounded-full glass text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
+          <button onClick={switchCamera} disabled={switching || (camCount !== null && camCount <= 1) || sharing} className="h-14 px-3 rounded-full glass text-sm font-bold disabled:opacity-50" title="Switch camera — front ↔ back">🔄 {switching ? 'Changing…' : `Camera: ${facing === 'user' ? 'Front' : 'Back'}`}</button>
           <button onClick={() => hangUp('You ended the call')} className="w-16 h-16 rounded-full bg-red-600 text-3xl" title="Call ended">📞</button>
         </div>
         {camCount === 1 && <p className="text-center text-xs text-yellow-300 mb-1">This device has 1 camera — you cannot switch cameras.</p>}
@@ -2178,18 +2346,57 @@ export function CallPage() {
 
 // ---------- Call history ----------
 export function CallHistory() {
-  const { calls } = useStore()
+  const { calls, markMissedCallsSeen } = useStore()
+  const navigate = useNavigate()
+  // হিস্ট্রি খুললেই মিসড কল "দেখা" হয় — ব্যাজ সরে যায়
+  useEffect(() => { markMissedCallsSeen() }, [])
+  // হিস্ট্রি থেকে সরাসরি কল — বন্ধু নামে, ডেটিং/এক্সপার্ট/সার্ভিস UID-তে;
+  // peerId নেই এমন পুরোনো ডেটিং/এক্সপার্ট/সার্ভিস এন্ট্রিতে Call থাকে না
+  const callPath = (c: CallRecord): string | null => {
+    if (c.type === 'Friend') return `/call/friend/${encodeURIComponent(c.name)}`
+    if (!c.peerId) return null
+    if (c.type === 'Dating') return `/call/dating/${c.peerId}`
+    if (c.type === 'Expert') return `/call/expert/${c.peerId}`
+    if (c.type === 'Service') return `/call/service/${c.peerId}`
+    return null
+  }
+  // হিস্ট্রি থেকে সরাসরি চ্যাট — এক্সপার্টের চ্যাট থ্রেড নেই, তাই শুধু
+  // বন্ধু/ডেটিং/সার্ভিসে; ডেটিংয়ে datingPartnerId, সার্ভিসে peerId দিয়ে
+  // থ্রেড খোলে (প্রোভাইডার বন্ধু তালিকায় না থাকলেও)
+  const openChat = (c: CallRecord) => {
+    if (c.type === 'Expert') return
+    navigate('/chat', {
+      state: {
+        with: c.name,
+        ...(c.type === 'Dating' && c.peerId ? { datingPartnerId: c.peerId } : {}),
+        ...(c.type === 'Service' && c.peerId ? { peerId: c.peerId } : {}),
+      },
+    })
+  }
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold flex items-center gap-2"><IconCall className="w-6 h-6" /> Call History</h1>
       {calls.length === 0 && <Card><p className="text-sm text-gray-500">No call yet. The first call's first 1 minute is free!</p></Card>}
-      {calls.map(c => (
-        <Card key={c.id}>
-          <div className="flex justify-between"><b>{c.name}</b><span className="text-xs text-gray-400">{c.time}</span></div>
-          <p className="text-sm text-gray-500">{c.type} • {formatPi(c.rate)}/minute • {Math.floor(c.durationSec / 60)} min {c.durationSec % 60} sec • {c.status}</p>
-          <p className="text-sm font-bold">Cost: {formatPi(c.cost)}{c.freeMinute ? ' (with 1st minute free)' : ''}</p>
-        </Card>
-      ))}
+      {calls.map(c => {
+        const path = callPath(c)
+        const missed = c.status === 'Missed'
+        return (
+          <Card key={c.id}>
+            <div className="flex justify-between"><b>{c.name}</b><span className="text-xs text-gray-400">{c.time}</span></div>
+            <p className="text-sm text-gray-500">{c.type} • {formatPi(c.rate)}/minute • {Math.floor(c.durationSec / 60)} min {c.durationSec % 60} sec • {c.status}</p>
+            <p className="text-sm font-bold">Cost: {formatPi(c.cost)}{c.freeMinute ? ' (with 1st minute free)' : ''}</p>
+            {missed && <p className="text-sm font-bold text-red-600 mt-1">📞 Missed call — {c.name} called you</p>}
+            <div className="flex gap-2 mt-3">
+              {path && (
+                <Btn variant="green" onClick={() => navigate(path)}>{missed ? '📞 Call back' : '📞 Call'}</Btn>
+              )}
+              {c.type !== 'Expert' && (
+                <Btn variant="ghost" onClick={() => openChat(c)}>💬 Chat</Btn>
+              )}
+            </div>
+          </Card>
+        )
+      })}
     </div>
   )
 }
@@ -2999,9 +3206,10 @@ export function UserProfilePage() {
 
 // ---------- Chat (free, contact-ban) ----------
 export function ChatPage() {
-  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser, isBanned } = useStore()
+  const { user, friends, addFriend, soundSettings, setSoundSettings, uid, recordDatingChat, blockedUids, blockUser, unblockUser, isBanned, calls, ringingCall, markMissedCallsSeen } = useStore()
   const location = useLocation()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   // ডিফল্ট চ্যাট: প্রথম বন্ধু (সাধারণত রিমা) — সরানো ডেমো নাম কখনো ডিফল্ট হবে না
   const [active, setActive] = useState(() => friends[0]?.name ?? 'Rima')
   // চ্যাট localStorage-এ থাকে — বন্ধুদের সাথে কথোপকথন রিফ্রেশের পরেও থাকে
@@ -3027,9 +3235,11 @@ export function ChatPage() {
   const [warn, setWarn] = useState(0)
   // চ্যাট প্রথমে তালিকা দেখায় — নতুন করে /chat খুললে কথোপকথন নয়, ব্যবহারকারীর
   // তালিকা। {with} টার্গেট থাকলে (বন্ধু/ডেটিং থেকে) সেই কথোপকথন সরাসরি খোলে।
+  // পুশ ট্যাপেও (?with=<নাম>&peer=<uid>) একইভাবে খোলে।
   const [showList, setShowList] = useState(() => {
     const st = location.state as { with?: string } | null
-    return !st?.with
+    const withParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('with') : null
+    return !(st?.with ?? withParam)
   })
   // আসল বন্ধুর মেসেজ সার্ভারে না পৌঁছালে চুপচাপ লোকালেই থেকে যায় — সেটা যেন
   // ব্যবহারকারী দেখতে পান (আগে কোনো চিহ্ন ছাড়াই শুধু এই ডিভাইসে থাকত)।
@@ -3062,20 +3272,31 @@ export function ChatPage() {
   // ডেটিং ম্যাচ থেকে এলে (datingPartnerId) ওই মানুষটা বন্ধু তালিকায় না থাকলে
   // এখনই যোগ হয় — নইলে activeFriend মেলে না, roomId null থাকে আর প্রথম
   // মেসেজটা Firestore-এ না গিয়ে শুধু এই ডিভাইসেই থেকে যেত।
+  // সার্ভিস প্রোভাইডার থেকেও একইভাবে (peerId) — তবে datingPartnerId নয়,
+  // তাই ডেটিং-চ্যাটের KYC-গোনায় (৫ জন) ধরা হয় না। পুশ নোটিফিকেশন ট্যাপে
+  // (/chat?with=<নাম>&peer=<uid>) URL দিয়েই একইভাবে খোলে।
   // হিস্ট্রি ব্যাক করে তালিকার এন্ট্রিতে ফিরলে (state-এ with নেই) তালিকা দেখায়।
   useEffect(() => {
-    const st = location.state as { with?: string; draft?: string; datingPartnerId?: string } | null
-    if (st?.with && friends.some(f => f.name === st.with)) { setActive(st.with); setShowList(false) }
-    else if (st?.with && st?.datingPartnerId) {
-      addFriend({ id: st.datingPartnerId, name: st.with, color: colourForUid(st.datingPartnerId), online: true })
-      setActive(st.with)
+    const st = location.state as { with?: string; draft?: string; datingPartnerId?: string; peerId?: string } | null
+    const withName = st?.with ?? params.get('with') ?? undefined
+    const peerId = st?.peerId ?? st?.datingPartnerId ?? params.get('peer') ?? undefined
+    if (withName && friends.some(f => f.name === withName)) { setActive(withName); setShowList(false) }
+    else if (withName && peerId) {
+      addFriend({ id: peerId, name: withName, color: colourForUid(peerId), online: true })
+      setActive(withName)
       setShowList(false)
     }
-    else if (!st?.with) { setShowList(true) }
+    else if (!withName) { setShowList(true) }
     if (st?.draft) setDraft(st.draft)
     datingPartnerIdRef.current = st?.datingPartnerId ?? null
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state])
+  }, [location.state, params])
+  // থ্রেড খুললেই ওই মানুষটার মিসড কল "দেখা" হয় — ব্যাজ সরে যায় (কার্ডটা
+  // হিস্ট্রিতে থেকেই যায়)
+  useEffect(() => {
+    if (!showList) markMissedCallsSeen(friends.find(f => f.name === active)?.id ?? active)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, showList])
   useEffect(() => {
     try { localStorage.setItem('callguru:chatMsgs', JSON.stringify(msgs)) } catch { /* সংরক্ষণ না হলেও চ্যাট চলবে */ }
   }, [msgs])
@@ -3156,6 +3377,11 @@ export function ChatPage() {
           setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text, localOnly: true }] }))
         } else {
           setSendFailed(false)
+          // মেসেঞ্জারের মতো পুশ — প্রাপকের অ্যাপ বন্ধ থাকলেও নাম + ঝলকসহ
+          // নোটিফিকেশন যায়; ট্যাপে সরাসরি এই চ্যাট খোলে। ব্লক করা
+          // প্রাপককে মেসেজই যায় না (উপরে send()-এর গেট), তাই পুশও যায় না।
+          const toUid = otherRoomMember(roomId, uid)
+          if (toUid) void triggerMessagePush({ toUid, fromName: user?.name || 'You', preview: text.slice(0, 100), roomId })
         }
       })
       return
@@ -3270,6 +3496,18 @@ export function ChatPage() {
         {blockedByThem && !iBlockedThem && (
           <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 rounded-lg px-3 py-2 mt-2">{active} is not accepting messages or calls from you right now.</p>
         )}
+        {ringingCall && activeFriend && (ringingCall.peerId === activeFriend.id || ringingCall.peerName === active) && (
+          <p className="text-xs font-medium text-violet-600 bg-violet-50 dark:bg-violet-900/30 rounded-lg px-3 py-2 mt-2">📞 Calling {active}… waiting for an answer</p>
+        )}
+        {missedCallsOf(calls, activeFriend?.id ?? active).map(m => (
+          <div key={m.id} className="flex items-center justify-between gap-2 bg-red-50 dark:bg-red-900/30 rounded-lg px-3 py-2 mt-2">
+            <p className="text-sm"><b>📞 Missed call</b> from {m.name} <span className="text-gray-400">• {m.time}</span></p>
+            <button
+              onClick={() => navigate(m.type === 'Dating' && m.peerId ? `/call/dating/${m.peerId}` : m.type === 'Service' && m.peerId ? `/call/service/${m.peerId}` : m.type === 'Expert' && m.peerId ? `/call/expert/${m.peerId}` : `/call/friend/${encodeURIComponent(m.name)}`)}
+              className="shrink-0 text-sm font-bold text-white bg-green-600 rounded-full px-3 py-1.5"
+            >📞 Call back</button>
+          </div>
+        ))}
         <div ref={msgListRef} className="h-64 overflow-y-auto space-y-2 mt-3">
           {(msgs[active] || []).map((m, i) => (
             <div key={i} className={`text-sm px-3 py-2 rounded-[17px] max-w-[80%] ${m.from === (user?.name || 'You') ? 'bg-pi-purple text-white ml-auto rounded-br-[5px]' : 'bg-white dark:bg-[#211a30] border border-[#e7e0f2] dark:border-[#372b52] rounded-bl-[5px]'}`}>

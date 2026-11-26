@@ -19,7 +19,7 @@ const CENTER_NAV = [
 ]
 
 export function TopBar() {
-  const { user, totalPi, dark, toggleDark, requests, profilePhoto } = useStore()
+  const { user, totalPi, dark, toggleDark, requests, profilePhoto, missedUnseenCount } = useStore()
   const navigate = useNavigate()
   const pendingCount = requests.length
   return (
@@ -46,7 +46,7 @@ export function TopBar() {
           {pendingCount > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}
         </button>
         <button onClick={toggleDark} className="w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Dark mode">{dark ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}</button>
-        <button onClick={() => navigate('/chat')} className="w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" /></button>
+        <button onClick={() => navigate('/chat')} className="relative w-[42px] h-[42px] rounded-[14px] bg-[#f1ecf9] dark:bg-[#2b2142] flex items-center justify-center shrink-0" title="Messenger"><IconChat className="w-5 h-5" />{missedUnseenCount > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center">{missedUnseenCount > 9 ? '9+' : missedUnseenCount}</span>}</button>
         <InstallButton compact />
         <button onClick={() => navigate('/menu')} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full pb-gradient text-white flex items-center justify-center font-bold shrink-0 overflow-hidden" title="Profile">{profilePhoto ? <img src={profilePhoto} alt="Profile photo" className="w-full h-full object-cover" /> : (user ? user.name.slice(0, 1) : <IconUser className="w-5 h-5" />)}</button>
       </div>
@@ -83,7 +83,7 @@ export function BottomNav() {
 }
 
 export function Sidebar() {
-  const { user, isAdmin, profilePhoto, requests } = useStore()
+  const { user, isAdmin, profilePhoto, requests, missedUnseenCount } = useStore()
   const pendingCount = requests.length
   const links = [
     { to: '/feed', label: 'Feed', icon: IconHome }, { to: '/friends', label: 'Friends', icon: IconFriends },
@@ -104,7 +104,7 @@ export function Sidebar() {
           {user ? user.name : 'Guest user'}
         </Link>
         {links.map(l => (
-          <NavLink key={l.to} to={l.to} className={({ isActive }) => `relative flex items-center gap-2.5 px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}><l.icon className="w-5 h-5 shrink-0" />{l.label}{l.to === '/friends' && pendingCount > 0 && <span className="absolute right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}</NavLink>
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => `relative flex items-center gap-2.5 px-3 py-2 rounded-full text-sm ${isActive ? 'pb-gradient text-white font-bold shadow-sm' : 'hover:bg-white dark:hover:bg-fb-card'}`}><l.icon className="w-5 h-5 shrink-0" />{l.label}{l.to === '/friends' && pendingCount > 0 && <span className="absolute right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-pi-gold text-white text-[11px] font-bold flex items-center justify-center">{pendingCount > 9 ? '9+' : pendingCount}</span>}{l.to === '/call-history' && missedUnseenCount > 0 && <span className="absolute right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center">{missedUnseenCount > 9 ? '9+' : missedUnseenCount}</span>}</NavLink>
         ))}
         <div className="mt-4 p-3 bg-violet-50 dark:bg-slate-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
           <b className="text-fb-blue">First call's first 1 minute free</b><br />Only for the first user / first friend. Not 2 minutes free.

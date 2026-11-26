@@ -27,6 +27,8 @@ import { gateReasonToInviteStatus, inviteDocToCallInvite, type CallInviteDoc } f
 import { subscribeCallInviteDoc, subscribeIncomingCallInvites, updateCallInviteStatus } from './firestore'
 import { shouldPlayRingtone, startRingtone } from './sounds'
 import { colourForUid } from './newMembers'
+import { inviteToMissedCall } from './missedCall'
+import { FRIEND_RATE } from './data'
 
 /** এই পাথগুলোতে থাকলে ব্যবহারকারী কলে আছেন — নতুন ইনভাইটে ওভারলে নয়। */
 function isInCallPath(pathname: string): boolean {
@@ -82,7 +84,7 @@ export function IncomingCallCard({ invite, photo, onAccept, onDecline }: {
 
 /** গ্লোবাল হোস্ট — App.tsx-এ Layout রুটের ভেতরে একবারই বসে। */
 export function IncomingCallHost() {
-  const { user, uid, referralCode, friends, soundSettings, callPrivacy, blockedUids } = useStore()
+  const { user, uid, referralCode, friends, soundSettings, callPrivacy, blockedUids, addMissedCall, datingRate } = useStore()
   const navigate = useNavigate()
   const loc = useLocation()
   const [overlay, setOverlay] = useState<InviteOverlayState>(idleOverlayState())
@@ -109,6 +111,21 @@ export function IncomingCallHost() {
     setOverlay(reduceInviteCleared)
   }
 
+  // মিসড কল লেখা — কলটা বেজেছিল কিন্তু ধরা হয়নি (কাটা/মেয়াদ শেষ/
+  // কলকারী কাটলেন/দেরিতে এলো)। outcome স্পষ্ট করে দেওয়া হয় — ওভারলে
+  // ধরে রাখা ডকটার স্ট্যাটাস 'ringing'-ই থাকে (পুরোনো স্ন্যাপশট), তাই
+  // সেটা দিয়ে বিচার করলে কিছুই লেখা হতো না। id `missed-<inviteId>`
+  // বলে একই কল ওভারলে + লগইন-সিঙ্ক দুই জায়গা থেকে লিখলেও ডুপ্লিকেট
+  // হয় না। গেটে আটকা কল (ব্লক/বন্ধু নয়/ব্যস্ত/প্রাইভেসি) এখানে আসে
+  // না — ওগুলো কখনো বাজেনি, তাই মিসডও নয়।
+  const recordMissed = (doc: CallInviteDoc | null, outcome: 'declined' | 'cancelled') => {
+    if (!doc) return
+    const myId = uid ?? referralCode
+    if (!myId) return
+    const rec = inviteToMissedCall({ ...doc, status: outcome }, myId, doc.kind === 'dating' ? datingRate : FRIEND_RATE)
+    if (rec) addMissedCall(rec)
+  }
+
   // ইনভাইট এলে: গেটিং → ওভারলে + রিংটোন (৬০ সেকেন্ডের মধ্যে না ধরলে নিজে থেকে থামে)
   useEffect(() => {
     const myId = uid ?? referralCode
@@ -116,7 +133,10 @@ export function IncomingCallHost() {
     const unsub = subscribeIncomingCallInvites(myId, (docs) => {
       const doc = docs[0]
       if (!doc) {
-        // বাজতে থাকা ইনভাইট মুছে গেছে (কলকারী কাটলেন/কল শেষ) — ওভারলে সরে
+        // বাজতে থাকা ইনভাইট মুছে গেছে/স্ট্যাটাস বদলেছে (কলকারী কাটলেন/
+        // অন্য ডিভাইসে ধরলেন/কল শেষ) — ওভারলে সরে। এখানে মিসড লেখা হয়
+        // না: ফলাফল (ধরা/কাটা) dismiss-সাবস্ক্রিপশনই জানে, আর লগইন-সিঙ্ক
+        // সব ক্ষেত্রেই ব্যাকস্টপ হিসেবে মিসড মেলায়।
         if (inviteDocRef.current) clearOverlay()
         return
       }
@@ -137,6 +157,9 @@ export function IncomingCallHost() {
           const status = gateReasonToInviteStatus(gate.reason)
           if (status) void updateCallInviteStatus(doc.id, status)
         }
+        // মেয়াদোত্তীর্ণ ইনভাইট (দেরিতে এলো — কলকারী তখনো অপেক্ষায়):
+        // গ্রহণকারী ধরার সুযোগই পাননি — মিসড কল হিসেবে লেখা হয়।
+        if (gate.reason === 'expired') recordMissed(doc, 'cancelled')
         // মেয়াদোত্তীর্ণ হলে কিছু জানানো নয় — কলকারী ৬৫ সেকেন্ডে "No answer" দেখেন
         return
       }
@@ -148,11 +171,27 @@ export function IncomingCallHost() {
         try { ringStopRef.current = startRingtone(ss) } catch { ringStopRef.current = null }
       }
       const remaining = Math.max(0, INVITE_TTL_MS - (Date.now() - invite.at))
-      expireTimerRef.current = setTimeout(() => { clearOverlay() }, remaining)
+      expireTimerRef.current = setTimeout(() => {
+        // ৬০ সেকেন্ডে কেউ ধরলেন না — মিসড কল হিসেবে লেখা হয়, তারপর ওভারলে সরে
+        if (inviteDocRef.current) recordMissed(inviteDocRef.current, 'cancelled')
+        clearOverlay()
+      }, remaining)
       // ডক বদলালে/মুছলে (কলকারী কাটলেন, অন্য ডিভাইসে ধরলেন) ওভারলে সরে
       if (dismissUnsubRef.current) dismissUnsubRef.current()
       dismissUnsubRef.current = subscribeCallInviteDoc(doc.id, (d2) => {
-        if (!d2 || d2.status !== 'ringing') clearOverlay()
+        if (!d2) {
+          // ডক মুছে গেছে (কলকারী বাজতে থাকা অবস্থায় কাটলেন) — মিসড কল
+          if (inviteDocRef.current) recordMissed(inviteDocRef.current, 'cancelled')
+          clearOverlay()
+          return
+        }
+        if (d2.status !== 'ringing') {
+          // কলকারী কাটলেন ('cancelled') বা অন্য ডিভাইসে কাটা হলো
+          // ('declined') — মিসড কল; ধরলেন ('accepted') বা গেটে আটকালো
+          // ('busy'/'not-friend'/'not-accepting') হলে মিসড নয়
+          if (d2.status === 'declined' || d2.status === 'cancelled') recordMissed(d2, d2.status)
+          clearOverlay()
+        }
       })
     })
     return () => { unsub?.(); clearOverlay() }
@@ -181,6 +220,8 @@ export function IncomingCallHost() {
     clearExpireTimer()
     const docId = inviteDocRef.current?.id
     if (docId) void updateCallInviteStatus(docId, 'declined')
+    // কাটা কল মিসড কল হিসেবে থাকে — কলকারী কে ছিলেন, কখন, দেখা যায়
+    if (inviteDocRef.current) recordMissed(inviteDocRef.current, 'declined')
     setOverlay((prev) => reduceInviteDeclined(prev))
     setOverlay(idleOverlayState())
   }

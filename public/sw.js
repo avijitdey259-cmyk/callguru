@@ -56,13 +56,18 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
-// ---------- Web Push: ইনকামিং কল + বন্ধু রিকোয়েস্ট ----------
+// ---------- Web Push: ইনকামিং কল + বন্ধু রিকোয়েস্ট + চ্যাট মেসেজ ----------
 // সার্ভার (server/index.js) এই আকৃতির পেলোড পাঠায়:
 //   কল: { title, body, tag, data: { code, fromId, fromName, url: '/call/<code>' },
 //     actions: [{ action: 'answer', title: '📞 Answer' }, { action: 'decline', title: '❌ Decline' }] }
 //   বন্ধু রিকোয়েস্ট: { title, body, tag, data: { requestId, fromId, fromName,
 //     kind: 'friend-request', url: '/friends' },
 //     actions: [{ action: 'view', title: '👀 View' }, { action: 'dismiss', title: 'Later' }] }
+//   চ্যাট মেসেজ: { title: '<প্রেরকের নাম>', body: '<মেসেজের ঝলক>', tag,
+//     data: { kind: 'message', roomId, fromId, fromName, url: '/chat?with=<নাম>&peer=<uid>' },
+//     actions: [{ action: 'view', title: '👀 View' }] }
+//   — মেসেজ পুশ আলাদা হ্যান্ডলার চায় না: একই জেনেরিক পথে নোটিফিকেশন
+//   দেখায়, ট্যাপে/ভিউ-তে data.url-এর চ্যাট থ্রেড খোলে।
 self.addEventListener('push', (event) => {
   let payload = null
   try { payload = event.data ? event.data.json() : null } catch { payload = null }

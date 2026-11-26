@@ -245,11 +245,21 @@ check('ইনকামিং-কল ওভারলে যে সাউন্ড
     assert.ok(new RegExp(`export function ${fn}\\b`).test(soundsSrc), `sounds.ts-এ ${fn} export নেই`)
   }
 })
-check('মোবাইল-অনলি / ডেস্কটপ-অনলি কোনো পথ নেই — isMobile/userAgent গেট নেই', () => {
-  for (const [name, src] of [['sounds.ts', soundsSrc], ['pages.tsx', pagesSrc], ['store.tsx', storeSrc]]) {
+check('সাউন্ড পথে মোবাইল-অনলি / ডেস্কটপ-অনলি গেট নেই — isMobile/userAgent শুধু স্ক্রিন-শেয়ার সাপোর্ট চেকে', () => {
+  // সাউন্ড ইঞ্জিন ও স্টোরে কোনো ডিভাইস-গেট থাকবে না।
+  for (const [name, src] of [['sounds.ts', soundsSrc], ['store.tsx', storeSrc]]) {
     assert.ok(!src.includes('isMobile'), `${name}-এ isMobile গেট আছে`)
     assert.ok(!src.includes('userAgent'), `${name}-এ userAgent গেট আছে`)
   }
+  // pages.tsx-এ userAgent শুধু স্ক্রিন-শেয়ার সাপোর্ট চেকের ভেতরে (toggleShare) —
+  // সাউন্ডের কোথাও নয়। Android-এ getDisplayMedia নেই বলেই এই চেকটা লাগে।
+  assert.ok(!pagesSrc.includes('isMobile'), 'pages.tsx-এ isMobile গেট আছে')
+  const total = (pagesSrc.match(/userAgent/g) || []).length
+  const toggleStart = pagesSrc.indexOf('async function toggleShare()')
+  const toggleEnd = pagesSrc.indexOf('function stopShare()', toggleStart)
+  const toggleBody = pagesSrc.slice(toggleStart, toggleEnd)
+  const inToggle = (toggleBody.match(/userAgent/g) || []).length
+  assert.ok(total > 0 && total === inToggle, `pages.tsx-এ userAgent toggleShare-এর বাইরেও আছে (${inToggle}/${total})`)
 })
 
 console.log(`\nসাউন্ড টেস্ট: ${passed} পাস`)

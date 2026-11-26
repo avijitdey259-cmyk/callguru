@@ -429,6 +429,25 @@ export function subscribeIncomingCallInvites(uid: string, cb: (docs: CallInviteD
   } catch { return null }
 }
 
+// আমার কাছে আসা শেষ হয়ে যাওয়া ইনভাইট (একবারের পড়া — লগইন-সিঙ্কে):
+// 'declined'/'cancelled' মানেই গ্রহণকারী কলটা ধরতে পারেননি (মিসড কল) —
+// গ্রহণকারীর অ্যাপ বন্ধ থাকলেও কলকারীর লেখা স্ট্যাটাস থেকেই ধরা পড়ে।
+// toUid-তেই শুধু where (কম্পোজিট ইনডেক্স লাগে না); স্ট্যাটাস ক্লায়েন্টে
+// ছাঁকা হয়, নতুন থেকে পুরোনো সাজানো হয়। না পেলে []।
+export async function fetchIncomingMissedCallInvites(uid: string): Promise<CallInviteDoc[]> {
+  const d = getDb()
+  if (!d || !uid) return []
+  try {
+    const q = query(collection(d, 'callInvites'), where('toUid', '==', uid), limit(50))
+    const snap = await getDocs(q)
+    const docs = snap.docs
+      .map(s => mapCallInviteDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((x): x is CallInviteDoc => x !== null && (x.status === 'declined' || x.status === 'cancelled'))
+    docs.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return docs
+  } catch { return [] }
+}
+
 // ---------- chats/{roomId}/messages/{msgId} — আসল বন্ধুদের মধ্যে চ্যাট ----------
 // রুমের চাবি দুই UID-র সাজানো জোড়া (chatRoomId) — দুই দিক থেকে একই রুম মেলে।
 // শুধু আসল বন্ধুদের চ্যাট এখানে যায়; ৫ চ্যাট পারসোনা আগের মতোই শুধু এই ডিভাইসে থাকে।

@@ -48,6 +48,14 @@ export const RING_CYCLE_MS = 3000
 /** রিংটোন নিজে থেকে থামে — উত্তর/কাটা না হলে সর্বোচ্চ ৬০ সেকেন্ড বাজে। */
 export const RINGTONE_MAX_MS = 60000
 
+/** রিংব্যাক (কলকারী শোনেন) — একক ৪৪০ Hz টোন: ১ সেকেন্ড বাজে, ৩ সেকেন্ড
+ *  চুপ — এক চক্র ৪ সেকেন্ড, ফোনের রিং-রিং ছন্দের মতো। সর্বোচ্চ ৬৫
+ *  সেকেন্ড (নো-আনসার টাইমারের সঙ্গেই থামে)। */
+export const RINGBACK_FREQS = [440]
+export const RINGBACK_BURSTS: { at: number; dur: number }[] = [{ at: 0, dur: 1 }]
+export const RINGBACK_CYCLE_MS = 4000
+export const RINGBACK_MAX_MS = 65000
+
 // ---------- শর্ত (pure predicates) ----------
 
 export function shouldPlayChatSound(s: SoundSettings): boolean {
@@ -59,6 +67,15 @@ export function shouldPlayRingtone(s: SoundSettings, inCall: boolean): boolean {
   if (s.ringtone !== true) return false
   if (!(s.ringtoneVolume > 0)) return false
   return true
+}
+
+/**
+ * রিংব্যাকের শর্ত — রিংটোনের সেটিংসই মানে (সাউন্ড বন্ধ/ভলিউম ০/চলমান
+ * কলে রিংব্যাক বাজে না)। আলাদা সেটিং নেই — "🔔 Sound Settings"-এর
+ * রিংটোন টগলই দুই দিকের রিং নিয়ন্ত্রণ করে।
+ */
+export function shouldPlayRingback(s: SoundSettings, inCall: boolean): boolean {
+  return shouldPlayRingtone(s, inCall)
 }
 
 // ---------- কল-চলা অবস্থা (রিংটোন যেন চলমান কলে না বাজে) ----------
@@ -191,10 +208,18 @@ export type RingtoneDeps = SoundDeps & {
 let ringingStop: (() => void) | null = null
 export function isRingtonePlaying(): boolean { return ringingStop !== null }
 
-function playRingCycle(ctx: ToneAudioContext, volume: number): ToneOscillator[] {
+let ringbackStop: (() => void) | null = null
+export function isRingbackPlaying(): boolean { return ringbackStop !== null }
+/** রিংব্যাক থামানো — সংযোগ/কাটা/টাইমআউট/ভুলে কলকারী পক্ষ থেকে ডাকা হয়। */
+export function stopRingback(): void {
+  try { ringbackStop?.() } catch { /* ignore */ }
+  ringbackStop = null
+}
+
+function playToneCycle(ctx: ToneAudioContext, freqs: number[], bursts: { at: number; dur: number }[], volume: number): ToneOscillator[] {
   const oscs: ToneOscillator[] = []
-  for (const b of RING_BURSTS) {
-    for (const f of RING_FREQS) {
+  for (const b of bursts) {
+    for (const f of freqs) {
       const o = scheduleTone(ctx, f, b.at, b.dur, volume * 0.22)
       if (o) oscs.push(o)
     }
@@ -202,14 +227,20 @@ function playRingCycle(ctx: ToneAudioContext, volume: number): ToneOscillator[] 
   return oscs
 }
 
+type ToneSlot = { get: () => (() => void) | null; set: (fn: (() => void) | null) => void }
+
 /**
- * ইনকামিং কলের রিংটোন — চক্র ধরে বাজতে থাকে, যতক্ষণ না stop() ডাকা হয়
- * (ধরা/কাটা/আনমাউন্ট) বা ৬০ সেকেন্ড পূর্ণ হয়। চলমান কলে, সেটিং বন্ধ থাকলে
- * বা ভলিউম ০ হলে বাজে না। মোবাইলে কনটেক্সট সাসপেন্ডেড থাকলে প্রথম ট্যাপে
- * আনলক হয়ে নিজে থেকেই শুরু হয় — stop ফাংশন তখনো বৈধ থাকে।
+ * চক্র-ধরে-বাজা টোনের একটাই ইঞ্জিন — রিংটোন (গ্রহণকারী) আর রিংব্যাক
+ * (কলকারী) দুটোই এটাই চালায়, শুধু প্যাটার্ন আর স্লট আলাদা। থামে যখন
+ * stop() ডাকা হয় বা সর্বোচ্চ সময় পূর্ণ হয়।
  */
-export function startRingtone(settings: SoundSettings, deps: RingtoneDeps = {}): () => void {
-  if (ringingStop) return ringingStop
+function startLoopingTone(
+  pattern: { freqs: number[]; bursts: { at: number; dur: number }[]; cycleMs: number; maxMs: number },
+  settings: SoundSettings,
+  deps: RingtoneDeps,
+  slot: ToneSlot,
+): () => void {
+  if (slot.get()) return slot.get()!
   if (!shouldPlayRingtone(settings, isInCallActive())) return () => {}
   const getCtx = deps.getCtx ?? getSharedAudioContext
   const setI = deps.setIntervalFn ?? ((fn: () => void, ms: number) => setInterval(fn, ms))
@@ -223,7 +254,7 @@ export function startRingtone(settings: SoundSettings, deps: RingtoneDeps = {}):
   let stopped = false
   let intervalId: unknown = null
   let timeoutId: unknown = null
-  const ringOnce = () => { if (!stopped) oscs = [...oscs, ...playRingCycle(ctx, volume)] }
+  const ringOnce = () => { if (!stopped) oscs = [...oscs, ...playToneCycle(ctx, pattern.freqs, pattern.bursts, volume)] }
   const stop = () => {
     if (stopped) return
     stopped = true
@@ -231,18 +262,52 @@ export function startRingtone(settings: SoundSettings, deps: RingtoneDeps = {}):
     if (timeoutId !== null) clearT(timeoutId)
     for (const o of oscs) { try { o.stop() } catch { /* ignore */ } }
     oscs = []
-    if (ringingStop === stop) ringingStop = null
+    if (slot.get() === stop) slot.set(null)
   }
-  ringingStop = stop
+  slot.set(stop)
   // মোবাইলে সাসপেন্ডেড থাকলে প্রথম ট্যাপেই আনলক + রিং শুরু (একই সেটিংসে)
   if (ctx.state === 'suspended') {
     unlockAudio(ctx)
-    installAudioUnlock(() => { if (!stopped && ringingStop === stop) ringOnce() })
+    installAudioUnlock(() => { if (!stopped && slot.get() === stop) ringOnce() })
   }
   ringOnce()
-  intervalId = setI(() => ringOnce(), RING_CYCLE_MS)
-  timeoutId = setT(() => stop(), RINGTONE_MAX_MS)
+  intervalId = setI(() => ringOnce(), pattern.cycleMs)
+  timeoutId = setT(() => stop(), pattern.maxMs)
   return stop
+}
+
+function playRingCycle(ctx: ToneAudioContext, volume: number): ToneOscillator[] {
+  return playToneCycle(ctx, RING_FREQS, RING_BURSTS, volume)
+}
+
+/**
+ * ইনকামিং কলের রিংটোন — চক্র ধরে বাজতে থাকে, যতক্ষণ না stop() ডাকা হয়
+ * (ধরা/কাটা/আনমাউন্ট) বা ৬০ সেকেন্ড পূর্ণ হয়। চলমান কলে, সেটিং বন্ধ থাকলে
+ * বা ভলিউম ০ হলে বাজে না। মোবাইলে কনটেক্সট সাসপেন্ডেড থাকলে প্রথম ট্যাপে
+ * আনলক হয়ে নিজে থেকেই শুরু হয় — stop ফাংশন তখনো বৈধ থাকে।
+ */
+export function startRingtone(settings: SoundSettings, deps: RingtoneDeps = {}): () => void {
+  return startLoopingTone(
+    { freqs: RING_FREQS, bursts: RING_BURSTS, cycleMs: RING_CYCLE_MS, maxMs: RINGTONE_MAX_MS },
+    settings,
+    deps,
+    { get: () => ringingStop, set: (fn) => { ringingStop = fn } },
+  )
+}
+
+/**
+ * কলকারীর রিংব্যাক — "Calling… / Waiting for the other person…" পর্দায়
+ * ফোনের মতো রিং-রিং শোনায়, যতক্ষণ না কল ধরে/কাটে/টাইমআউট হয়। কল
+ * বোতামের ট্যাপ থেকেই শুরু হয় (ব্যবহারকারীর জেসচার), তাই অটোপ্লে-ব্লকে
+ * আটকায় না। রিংটোনের মতোই সেটিংস মানে; ৬৫ সেকেন্ডে নিজে থামে।
+ */
+export function startRingback(settings: SoundSettings, deps: RingtoneDeps = {}): () => void {
+  return startLoopingTone(
+    { freqs: RINGBACK_FREQS, bursts: RINGBACK_BURSTS, cycleMs: RINGBACK_CYCLE_MS, maxMs: RINGBACK_MAX_MS },
+    settings,
+    deps,
+    { get: () => ringbackStop, set: (fn) => { ringbackStop = fn } },
+  )
 }
 
 /** রিংটোনের এক চক্র — সেটিংস পেজের "শুনুন" বোতামের জন্য। */

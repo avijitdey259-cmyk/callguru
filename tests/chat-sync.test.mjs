@@ -68,7 +68,10 @@ await check('Firebase না থাকলে শোনার সাবস্ক�
 
 check('ডেটিং ম্যাচ থেকে চ্যাট খুললে ম্যাচটা বন্ধু হিসেবে যোগ হয়', () => {
   assert.ok(chatPage.includes('datingPartnerId'), 'datingPartnerId নেই')
-  assert.ok(/addFriend\(\{ id: st\.datingPartnerId/.test(chatPage), 'ম্যাচকে addFriend করা হয় না — roomId null থাকবে')
+  // peerId = state.peerId ?? state.datingPartnerId ?? ?peer= — ডেটিং ম্যাচ
+  // এখনো addFriend-এ যায় (peerId দিয়ে), তাই roomId null থাকে না।
+  assert.ok(/const peerId = st\?\.(peerId \?\? st\?\.datingPartnerId|datingPartnerId)/.test(chatPage) || chatPage.includes("st?.peerId ?? st?.datingPartnerId"), 'peerId-তে datingPartnerId নেই')
+  assert.ok(/addFriend\(\{ id: peerId/.test(chatPage), 'ম্যাচকে addFriend করা হয় না — roomId null থাকবে')
 })
 
 check('আমার রুমগুলোর সাবস্ক্রিপশন আছে — প্রাপক রুম খুঁজে পায়', () => {

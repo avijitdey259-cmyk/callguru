@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT, type Post } from './data'
+import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWithdrawFee, DEFAULT_PI_RATE_BDT, DEFAULT_USDT_RATE_BDT, DEFAULT_PI_WITHDRAW_FEE_PCT, FRIEND_RATE, type Post } from './data'
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, getCurrentAuthIdentity, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, fetchUserDocResult, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, fetchSentFriendRequests, fetchIncomingFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
+import { fetchUserDoc, fetchUserDocResult, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, fetchSentFriendRequests, fetchIncomingFriendRequests, fetchIncomingMissedCallInvites, deleteCallInvite, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
 import { identityMatchesSync } from './syncGuard'
 import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
 import { validatePaymentRequest, canPayRequest, canDeclineRequest, canCancelRequest, type PaymentRequestDoc } from './paymentRequest'
@@ -18,10 +18,18 @@ import { DEFAULT_TV_PLAYLIST_URL } from './tvPlaylist'
 import { profileCompletion, type Gender, type ProfileFields } from './profile'
 import { EMPTY_ANALYTICS_IDS, envAnalyticsIds, initAnalytics, resolveAnalyticsIds, type AnalyticsIds } from './analytics'
 import { DEFAULT_PAYMENT_ENABLED, normalizePaymentEnabled, type PaymentEnabledMap } from './paymentMethods'
+import { inviteToMissedCall, mergeMissedCalls, markMissedSeenIds, unseenMissedCount } from './missedCall'
+import { ensureCallPushOnOpen } from './pushNotify'
 import { DEFAULT_AD_RATES, type AdRateSettings } from './ads'
 import { togglePostLike as togglePostLikePure, addPostComment as addPostCommentPure, deletePost as deletePostPure, updatePost as updatePostPure } from './feedPosts'
 
-export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut' }
+export type CallRecord = { id: string; name: string; type: 'Expert' | 'Friend' | 'Dating' | 'Service'; rate: number; durationSec: number; cost: number; freeMinute: boolean; time: string; status: 'Completed' | 'Missed' | 'Auto-cut'; peerId?: string }
+// peerId — কলের অপর পক্ষের UID (মিসড-কল কল-ব্যাক/চ্যাট আর হিস্ট্রির
+// Call/Chat বোতামে লাগে); পুরোনো রেকর্ডে নেই — তখন নামে মেলানো হয়।
+export type RingingCall = { kind: 'Friend' | 'Dating' | 'Service' | 'Expert'; peerId: string; peerName: string; startedAtMs: number }
+// বাজতে থাকা কল — সার্ভিস কার্ডে আর চ্যাট থ্রেডে "অপেক্ষা" দেখাতে
+// (কল স্ক্রিনের "Waiting…" ছাড়াও, যেখান থেকে কল শুরু হয়েছিল সেখানে)।
+// ক্ষণস্থায়ী — রিলোড/লগআউটে মুছে যায়, localStorage-এ যায় না।
 export type Friend = { id: string; name: string; color: string; online: boolean; photo?: string; requestId?: string; numericUid?: number }
 // requestId — আসা বন্ধু রিকোয়েস্টের friendRequests ডকের চাবি (শুধু রিকোয়েস্ট
 // এন্ট্রিতে থাকে); Accept/Decline কোন ডকটা বদলাবে তা এটা দিয়েই চেনে।
@@ -111,6 +119,14 @@ type Store = {
   markFreeMinuteUsed: () => void
   calls: CallRecord[]
   addCall: (c: Omit<CallRecord, 'id' | 'time'>) => void
+  // মিসড কল — দেখা/না-দেখা চিহ্ন (localStorage-এ থাকে, অ্যাকাউন্ট বদলে শূন্য হয়)
+  missedSeenIds: string[]
+  addMissedCall: (c: CallRecord) => void
+  markMissedCallsSeen: (peerIdOrName?: string) => void
+  missedUnseenCount: number
+  // বাজতে থাকা কল — সার্ভিস কার্ড + চ্যাট থ্রেডে অপেক্ষা দেখাতে
+  ringingCall: RingingCall | null
+  setRingingCall: (r: RingingCall | null) => void
   friends: Friend[]
   requests: Friend[]
   addFriend: (f: Friend) => void
@@ -318,6 +334,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [fsState, setFsState] = useState<'off' | 'syncing' | 'on' | 'error'>('off')
   const [freeFirstMinuteUsed, setFreeUsed] = useState<boolean>(() => load('freeUsed', false))
   const [calls, setCalls] = useState<CallRecord[]>(() => load('calls', []))
+  // মিসড কলের "দেখা" চিহ্ন — কোন মিসড এন্ট্রি ইতিমধ্যে দেখা হয়েছে (ব্যাজের জন্য)
+  const [missedSeenIds, setMissedSeenIds] = useState<string[]>(() => load('missedSeenIds', []))
+  useEffect(() => save('missedSeenIds', missedSeenIds), [missedSeenIds])
+  // বাজতে থাকা কল — সার্ভিস কার্ড + চ্যাট থ্রেডে অপেক্ষা দেখাতে; ক্ষণস্থায়ী
+  const [ringingCall, setRingingCall] = useState<RingingCall | null>(null)
+  const callsRef = useRef<CallRecord[]>(calls)
+  useEffect(() => { callsRef.current = calls }, [calls])
   // ফিডের খোঁজা + পোস্ট — হেডার সার্চ আর ফিড একই অবস্থা দেখে (পোস্ট আগে ফিডের
   // লোকাল state-এ ছিল, নেভিগেট করলেই হারাত; এখন সেশনে থাকে, Firestore-এ যায় না)
   const [feedQuery, setFeedQuery] = useState('')
@@ -795,6 +818,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const resetSyncableState = () => {
     setFreeUsed(false)
     setCalls([])
+    setMissedSeenIds([])
+    setRingingCall(null)
     setFriends(() => {
       const removed = load<string[]>('buddiesRemoved', [])
       const base: Friend[] = []
@@ -1021,6 +1046,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const unfriended = getUnfriendedUids()
           setFriends(prev => mergeAcceptedFriends(prev, acceptedDocs, uid, unfriended))
         }
+        // মিসড কল মেলানো — অ্যাপ বন্ধ থাকতে আসা কলের ইনভাইট ডক ('declined'/
+        // 'cancelled') থেকে গ্রহণকারীর কল-তালিকায় মিসড এন্ট্রি যোগ হয়
+        // (id `missed-<inviteId>` বলে রিলোড/রি-সাইন-ইনে ডুপ্লিকেট হয় না)।
+        // লেখা ডক best-effort মোছার চেষ্টা করা হয় — নিয়মে শুধু কলকারী
+        // (fromUid) মুছতে পারেন বলে গ্রহণকারীর মোছা চুপচাপ ব্যর্থ হতে
+        // পারে; ডক থেকে গেলেও মেলানো idempotent, ক্ষতি নেই।
+        const missedInvites = await fetchIncomingMissedCallInvites(uid)
+        if (cancelled) return
+        if (missedInvites.length > 0) {
+          const recs = missedInvites
+            .map(d => inviteToMissedCall(d, uid, d.kind === 'dating' ? datingRate : FRIEND_RATE))
+            .filter((r): r is NonNullable<typeof r> => r !== null)
+          if (recs.length > 0) setCalls(prev => mergeMissedCalls(prev, recs))
+          for (const d of missedInvites) { void deleteCallInvite(d.id) }
+        }
+        // পুশ সাবস্ক্রিপশন নিশ্চিত করা — সার্ভারের সাবস্ক্রিপশন ইন-মেমোরি
+        // (রিস্টার্টে মুছে যায়); অনুমতি আগে দেওয়া থাকলে অ্যাপ খুললেই
+        // আবার জমা পড়ে, নইলে বন্ধ অ্যাপে কল আর পৌঁছাত না। অনুমতি না
+        // থাকলে কিছু চাওয়া হয় না — ব্যানার/সেটিংস বোতামই পথ।
+        void ensureCallPushOnOpen(uid).catch(() => { /* পুশ ছাড়াও অ্যাপ চলে */ })
         // সিঙ্ক শেষ — তবেই এই uid-র জন্য সিঙ্ক-চিহ্ন বসে; মাঝপথে বাতিল
         // হলে চিহ্ন বসে না, পরের রেন্ডারে আবার পুরো সিঙ্ক চলে।
         fsSyncUidRef.current = uid
@@ -1269,6 +1314,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     markFreeMinuteUsed: () => setFreeUsed(true),
     calls,
     addCall: (c) => setCalls(prev => [{ ...c, id: 'call-' + Date.now(), time: new Date().toLocaleString('en-GB') }, ...prev]),
+    missedSeenIds,
+    addMissedCall: (c) => setCalls(prev => mergeMissedCalls(prev, [c])),
+    markMissedCallsSeen: (peer) => setMissedSeenIds(prev => markMissedSeenIds(prev, callsRef.current, peer)),
+    missedUnseenCount: unseenMissedCount(calls, missedSeenIds),
+    ringingCall,
+    setRingingCall: (r) => setRingingCall(r),
     friends,
     feedQuery,
     setFeedQuery,

@@ -478,6 +478,32 @@ async function sendFriendRequestPush(userId, req) {
   }
 }
 
+/** চ্যাট মেসেজের পুশ — প্রাপকের অ্যাপ বন্ধ/ব্যাকগ্রাউন্ডে থাকলেও নাম +
+ * মেসেজের ঝলকসহ নোটিফিকেশন যায় (মেসেঞ্জারের মতো), ট্যাপে চ্যাট থ্রেড
+ * খোলে (/chat?with=<নাম>&peer=<uid>)। tag-এ রুম থাকে, তাই একই
+ * চ্যাটের পরপর মেসেজ একটাই নোটিফিকেশন বদলে দেয় — নোটিফিকেশনের বন্যা
+ * হয় না। সাবস্ক্রিপশন না থাকলে (OTP লগইন) false — তখন অ্যাপ খুললেই
+ * মেসেজ দেখা যায়। ব্লক করা প্রাপককে মেসেজই যায় না (ক্লায়েন্টের গেট),
+ * তাই এখানে আলাদা ব্লক-যাচাই নেই। */
+async function sendMessagePush(userId, msg) {
+  const sub = pushSubscriptions.get(userId)
+  if (!sub) return false
+  const wp = await getWebPush()
+  if (!wp) return false
+  const payload = JSON.stringify({
+    title: msg.fromName,
+    body: msg.preview,
+    tag: `picall-message-${msg.roomId}`,
+    data: { kind: 'message', roomId: msg.roomId, fromId: msg.fromId, fromName: msg.fromName, url: `/chat?with=${encodeURIComponent(msg.fromName)}&peer=${encodeURIComponent(msg.fromId)}` },
+    actions: [{ action: 'view', title: '👀 View' }],
+  })
+  try { await wp.sendNotification(sub, payload); return true }
+  catch (e) {
+    if (e && (e.statusCode === 404 || e.statusCode === 410)) pushSubscriptions.delete(userId)
+    return false
+  }
+}
+
 app.get('/api/push/vapid-public-key', (_req, res) => {
   const pub = process.env.VAPID_PUBLIC_KEY || ''
   if (!pub) return res.json({ configured: false })
@@ -541,6 +567,25 @@ app.post('/api/friend-request/push', requireAuth, pushIpLimit, async (req, res) 
     return res.status(400).json({ error: 'bad_payload' })
   }
   const pushed = await sendFriendRequestPush(toUid, { requestId, fromId: req.auth.uid, fromName: fromName.trim() })
+  res.json({ ok: true, pushed })
+})
+
+// POST /api/message/push { toUid, fromName, preview, roomId } — চ্যাট
+// মেসেজের পুশ (২০২৬-১১-২৬): প্রেরক মেসেজ Firestore-এ লেখার পর একবার
+// ডাকে; অ্যাপ বন্ধ থাকা প্রাপকের কাছে নাম + ঝলকসহ পুশ যায় (ট্যাপে
+// চ্যাট থ্রেড)। পুশ সাবস্ক্রিপশন Firebase uid দিয়ে বাঁধা — OTP/লোকাল
+// প্রাপকের কাছে মেলে না, তখন pushed:false ফেরে; অ্যাপ খোলা প্রাপক
+// মেসেজ তখনই দেখতে পায়। নিজেকে পুশ যায় না (toUid == প্রেরক হলে 400)।
+// কখনো মেসেজ বদলায় না।
+app.post('/api/message/push', requireAuth, pushIpLimit, async (req, res) => {
+  const { toUid, fromName, preview, roomId } = req.body || {}
+  if (typeof toUid !== 'string' || !toUid || toUid === req.auth.uid
+    || typeof fromName !== 'string' || !fromName.trim() || fromName.length > 60
+    || typeof preview !== 'string' || !preview.trim() || preview.length > 200
+    || typeof roomId !== 'string' || !roomId || roomId.length > 200) {
+    return res.status(400).json({ error: 'bad_payload' })
+  }
+  const pushed = await sendMessagePush(toUid, { roomId, fromId: req.auth.uid, fromName: fromName.trim(), preview: preview.trim() })
   res.json({ ok: true, pushed })
 })
 

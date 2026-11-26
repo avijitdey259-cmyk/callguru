@@ -235,7 +235,10 @@ check('People You May Know: Add Friend → রিকোয়েস্ট', () =
   assert.ok(!pagesSrc.includes('addFriend({ id: s.id,'), 'PYMK-তে এখনো একতরফা addFriend আছে')
 })
 check('ডেটিং ম্যাচের চ্যাট-খোলা addFriend আগের মতোই আছে (roomId-র জন্য লাগে)', () => {
-  assert.ok(/addFriend\(\{ id: st\.datingPartnerId/.test(pagesSrc), 'ডেটিং ম্যাচের addFriend উঠে গেছে — roomId null থাকবে')
+  // peerId = state.peerId ?? state.datingPartnerId ?? ?peer= — ডেটিং ম্যাচ
+  // এখনো addFriend-এ যায় (peerId দিয়ে), তাই roomId null থাকে না।
+  assert.ok(/addFriend\(\{ id: peerId/.test(pagesSrc), 'ডেটিং ম্যাচের addFriend উঠে গেছে — roomId null থাকবে')
+  assert.ok(pagesSrc.includes("st?.peerId ?? st?.datingPartnerId"), 'peerId-তে datingPartnerId নেই')
 })
 
 console.log(`\nAll ${passed} friend-request tests passed.`)

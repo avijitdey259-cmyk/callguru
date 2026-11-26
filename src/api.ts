@@ -198,7 +198,9 @@ export async function authHeaders(): Promise<Record<string, string>> {
 // একবার চেষ্টা — সার্ভার গ্রহণকারীর সাবস্ক্রিপশনে পুশ পাঠায়। ৫ সেকেন্ডে
 // না হলে ছেড়ে দেওয়া হয়; পুশ না গেলেও ইনভাইট ডক থাকে, অ্যাপ খোলা
 // গ্রহণকারী সেটা দেখতে পায়। কখনো throw করে না।
-export async function triggerCallInvitePush(input: { toUid: string; inviteId: string; code: string; fromName: string }): Promise<boolean> {
+// ফেরে pushed-ও — সাবস্ক্রিপশন না থাকলে (OTP লগইন/নোটিফিকেশন বন্ধ)
+// pushed:false; কলকারী তখন অপেক্ষার পর্দায় সৎ ইঙ্গিত দেখাতে পারেন।
+export async function triggerCallInvitePush(input: { toUid: string; inviteId: string; code: string; fromName: string }): Promise<{ ok: boolean; pushed: boolean }> {
   try {
     const res = await fetch(`${API_BASE}/api/call-invite/push`, {
       method: 'POST',
@@ -206,8 +208,34 @@ export async function triggerCallInvitePush(input: { toUid: string; inviteId: st
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(5000),
     })
-    return res.ok
-  } catch { return false }
+    if (!res.ok) return { ok: false, pushed: false }
+    try {
+      const data = (await res.json()) as { pushed?: unknown }
+      return { ok: true, pushed: data.pushed === true }
+    } catch { return { ok: true, pushed: false } }
+  } catch { return { ok: false, pushed: false } }
+}
+
+// চ্যাট মেসেজের পুশ (প্রাপকের অ্যাপ বন্ধ/ব্যাকগ্রাউন্ডে থাকলে): মেসেজ
+// Firestore-এ লেখার পর একবার চেষ্টা — সার্ভার প্রাপকের সাবস্ক্রিপশনে
+// প্রেরকের নাম + মেসেজের ঝলকসহ পুশ পাঠায় (মেসেঞ্জারের মতো)। ৫ সেকেন্ডে
+// না হলে ছেড়ে দেওয়া হয়; মেসেজ তবু পৌঁছে থাকে — অ্যাপ খুললেই দেখা যায়।
+// ব্লক করা প্রাপককে মেসেজই যায় না (ChatPage-র send() গেট), তাই এখানে
+// আলাদা ব্লক-যাচাই নেই। কখনো throw করে না।
+export async function triggerMessagePush(input: { toUid: string; fromName: string; preview: string; roomId: string }): Promise<{ ok: boolean; pushed: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/message/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return { ok: false, pushed: false }
+    try {
+      const data = (await res.json()) as { pushed?: unknown }
+      return { ok: true, pushed: data.pushed === true }
+    } catch { return { ok: true, pushed: false } }
+  } catch { return { ok: false, pushed: false } }
 }
 
 export async function saveAdminSmtp(smtp: AdminSmtpPayload): Promise<boolean> {

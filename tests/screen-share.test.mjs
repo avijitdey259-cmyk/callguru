@@ -65,9 +65,11 @@ check('অনুমতি না দিলে চুপচাপ বন্ধ �
   const catchBlock = body.slice(catchBodyStart, body.indexOf('}', catchBodyStart) + 1)
   assert.ok(catchBlock.includes('return'), 'অনুমতি না দিলে ফেরা হয় না')
   assert.ok(!catchBlock.includes('setCallError') && !catchBlock.includes('setShareError'), 'অনুমতি না দিলে ভুল বার্তা দেখানো হয়')
-  // getDisplayMedia না থাকলে (পুরোনো ব্রাউজার) শুধু ছোট বার্তা — ক্র্যাশ নয়।
-  assert.ok(body.includes("if (!navigator.mediaDevices?.getDisplayMedia)"), 'অসমর্থিত ব্রাউজারের গার্ড নেই')
-  assert.ok(body.includes("setShareError('Screen sharing is not supported in this browser.')"), 'অসমর্থিত ব্রাউজারে বার্তা নেই')
+  // সাপোর্ট চেক এখন getScreenShareSupport — মোবাইলে (Android/iOS) সৎ বার্তা,
+  // ডেস্কটপে API না থাকলে আরেক বার্তা; পুরোনো মৃত-প্রান্তের বার্তা আর নেই।
+  assert.ok(body.includes('getScreenShareSupport({'), 'সাপোর্ট চেক (getScreenShareSupport) নেই')
+  assert.ok(body.includes('setShareError(support.message)'), 'অসমর্থিত ব্রাউজারে সৎ বার্তা নেই')
+  assert.ok(!body.includes("Screen sharing is not supported in this browser."), 'পুরোনো মৃত-প্রান্তের বার্তা এখনো আছে')
 })
 
 check('কল শেষ হলে স্ক্রিনের ট্র্যাকও বন্ধ হয় (closeCallResources)', () => {
@@ -78,8 +80,11 @@ check('কল শেষ হলে স্ক্রিনের ট্র্যা
 
 check('শেয়ার চলাকালীন ক্যামেরা বদলানো যায় না (শেয়ার ভাঙত)', () => {
   const body = fnBody('async function switchCamera()', 'async function toggleShare()')
-  assert.ok(body.includes('if (switching || camCount === 1 || sharing) return'), 'switchCamera শেয়ার চলাকালীন গার্ড নেই')
-  assert.ok(pagesSrc.includes('disabled={switching || camCount === 1 || sharing}'), 'শেয়ার চলাকালীন ক্যামেরা বোতাম নিষ্ক্রিয় নয়')
+  assert.ok(body.includes('if (switching || sharing) return'), 'switchCamera শেয়ার চলাকালীন গার্ড নেই')
+  // ক্যামেরা-গোনা null-safe: অনুমতির আগে গোনা হয়নি বলে বোতাম বন্ধ হয় না,
+  // অনুমতির পর ১ প্রমাণিত হলেই বন্ধ।
+  assert.ok(body.includes('if (camCount !== null && camCount <= 1) return'), 'এক-ক্যামেরা গার্ড নেই')
+  assert.ok(pagesSrc.includes('disabled={switching || (camCount !== null && camCount <= 1) || sharing}'), 'শেয়ার চলাকালীন ক্যামেরা বোতাম নিষ্ক্রিয় নয়')
 })
 
 check('সংযোগের আগেই শেয়ার চাপা থাকলে addLocalTracks স্ক্রিনের ট্র্যাক পাঠায়', () => {
