@@ -3,11 +3,11 @@ import { EXPERTS, SEED_POSTS, roundPi, formatBDT, formatPi, piMinWithdraw, piWit
 import { BUDDIES, isBuddyId } from './buddies'
 import { INSTALL_BONUS_PI, planGiftSpend, canClaimInstallBonus } from './giftPi'
 import { getCurrentUid, getCurrentAuthIdentity, onFirebaseAuthUser } from './firebase'
-import { fetchUserDoc, fetchUserDocResult, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
+import { fetchUserDoc, fetchUserDocResult, writeUserDoc, fetchPublicConfig, writePublicConfig, writeTopUpDoc, updateTopUpStatus, fetchPendingTopUps, fetchMyTopUps, writePublicProfile, fetchAllPublicProfiles, setRoomBlocked, createFriendRequest, updateFriendRequestStatus, subscribeIncomingFriendRequests, subscribeSentFriendRequests, fetchSentFriendRequests, fetchIncomingFriendRequests, ensureNumericUid, findUserByNumericUid, createPiTransfer, fetchMyPiTransfers, subscribeMyPiTransfers, createPaymentRequest, updatePaymentRequestStatus, fetchMyPaymentRequests, subscribeMyPaymentRequests } from './firestore'
 import { identityMatchesSync } from './syncGuard'
 import { DEFAULT_TRANSFER_FEE_PCT, DEFAULT_MIN_TRANSFER_PI, cleanTransferFeePct, cleanMinTransfer, computeTransfer, validateTransferInput, transferRoles, buildTransferApplication, isTransferApplied, ADMIN_UID, type PiTransferDoc } from './piTransfer'
 import { validatePaymentRequest, canPayRequest, canDeclineRequest, canCancelRequest, type PaymentRequestDoc } from './paymentRequest'
-import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry } from './friendRequests'
+import { buildFriendRequestData, canSendFriendRequest, isIncomingVisible, looksLikeFirebaseUid, requestToFriend, requestToSentEntry, mergeAcceptedFriends, addUnfriendedUid, removeUnfriendedUid } from './friendRequests'
 import { colourForUid } from './newMembers'
 import { blockRoomId, cleanUidList } from './blocking'
 import { DEFAULT_SOUND_SETTINGS, loadSoundSettings, type SoundSettings } from './sounds'
@@ -608,17 +608,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const blockedUidsRef = useRef<string[]>([])
   useEffect(() => { blockedUidsRef.current = blockedUids }, [blockedUids])
 
-  // গ্রহণ হওয়া রিকোয়েস্ট একবারই বন্ধু তালিকায় যোগ হয় — ডক id মনে রাখা হয়
-  // (localStorage-এ থাকে, প্রতি ডিভাইসে আলাদা); নইলে আনফ্রেন্ডের পর আবার
-  // অ্যাপ খুললেই পুরোনো গ্রহণ-ডক দেখে বন্ধু ফিরে আসত।
-  const handledAcceptedRef = useRef<Set<string> | null>(null)
-  const getHandledAccepted = (): Set<string> => {
-    if (!handledAcceptedRef.current) handledAcceptedRef.current = new Set(load<string[]>('frAcceptedHandled', []))
-    return handledAcceptedRef.current
+  // আনফ্রেন্ড করা uid মনে রাখা হয় (localStorage-এ থাকে, প্রতি ডিভাইসে
+  // আলাদা) — গ্রহণ হওয়া রিকোয়েস্ট দেখে বন্ধু আবার ফিরে আসা ঠেকাতে।
+  // ২০২৬-১১-২৬: আগে ডক id মনে রাখা হতো ('frAcceptedHandled') — তাতে
+  // লগইন-সিঙ্কের ডক-হাইড্রেশন যোগ করা বন্ধু মুছে ফেললে আর কখনো ফিরত
+  // না (প্রেরকের দিকে বন্ধুত্ব একপাশে আটকে যেত)। এখন uid-ই মনে রাখা হয়:
+  // আনফ্রেন্ড করলেই শুধু ফেরে না; নতুন রিকোয়েস্ট পাঠালে/গ্রহণ করলে
+  // চিহ্ন মোছে, আবার বন্ধু হয়। পুরোনো 'frAcceptedHandled' চাবি আর
+  // পড়া হয় না (ডিভাইসে থাকলেও নিষ্ক্রিয়)।
+  const unfriendedRef = useRef<string[] | null>(null)
+  const getUnfriendedUids = (): string[] => {
+    if (!unfriendedRef.current) unfriendedRef.current = load<string[]>('frUnfriendedUids', [])
+    return unfriendedRef.current
   }
-  const markAcceptedHandled = (id: string) => {
-    const s = getHandledAccepted()
-    if (!s.has(id)) { s.add(id); save('frAcceptedHandled', [...s]) }
+  const markUnfriended = (id: string) => {
+    const cur = getUnfriendedUids()
+    const next = addUnfriendedUid(cur, id)
+    if (next !== cur) { unfriendedRef.current = next; save('frUnfriendedUids', next) }
+  }
+  const clearUnfriended = (id: string) => {
+    const cur = getUnfriendedUids()
+    const next = removeUnfriendedUid(cur, id)
+    if (next !== cur) { unfriendedRef.current = next; save('frUnfriendedUids', next) }
   }
   // একই ব্যবহারকারীকে দ্রুত দুবার চাপলে দুটো রিকোয়েস্ট ডক না বসে — পাঠানো
   // চলছে এমন id মনে রাখা হয় (sendFriendRequest-এ ব্যবহার হয়)।
@@ -984,6 +995,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const reqs = await fetchMyPaymentRequests(uid)
         if (cancelled) return
         setPaymentRequests(reqs)
+        // গ্রহণ হওয়া বন্ধু রিকোয়েস্ট মেলানো — সাবস্ক্রিপশন-কলব্যাকে যোগ
+        // করা বন্ধু লগইন-সিঙ্কের ডক-হাইড্রেশনে (applyHydrated) মুছে যেতে
+        // পারে (সাবস্ক্রিপশনের প্রথম স্ন্যাপশট হাইড্রেশনের আগেই আসে:
+        // স্ন্যাপশট ~১ রাউন্ড-ট্রিপ, হাইড্রেশন ডক-পড়া + UID ট্রানজ্যাকশনের
+        // পর); তাই হাইড্রেশনের পর গ্রহণ-ডকগুলো আবার মিলিয়ে নেওয়া হয় —
+        // নইলে প্রেরকের দিকে বন্ধুত্ব একপাশে আটকে যেত (২০২৬-১১-২৬ লাইভ
+        // বাগ: E পাঠিয়ে F গ্রহণ করলেও E-র তালিকায় F আসত না)। পাঠানো +
+        // আসা — দুই দিকেই (গ্রহণকারী দ্রুত সাইন-আউট করলে তাঁর দিকের
+        // write-through-ও ছুটে যেতে পারে)। আনফ্রেন্ড করা uid বাদ যায়।
+        // fsState 'on' হওয়ার আগেই হয়, তাই write-through মেলানো
+        // তালিকাটাই ডকে লেখে।
+        const [sentReqs, inReqs] = await Promise.all([fetchSentFriendRequests(uid), fetchIncomingFriendRequests(uid)])
+        if (cancelled) return
+        const acceptedDocs = [...sentReqs, ...inReqs]
+        if (acceptedDocs.some(d => d.status === 'accepted')) {
+          const unfriended = getUnfriendedUids()
+          setFriends(prev => mergeAcceptedFriends(prev, acceptedDocs, uid, unfriended))
+        }
         // সিঙ্ক শেষ — তবেই এই uid-র জন্য সিঙ্ক-চিহ্ন বসে; মাঝপথে বাতিল
         // হলে চিহ্ন বসে না, পরের রেন্ডারে আবার পুরো সিঙ্ক চলে।
         fsSyncUidRef.current = uid
@@ -1001,8 +1030,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // বন্ধু রিকোয়েস্ট — Firestore সাবস্ক্রিপশন (আসা + পাঠানো), uid থাকলেই চলে।
   // আসা (toUid == আমি): শুধু pending দেখায়; ব্লক করা প্রেরকেরটা লুকানো থাকে।
   // পাঠানো (fromUid == আমি): pending "Request Sent" অবস্থা দেখায়; কোনো
-  // রিকোয়েস্ট গ্রহণ হলে প্রাপক আমার বন্ধু তালিকায় ওঠে — একবারই
-  // (frAcceptedHandled মনে রাখে, নইলে আনফ্রেন্ডের পর ফিরে আসত)।
+  // রিকোয়েস্ট গ্রহণ হলে প্রাপক বন্ধু তালিকায় ওঠে — মেলানো idempotent,
+  // তাই রিলোড/রি-সাইন-ইনে আবার এলে ডুপ্লিকেট হয় না; আনফ্রেন্ড করা uid
+  // বাদ যায়। (লগইন-সিঙ্কেও একই মেলানো চলে — হাইড্রেশনে মুছে গেলে
+  // সেখানেই ফিরে আসে; ২০২৬-১১-২৬ লাইভ বাগ।)
   useEffect(() => {
     if (!uid) return
     const unsubIn = subscribeIncomingFriendRequests(uid, (docs) => {
@@ -1011,15 +1042,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })
     const unsubOut = subscribeSentFriendRequests(uid, (docs) => {
       setSentRequests(docs.filter(d => d.status === 'pending').map(requestToSentEntry))
-      for (const d of docs) {
-        if (d.status === 'accepted' && !getHandledAccepted().has(d.id)) {
-          markAcceptedHandled(d.id)
-          setFriends(prev => {
-            if (prev.some(f => f.id === d.toUid)) return prev
-            return [...prev, { id: d.toUid, name: d.toName, color: d.toColour, online: true, ...(d.toPhoto ? { photo: d.toPhoto } : {}), ...(d.toNumericUid !== undefined ? { numericUid: d.toNumericUid } : {}) }]
-          })
-        }
-      }
+      setFriends(prev => mergeAcceptedFriends(prev, docs, uid, getUnfriendedUids()))
     })
     return () => { unsubIn?.(); unsubOut?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1276,6 +1299,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // রিকোয়েস্ট তালিকাতেই থাকে, চুপচাপ বন্ধু দেখায় না।
       const ok = await updateFriendRequestStatus(r.requestId, 'accepted')
       if (!ok) return false
+      // গ্রহণ করলে প্রেরক আবার বন্ধু — আনফ্রেন্ড-চিহ্ন থাকলে মোছে
+      // (নতুন রিকোয়েস্ট গ্রহণ মানেই বন্ধুত্ব আবার চালু)।
+      clearUnfriended(r.id)
       addFriendLocal(r)
       setRequests(prev => prev.filter(x => x.requestId !== r.requestId))
       return true
@@ -1309,6 +1335,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!payload) return false
         const requestId = await createFriendRequest(payload)
         if (!requestId) return false
+        // নতুন রিকোয়েস্ট পাঠালে আনফ্রেন্ড-চিহ্ন মোছে — গ্রহণ হলে
+        // প্রাপক আবার বন্ধু তালিকায় উঠবে।
+        clearUnfriended(f.id)
         setSentRequests(prev => prev.some(s => s.toUid === f.id) ? prev : [...prev, { toUid: f.id, requestId }])
         return true
       } finally {
@@ -1328,6 +1357,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const removed = load<string[]>('buddiesRemoved', [])
         if (!removed.includes(id)) save('buddiesRemoved', [...removed, id])
       }
+      // আসল বন্ধু আনফ্রেন্ড করলে গ্রহণ-ডক দেখে যেন আবার ফিরে না আসে —
+      // রিকোয়েস্ট-মেলানো এই uid বাদ দেয়। নতুন রিকোয়েস্ট পাঠালে/
+      // গ্রহণ করলে চিহ্ন মোছে।
+      if (looksLikeFirebaseUid(id)) markUnfriended(id)
       setFriends(prev => prev.filter(x => x.id !== id))
     },
     likesUsed,

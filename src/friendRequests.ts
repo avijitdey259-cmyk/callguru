@@ -130,6 +130,71 @@ export function requestToSentEntry(doc: FriendRequestDoc): { toUid: string; requ
   return { toUid: doc.toUid, requestId: doc.id }
 }
 
+// গ্রহণ হওয়া রিকোয়েস্ট → ওপাশের বন্ধু (আমার দিক থেকে)।
+// পাঠানো রিকোয়েস্ট গ্রহণ হলে প্রাপক, আসা রিকোয়েস্ট গ্রহণ হলে প্রেরক;
+// pending/declined/cancelled হলে বা আমার সঙ্গে না জড়ালে null।
+export function friendFromAcceptedDoc(doc: FriendRequestDoc, myUid: string): Friend | null {
+  if (doc.status !== 'accepted') return null
+  if (doc.fromUid === myUid && doc.toUid !== myUid) {
+    return {
+      id: doc.toUid,
+      name: doc.toName,
+      color: doc.toColour,
+      online: true,
+      ...(doc.toPhoto ? { photo: doc.toPhoto } : {}),
+      ...(doc.toNumericUid !== undefined ? { numericUid: doc.toNumericUid } : {}),
+    }
+  }
+  if (doc.toUid === myUid && doc.fromUid !== myUid) {
+    return {
+      id: doc.fromUid,
+      name: doc.fromName,
+      color: doc.fromColour,
+      online: true,
+      ...(doc.fromPhoto ? { photo: doc.fromPhoto } : {}),
+      ...(doc.fromNumericUid !== undefined ? { numericUid: doc.fromNumericUid } : {}),
+    }
+  }
+  return null
+}
+
+// গ্রহণ হওয়া রিকোয়েস্টগুলো থেকে বন্ধু তালিকা মেলানো — নতুন array ফেরে
+// (ইনপুট বদলায় না); আগে থেকে থাকলে ডুপ্লিকেট হয় না, আনফ্রেন্ড করা uid
+// বাদ যায়, pending/declined/cancelled ডক কিছু যোগ করে না।
+// ২০২৬-১১-২৬ লাইভ বাগ: শুধু সাবস্ক্রিপশন-কলব্যাকে যোগ করলে লগইন-সিঙ্কের
+// ডক-হাইড্রেশন (applyHydrated) সেটা মুছে ফেলত, আর পুরোনো
+// 'frAcceptedHandled' চিহ্ন আর কখনো ফিরিয়ে আনত না — তাই লগইনে এই
+// মেলানোই বন্ধুত্ব টিকিয়ে রাখে (রিলোড/রি-সাইন-ইনেও)।
+export function mergeAcceptedFriends(
+  friends: Friend[],
+  docs: FriendRequestDoc[],
+  myUid: string,
+  unfriendedUids: string[],
+): Friend[] {
+  const unfriended = new Set(unfriendedUids)
+  const seen = new Set(friends.map(f => f.id))
+  const next = [...friends]
+  for (const d of docs) {
+    const f = friendFromAcceptedDoc(d, myUid)
+    if (!f || unfriended.has(f.id) || seen.has(f.id)) continue
+    seen.add(f.id)
+    next.push(f)
+  }
+  return next
+}
+
+// আনফ্রেন্ড করা uid-র তালিকা (pure — localStorage ছাড়া; store-এ
+// 'frUnfriendedUids' চাবিতে থাকে)।
+export function addUnfriendedUid(list: string[], uid: string): string[] {
+  if (!uid || list.includes(uid)) return list
+  return [...list, uid]
+}
+
+export function removeUnfriendedUid(list: string[], uid: string): string[] {
+  if (!uid || !list.includes(uid)) return list
+  return list.filter(x => x !== uid)
+}
+
 // পাঠানো যায় কি না — নিজেকে নয়, ইতিমধ্যে বন্ধু নয়, pending রিকোয়েস্ট নেই,
 // ব্লক করা কাউকে নয়। 'ok' ছাড়া বাকি সব ক্ষেত্রে রিকোয়েস্ট পাঠানো হয় না।
 export function canSendFriendRequest(

@@ -184,8 +184,12 @@ check('Store: আসা + পাঠানো সাবস্ক্রিপশ�
   assert.ok(storeSrc.includes('subscribeSentFriendRequests(uid,'), 'sent সাবস্ক্রিপশন ডাকা হয় না')
   assert.ok(storeSrc.includes('isIncomingVisible(d, blockedUidsRef.current)'), 'ব্লক করা প্রেরকের রিকোয়েস্ট ছাঁকা হয় না')
   assert.ok(storeSrc.includes("setRequests(visible.map(requestToFriend))"), 'আসা রিকোয়েস্ট Friend এন্ট্রি হয় না')
-  assert.ok(storeSrc.includes("if (d.status === 'accepted' && !getHandledAccepted().has(d.id))"), 'গ্রহণে বন্ধু যোগের গার্ড নেই')
-  assert.ok(storeSrc.includes("save('frAcceptedHandled'"), 'গ্রহণ-ডক মনে রাখা হয় না (আনফ্রেন্ডের পর ফিরে আসবে)')
+  // গ্রহণে বন্ধু যোগ — idempotent মেলানো, আনফ্রেন্ড-চিহ্ন (uid) দিয়ে গার্ড।
+  // ২০২৬-১১-২৬: পুরোনো একবারের ডক-চিহ্ন ('frAcceptedHandled') লগইন-
+  // হাইড্রেশনে মুছে যাওয়া বন্ধু আর ফেরাত না — প্রেরকের দিকে বন্ধুত্ব
+  // একপাশে আটকে যেত; তাই মেলানো এখন চিহ্ন-ছাড়া, আনফ্রেন্ড-uid-ই গার্ড।
+  assert.ok(storeSrc.includes('mergeAcceptedFriends(prev, docs, uid, getUnfriendedUids())'), 'গ্রহণে বন্ধু যোগের মেলানো নেই')
+  assert.ok(storeSrc.includes("save('frUnfriendedUids'"), 'আনফ্রেন্ড-চিহ্ন মনে রাখা হয় না (আনফ্রেন্ডের পর ফিরে আসবে)')
 })
 check('Store: ডকের পুরোনো requests কপি আর hydrate করে না (সাবস্ক্রিপশনই সত্যি)', () => {
   assert.ok(!storeSrc.includes('if (h.requests !== undefined) setRequests(h.requests)'), 'applyHydrated এখনো ডকের requests বসায়')

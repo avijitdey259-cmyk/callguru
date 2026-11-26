@@ -312,6 +312,36 @@ export function subscribeSentFriendRequests(uid: string, cb: (docs: FriendReques
   } catch { return null }
 }
 
+// পাঠানো / আসা রিকোয়েস্ট একবার পড়া — লগইন-সিঙ্কে গ্রহণ হওয়া
+// রিকোয়েস্ট মেলানোর জন্য (store.tsx)। সাবস্ক্রিপশনের মতোই একটাই
+// সমতা-শর্ত (fromUid বা toUid) — কম্পোজিট ইনডেক্স লাগে না।
+// Firestore না থাকলে [] — অ্যাপ localStorage-মোডেই চলে। কখনো throw করে না।
+export async function fetchSentFriendRequests(uid: string): Promise<FriendRequestDoc[]> {
+  const d = getDb()
+  if (!d || !uid) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'friendRequests'), where('fromUid', '==', uid), limit(50)))
+    const list = snap.docs
+      .map(s => mapFriendRequestDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((x): x is FriendRequestDoc => x !== null)
+    list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return list
+  } catch { return [] }
+}
+
+export async function fetchIncomingFriendRequests(uid: string): Promise<FriendRequestDoc[]> {
+  const d = getDb()
+  if (!d || !uid) return []
+  try {
+    const snap = await getDocs(query(collection(d, 'friendRequests'), where('toUid', '==', uid), limit(50)))
+    const list = snap.docs
+      .map(s => mapFriendRequestDoc(s.id, s.data() as Record<string, unknown>))
+      .filter((x): x is FriendRequestDoc => x !== null)
+    list.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return list
+  } catch { return [] }
+}
+
 // ---------- callInvites — 1-to-1 কল ইনভাইট (Firestore-ভিত্তিক) ----------
 // পুরোনো presence-WebSocket ইনভাইট পথের বদলে (২০২৬-১১-২৫ রিবিল্ড): কলকারী
 // একটা ডক লেখে (ringing); গ্রহণকারীর অ্যাপ সাবস্ক্রাইব করে ওভারলে দেখায়;
