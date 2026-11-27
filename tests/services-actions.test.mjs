@@ -79,7 +79,8 @@ check('কার্ডে Chat + Service বোতাম আছে (দরসহ
 })
 check('Chat বোতাম প্রোভাইডারের থ্রেড খোলে (peerId দিয়ে — ডেটিং-KYC গোনায় নয়)', () => {
   assert.ok(pagesSrc.includes("const peerId = st?.peerId ?? st?.datingPartnerId ?? params.get('peer')"))
-  assert.ok(pagesSrc.includes('datingPartnerIdRef.current = st?.datingPartnerId ?? null'))
+  assert.ok(pagesSrc.includes('datingPartnerIdRef.current = st?.datingPartnerId && !isAiDatingId(st.datingPartnerId) ? st.datingPartnerId : null'))
+  assert.ok(pagesSrc.includes('isAiDatingId(st.datingPartnerId)'), 'AI পার্টনার KYC-গোনায় বাদ নেই')
 })
 check('Service কল কার্ডের দরেই চলে — CallPage-র rate = service.ratePiPerMin', () => {
   assert.ok(pagesSrc.includes('isService ? (service?.ratePiPerMin ?? 0)'))

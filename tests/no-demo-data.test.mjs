@@ -39,9 +39,13 @@ check('data.ts: no demo service providers', () => {
   for (const p of DEMO_PROVIDERS) assert.ok(!data.includes(p), `${p} ফিরে এসেছে`)
 })
 
-check('data.ts: SERVICES and DATING_PROFILES are empty arrays', () => {
+check('data.ts: SERVICES খালি; DATING_PROFILES-এ শুধু লেবেল করা AI প্রোফাইল (মালিকের সম্মতিতে, ২০২৬-১১-২৭)', () => {
   assert.ok(/export const SERVICES: Service\[\] = \[\]/.test(data), 'SERVICES খালি নয়')
-  assert.ok(/export const DATING_PROFILES: DatingProfile\[\] = \[\]/.test(data), 'DATING_PROFILES খালি নয়')
+  // পুরোনো ডেমো (dt-*) ফেরেনি — তালিকায় শুধু লেবেল করা AI (id 'ai-', isAI: true)।
+  for (const id of DEMO_DATING_IDS) assert.ok(!data.includes(id), `${id} ফিরে এসেছে`)
+  assert.ok(data.includes('isAI: true'), 'AI লেবেল নেই')
+  assert.ok(/id: 'ai-/.test(data), "AI id ('ai-') নেই")
+  assert.ok(data.includes('🤖 AI'), 'AI ব্যাজ নেই')
 })
 
 check('pages.tsx: no fake groups with invented member counts', () => {

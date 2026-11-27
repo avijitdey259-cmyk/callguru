@@ -94,8 +94,12 @@ check('ফিড পোস্ট: ১২টি, সব লেখকই পার
   assert.equal(new Set(D.SEED_POSTS.map(p => p.id)).size, 12, 'ডুপ্লিকেট পোস্ট id')
 })
 
-check('Dating-এ পারসোনা নেই: DATING_PROFILES খালি, DatingPage-এ BUDDIES নেই', () => {
-  assert.deepEqual(D.DATING_PROFILES, [])
+check('Dating-এ পারসোনা নেই: DATING_PROFILES-এ শুধু লেবেল করা AI, DatingPage-এ BUDDIES নেই', () => {
+  assert.ok(D.DATING_PROFILES.length > 0, 'AI তালিকা খালি')
+  for (const p of D.DATING_PROFILES) {
+    assert.ok(p.isAI === true && p.id.startsWith('ai-'), `লেবেল ছাড়া প্রোফাইল: ${p.id}`)
+    assert.ok(!B.BUDDIES.some(b => b.id === p.id || b.name === p.name), `পারসোনা Dating-এ: ${p.name}`)
+  }
   const pages = read('src/pages.tsx')
   const start = pages.indexOf('export function DatingPage()')
   const end = pages.indexOf('export function LiveTV()', start)

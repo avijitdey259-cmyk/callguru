@@ -89,9 +89,83 @@ export type Service = { id: string; title: string; price: number; category: stri
 // সার্ভিস সিড সরানো হয়েছে (ডেমো ডেটা) — মার্কেটপ্লেস খালি থাকবে, যতক্ষণ না আসল সার্ভিস আসে।
 export const SERVICES: Service[] = []
 
-export type DatingProfile = { id: string; name: string; age: number; city: string; about: string; color: string; compat?: number }
-// ডেটিং প্রোফাইল সিড সরানো হয়েছে (ডেমো ডেটা) — ডেটিং তালিকা খালি থাকবে, যতক্ষণ না আসল প্রোফাইল আসে।
-export const DATING_PROFILES: DatingProfile[] = []
+import type { NewMember } from './newMembers'
+
+export type DatingProfile = { id: string; name: string; age: number; city: string; about: string; color: string; compat?: number; photo: string; gender: 'Male' | 'Female'; interests: string[]; voice: 'funny' | 'caring' | 'helpful' | 'music' | 'dreamy'; isAI: true }
+// লেবেল করা AI ডেটিং প্রোফাইল (মালিকের সম্মতিতে, ২০২৬-১১-২৭) — শুধু Dating
+// পেজে দেখায়, যাতে পেজটা ফাঁকা না লাগে। প্রত্যেকের কার্ডে স্পষ্ট 🤖 AI
+// ব্যাজ থাকে — কেউ যেন আসল মানুষ ভেবে ভুল না করে। এরা লোকাল তালিকা মাত্র:
+// Firestore-এ কখনো লেখা হয় না, তাই New Members / সার্চ / Friends-এ কখনো
+// আসে না; মালিক চাইলে এই তালিকা খালি করে দিলেই সব মুছে যাবে। ছবিগুলো
+// AI-তৈরি কাল্পনিক মুখ (public/ai-dating-*.jpg) — কোনো আসল মানুষের ছবি নয়।
+// AI-দের সাথে Like ফ্রি, Super Like ফ্রি, চ্যাটে লোকাল উত্তর-ইঞ্জিন উত্তর দেয়,
+// ভিডিও কল হয় না। আসল ব্যবহারকারীর প্রবাহ (fetchNewMembers) অপরিবর্তিত।
+export const AI_DATING_BADGE = '🤖 AI'
+export const DATING_PROFILES: DatingProfile[] = [
+  { id: 'ai-m01', name: 'Ashik', age: 24, city: 'Chattogram', about: 'Cricket lover, tea-stall adda, and weekend rides.', color: '#1877F2', photo: '/ai-dating-m01.jpg', gender: 'Male', interests: ['cricket', 'travel', 'music'], voice: 'funny', isAI: true },
+  { id: 'ai-m02', name: 'Rahim', age: 27, city: 'Dhaka', about: 'Software learner by day, movie buff by night.', color: '#27AE60', photo: '/ai-dating-m02.jpg', gender: 'Male', interests: ['movies', 'technology', 'reading'], voice: 'helpful', isAI: true },
+  { id: 'ai-m03', name: 'Rafi', age: 22, city: 'Cumilla', about: 'Student, football on Fridays, biryani on Sundays.', color: '#FF9800', photo: '/ai-dating-m03.jpg', gender: 'Male', interests: ['football', 'food', 'music'], voice: 'funny', isAI: true },
+  { id: 'ai-m04', name: 'Nayeem', age: 29, city: 'Sylhet', about: 'Tea-garden walks and old songs — that is my weekend.', color: '#9C27B0', photo: '/ai-dating-m04.jpg', gender: 'Male', interests: ['music', 'travel', 'photography'], voice: 'dreamy', isAI: true },
+  { id: 'ai-m05', name: 'Hridoy', age: 23, city: 'Chattogram', about: 'Campus, cricket, and a good cup of cha.', color: '#0EA5E9', photo: '/ai-dating-m05.jpg', gender: 'Male', interests: ['cricket', 'music', 'travel'], voice: 'funny', isAI: true },
+  { id: 'ai-m06', name: 'Sajjad', age: 31, city: 'Khulna', about: 'Family man, loves cooking for friends.', color: '#E91E63', photo: '/ai-dating-m06.jpg', gender: 'Male', interests: ['cooking', 'family', 'food'], voice: 'caring', isAI: true },
+  { id: 'ai-m07', name: 'Mehedi', age: 26, city: 'Dhaka', about: 'Photography, street food, and long walks.', color: '#16A085', photo: '/ai-dating-m07.jpg', gender: 'Male', interests: ['photography', 'food', 'travel'], voice: 'helpful', isAI: true },
+  { id: 'ai-m08', name: 'Shohag', age: 25, city: 'Rajshahi', about: 'Bookworm — always one chapter away from sleep.', color: '#8E44AD', photo: '/ai-dating-m08.jpg', gender: 'Male', interests: ['reading', 'movies', 'music'], voice: 'helpful', isAI: true },
+  { id: 'ai-m09', name: 'Rony', age: 28, city: 'Barishal', about: 'River, fishing rod, and quiet evenings.', color: '#E67E22', photo: '/ai-dating-m09.jpg', gender: 'Male', interests: ['fishing', 'travel', 'music'], voice: 'caring', isAI: true },
+  { id: 'ai-m10', name: 'Parvez', age: 33, city: 'Chattogram', about: 'Businessman by day, gardener by evening.', color: '#27AE60', photo: '/ai-dating-m10.jpg', gender: 'Male', interests: ['gardening', 'food', 'travel'], voice: 'caring', isAI: true },
+  { id: 'ai-m11', name: 'Jewel', age: 21, city: 'Dhaka', about: 'Cricket all day — batting, bowling, watching.', color: '#1877F2', photo: '/ai-dating-m11.jpg', gender: 'Male', interests: ['cricket', 'football', 'movies'], voice: 'funny', isAI: true },
+  { id: 'ai-m12', name: 'Sumon', age: 30, city: 'Mymensingh', about: 'Teacher, reader, and weekend traveller.', color: '#FF9800', photo: '/ai-dating-m12.jpg', gender: 'Male', interests: ['reading', 'travel', 'photography'], voice: 'helpful', isAI: true },
+  { id: 'ai-m13', name: 'Kamal', age: 35, city: 'Sylhet', about: 'Calm, kind, and always on time for cha.', color: '#9C27B0', photo: '/ai-dating-m13.jpg', gender: 'Male', interests: ['music', 'food', 'travel'], voice: 'caring', isAI: true },
+  { id: 'ai-m14', name: 'Biplob', age: 24, city: "Cox's Bazar", about: 'Beach mornings and sunset photos.', color: '#0EA5E9', photo: '/ai-dating-m14.jpg', gender: 'Male', interests: ['photography', 'travel', 'music'], voice: 'dreamy', isAI: true },
+  { id: 'ai-m15', name: 'Robin', age: 26, city: 'Dhaka', about: 'Bikes, music, and night drives.', color: '#E91E63', photo: '/ai-dating-m15.jpg', gender: 'Male', interests: ['music', 'travel', 'movies'], voice: 'funny', isAI: true },
+  { id: 'ai-m16', name: 'Sakib', age: 23, city: 'Rangpur', about: 'Tea gardens, folk songs, and long chats.', color: '#16A085', photo: '/ai-dating-m16.jpg', gender: 'Male', interests: ['music', 'travel', 'food'], voice: 'music', isAI: true },
+  { id: 'ai-m17', name: 'Emon', age: 27, city: 'Chattogram', about: 'Plants on the rooftop, songs in the evening.', color: '#8E44AD', photo: '/ai-dating-m17.jpg', gender: 'Male', interests: ['gardening', 'music', 'photography'], voice: 'dreamy', isAI: true },
+  { id: 'ai-m18', name: 'Rashed', age: 32, city: 'Narayanganj', about: 'Office by day, kitchen experiments by night.', color: '#E67E22', photo: '/ai-dating-m18.jpg', gender: 'Male', interests: ['cooking', 'food', 'movies'], voice: 'helpful', isAI: true },
+  { id: 'ai-m19', name: 'Mamun', age: 29, city: 'Khulna', about: 'Hills, hiking, and a camera in hand.', color: '#27AE60', photo: '/ai-dating-m19.jpg', gender: 'Male', interests: ['travel', 'photography', 'cricket'], voice: 'caring', isAI: true },
+  { id: 'ai-m20', name: 'Farhad', age: 25, city: 'Gazipur', about: 'Lake walks and quiet conversations.', color: '#1877F2', photo: '/ai-dating-m20.jpg', gender: 'Male', interests: ['travel', 'music', 'reading'], voice: 'dreamy', isAI: true },
+  { id: 'ai-f01', name: 'Nadia', age: 23, city: 'Chattogram', about: 'Flowers, poetry, and evening walks.', color: '#E91E63', photo: '/ai-dating-f01.jpg', gender: 'Female', interests: ['poetry', 'travel', 'music'], voice: 'dreamy', isAI: true },
+  { id: 'ai-f02', name: 'Priya', age: 25, city: 'Dhaka', about: 'Dancer, dreamer, and a big foodie.', color: '#9C27B0', photo: '/ai-dating-f02.jpg', gender: 'Female', interests: ['dancing', 'food', 'movies'], voice: 'funny', isAI: true },
+  { id: 'ai-f03', name: 'Ayesha', age: 27, city: 'Sylhet', about: 'Quiet reader, loves old movies and rain.', color: '#0EA5E9', photo: '/ai-dating-f03.jpg', gender: 'Female', interests: ['reading', 'movies', 'music'], voice: 'caring', isAI: true },
+  { id: 'ai-f04', name: 'Tahmina', age: 22, city: 'Cumilla', about: 'Campus life, music, and mango season.', color: '#FF9800', photo: '/ai-dating-f04.jpg', gender: 'Female', interests: ['music', 'food', 'travel'], voice: 'funny', isAI: true },
+  { id: 'ai-f05', name: 'Farhana', age: 29, city: 'Dhaka', about: 'Office by day, cooking shows by night.', color: '#16A085', photo: '/ai-dating-f05.jpg', gender: 'Female', interests: ['cooking', 'movies', 'food'], voice: 'helpful', isAI: true },
+  { id: 'ai-f06', name: 'Lamia', age: 24, city: 'Barishal', about: 'Rivers, boats, and folk songs.', color: '#8E44AD', photo: '/ai-dating-f06.jpg', gender: 'Female', interests: ['music', 'travel', 'photography'], voice: 'music', isAI: true },
+  { id: 'ai-f07', name: 'Sharmin', age: 26, city: 'Rajshahi', about: 'Home cook, plant lover, good listener.', color: '#E67E22', photo: '/ai-dating-f07.jpg', gender: 'Female', interests: ['cooking', 'gardening', 'food'], voice: 'caring', isAI: true },
+  { id: 'ai-f08', name: 'Ritu', age: 21, city: 'Chattogram', about: 'Saree, songs, and Sunday parks.', color: '#E91E63', photo: '/ai-dating-f08.jpg', gender: 'Female', interests: ['music', 'travel', 'dancing'], voice: 'music', isAI: true },
+  { id: 'ai-f09', name: 'Keya', age: 28, city: 'Khulna', about: 'Coffee, books, and long conversations.', color: '#27AE60', photo: '/ai-dating-f09.jpg', gender: 'Female', interests: ['reading', 'food', 'travel'], voice: 'helpful', isAI: true },
+  { id: 'ai-f10', name: 'Mahima', age: 23, city: 'Mymensingh', about: 'Library corners and quiet afternoons.', color: '#1877F2', photo: '/ai-dating-f10.jpg', gender: 'Female', interests: ['reading', 'music', 'photography'], voice: 'dreamy', isAI: true },
+  { id: 'ai-f11', name: 'Shila', age: 30, city: "Cox's Bazar", about: 'Sea breeze and sunset walks.', color: '#0EA5E9', photo: '/ai-dating-f11.jpg', gender: 'Female', interests: ['travel', 'photography', 'music'], voice: 'dreamy', isAI: true },
+  { id: 'ai-f12', name: 'Brishti', age: 22, city: 'Dhaka', about: 'Rain, rooftop gardens, and photography.', color: '#9C27B0', photo: '/ai-dating-f12.jpg', gender: 'Female', interests: ['photography', 'gardening', 'music'], voice: 'funny', isAI: true },
+  { id: 'ai-f13', name: 'Anika', age: 25, city: 'Sylhet', about: 'Festivals, lights, and loud laughter.', color: '#FF9800', photo: '/ai-dating-f13.jpg', gender: 'Female', interests: ['dancing', 'music', 'food'], voice: 'funny', isAI: true },
+  { id: 'ai-f14', name: 'Trisha', age: 27, city: 'Rangpur', about: 'Tea, travel, and new recipes.', color: '#16A085', photo: '/ai-dating-f14.jpg', gender: 'Female', interests: ['cooking', 'travel', 'food'], voice: 'helpful', isAI: true },
+  { id: 'ai-f15', name: 'Rupa', age: 24, city: 'Barishal', about: 'Lakes, boats, and evening songs.', color: '#8E44AD', photo: '/ai-dating-f15.jpg', gender: 'Female', interests: ['music', 'travel', 'photography'], voice: 'music', isAI: true },
+  { id: 'ai-f16', name: 'Sonia', age: 26, city: 'Chattogram', about: 'City lights and street food tours.', color: '#E67E22', photo: '/ai-dating-f16.jpg', gender: 'Female', interests: ['food', 'travel', 'movies'], voice: 'funny', isAI: true },
+  { id: 'ai-f17', name: 'Dipa', age: 23, city: 'Khulna', about: 'Gardens, colours, and handmade crafts.', color: '#27AE60', photo: '/ai-dating-f17.jpg', gender: 'Female', interests: ['gardening', 'photography', 'music'], voice: 'dreamy', isAI: true },
+  { id: 'ai-f18', name: 'Nishi', age: 29, city: 'Dhaka', about: 'Golden evenings and old film songs.', color: '#E91E63', photo: '/ai-dating-f18.jpg', gender: 'Female', interests: ['music', 'movies', 'travel'], voice: 'music', isAI: true },
+  { id: 'ai-f19', name: 'Mitu', age: 21, city: 'Cumilla', about: 'College, cricket, and cha with friends.', color: '#1877F2', photo: '/ai-dating-f19.jpg', gender: 'Female', interests: ['cricket', 'food', 'music'], voice: 'funny', isAI: true },
+  { id: 'ai-f20', name: 'Liza', age: 32, city: 'Chattogram', about: 'Warm homes, warm food, warm talks.', color: '#0EA5E9', photo: '/ai-dating-f20.jpg', gender: 'Female', interests: ['cooking', 'food', 'travel'], voice: 'caring', isAI: true },
+]
+// AI ডেটিং প্রোফাইল শনাক্তকরণ — id সবসময় 'ai-' দিয়ে শুরু হয়।
+export function isAiDatingId(id: string): boolean { return id.startsWith('ai-') }
+export function getAiDatingProfile(id: string): DatingProfile | undefined {
+  return DATING_PROFILES.find(p => p.id === id)
+}
+export function getAiDatingProfileByName(name: string): DatingProfile | undefined {
+  return DATING_PROFILES.find(p => p.name === name)
+}
+// AI প্রোফাইল → DatingPage-এর প্রার্থী আকৃতি (NewMember)। আসল প্রার্থীদের মতোই
+// দেখায়, শুধু isAI: true থাকে — কার্ডে 🤖 AI ব্যাজ, Super Like ফ্রি, কল নেই।
+export function aiDatingToNewMember(p: DatingProfile): NewMember {
+  return {
+    id: p.id,
+    displayName: p.name,
+    createdAtMs: null,
+    colour: p.color,
+    gender: p.gender,
+    district: p.city,
+    interests: p.interests,
+    photo: p.photo,
+    isAI: true,
+  }
+}
 
 export type PostComment = { id: string; author: string; text: string; time: string }
 // mine — নিজের পোস্ট (নিজের পোস্টে ⋯ মেনু: Edit/Delete); commentsList — আসল কমেন্টের

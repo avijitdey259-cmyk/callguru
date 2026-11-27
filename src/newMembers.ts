@@ -65,6 +65,10 @@ export type NewMember = {
   district?: string
   interests?: string[]
   photo?: string
+  // লেবেল করা AI ডেটিং প্রোফাইল কি না (শুধু DatingPage-এর লোকাল তালিকা থেকে
+  // আসে — Firestore-এর publicProfiles-এ কখনো isAI থাকে না; আসল ব্যবহারকারী
+  // সবসময় undefined)। কার্ডে 🤖 AI ব্যাজ, Super Like ফ্রি, ভিডিও কল নেই।
+  isAI?: boolean
 }
 
 // Firestore publicProfiles ডক → NewMember (pure)। ভাঙা/ফাঁকা ক্ষেত্রে নিরাপদ

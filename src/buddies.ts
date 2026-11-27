@@ -41,6 +41,13 @@ export function isBuddyId(id: string): boolean {
   return BUDDIES.some(b => b.id === id)
 }
 
+// AI ডেটিং প্রোফাইলের চ্যাট-উত্তরের স্বর — স্বর অনুযায়ী প্রতিনিধি বন্ধুর id;
+// উত্তর-লেখা লিঙ্গ-নিরপেক্ষ, আর চ্যাটে from-এ AI প্রোফাইলের নিজের নাম বসে,
+// বন্ধুর নাম নয়। (AI-দের নাম বন্ধুদের নাম থেকে আলাদা, তাই মিলে যায় না।)
+export const VOICE_BUDDY_ID: Record<BuddyVoice, string> = {
+  funny: 'bd-tanvir', caring: 'bd-imran', helpful: 'bd-faysal', music: 'bd-mim', dreamy: 'bd-asha',
+}
+
 export function getBuddy(id: string): BuddyPersona | undefined {
   return BUDDIES.find(b => b.id === id)
 }

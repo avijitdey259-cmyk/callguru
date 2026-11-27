@@ -12,16 +12,17 @@ import { buildCallInvitePayload, callInviteStatusToFailureReason, isCallableInvi
 import { enableCallPush, getPushStatus } from './pushNotify'
 import { startRingback, stopRingback } from './sounds'
 import { pickCameraDevice, cameraConstraintAttempts, countCameras, isSameCameraDevice, getScreenShareSupport } from './cameraSwitch'
-import { BUDDIES, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
+import { BUDDIES, VOICE_BUDDY_ID, getBuddy, getBuddyByName, getBuddyReplyDetail, isBuddyId } from './buddies'
 import { IconCall, IconChat, IconExpand, IconFriends, IconImage, IconLiveTV, IconLock, IconMail, IconMoon, IconPhoto, IconPlus, IconReels, IconSearch, IconSend, IconSettings, IconShare, IconShield, IconSparkle, IconSun, IconUser, IconVideo, IconWallet } from './icons'
 import { searchPosts, type SearchablePerson } from './friendSearch'
 import { useAllUserSearch, useCommunitySearch, SearchSuggestions } from './searchUI'
 import { Btn, Card, ContactsCard, InstallButton, SponsoredCard } from './components'
 import { Avatar } from './avatar'
 import {
-  CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
+  AI_DATING_BADGE, CATEGORIES, DATING_PROFILES, FRIEND_RATE, FRIEND_SUGGESTIONS, FREE_MINUTES_NOTE,
   REELS, TV_CHANNELS, TOPUP_PACKS, DISTRICTS, INTERESTS,
-  contactBanCheck, formatBDT, formatPi, roundPi, takaToPi,
+  aiDatingToNewMember, contactBanCheck, formatBDT, formatPi, roundPi, takaToPi,
+  getAiDatingProfile, getAiDatingProfileByName, isAiDatingId,
   USDT_NETWORKS, piWithdrawFee,
   type Expert, type DatingProfile, type TvChannel
 } from './data'
@@ -1920,6 +1921,8 @@ export function CallPage() {
   // কলকারী শুরু করলেন: কোড বানিয়ে রুমে ঢুকলেন, লিংক শেয়ার করবেন
   async function startCall() {
     if (!canStart) return
+    // AI ডেটিং প্রোফাইলে ভিডিও কল যায় না — ইনভাইট/রুমের আগেই আটকানো হয়।
+    if (isDating && datingProfile?.isAI) { setCallError('AI profiles can\'t take video calls — chat with them from Dating instead.'); return }
     // ব্যান হওয়া অ্যাকাউন্টে কল শুরু হয় না (অ্যাপ-স্তরের ব্যান-স্ক্রিনের পাশাপাশি এখানেও গেট)
     if (isBanned) { setCallError('Your account is banned — calls are blocked.'); return }
     // ব্লক চেক (কলকারী দিক) — ওই ব্যবহারকারী আমাকে ব্লক করলে কল শুরু হয়
@@ -2091,6 +2094,23 @@ export function CallPage() {
   // বাধ্যতামূলক হলে ডেটিং কল শুরু করা যাবে না — কল শুরু হলে টাকাও কাটবে না
   if (isDating && datingKycRequired) {
     return <DatingKycBlocked />
+  }
+
+  // AI ডেটিং প্রোফাইলে ভিডিও কল যায় না — সেটআপ/ইনভাইটের আগেই এখানে আটকানো
+  // হয়; চ্যাটের পথ দেওয়া থাকে।
+  if (isDating && datingProfile?.isAI) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <Card className="!bg-slate-800 !text-white max-w-md w-full text-center">
+          <h1 className="text-xl font-bold">{AI_DATING_BADGE} {name} is an AI profile</h1>
+          <p className="text-sm text-gray-300 mt-2">AI profiles can't take video calls. You can chat with them from Dating — chats are with an AI companion, clearly labelled {AI_DATING_BADGE}, and free.</p>
+          <div className="flex gap-2 mt-5 justify-center">
+            <Btn variant="green" onClick={() => navigate('/chat', { state: { with: name, datingPartnerId: id } })}>💬 Chat</Btn>
+            <Btn variant="ghost" className="!bg-slate-700 !text-white" onClick={() => navigate('/dating')}>Back to Dating</Btn>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   if (ended) {
@@ -3207,8 +3227,11 @@ export function ChatPage() {
         const parsed = JSON.parse(raw) as Record<string, { from: string; text: string }[]>
         // শুধু বর্তমান বন্ধুদের চ্যাটই থাকে — সরানো ডেমো চ্যাট আর দেখাবে না
         const friendNames = new Set(friends.map(f => f.name))
+        // লেবেল করা AI ডেটিং প্রোফাইলের চ্যাটও থাকে — বন্ধু নয়, তবু থ্রেড
+        // রিফ্রেশের পরেও থাকবে (শুধু এই ডিভাইসে)।
+        const aiNames = new Set(DATING_PROFILES.map(p => p.name))
         for (const k of Object.keys(parsed)) {
-          if (!friendNames.has(k)) continue
+          if (!friendNames.has(k) && !aiNames.has(k)) continue
           seed[k] = parsed[k]
         }
       }
@@ -3266,6 +3289,12 @@ export function ChatPage() {
     const withName = st?.with ?? params.get('with') ?? undefined
     const peerId = st?.peerId ?? st?.datingPartnerId ?? params.get('peer') ?? undefined
     if (withName && friends.some(f => f.name === withName)) { setActive(withName); setShowList(false) }
+    else if (withName && peerId && isAiDatingId(peerId)) {
+      // লেবেল করা AI ডেটিং প্রোফাইল — বন্ধু তালিকায় যোগ হয় না (Friends-এ
+      // আসে না); চ্যাট সরাসরি খোলে, মেসেজ শুধু এই ডিভাইসে থাকে।
+      setActive(withName)
+      setShowList(false)
+    }
     else if (withName && peerId) {
       addFriend({ id: peerId, name: withName, color: colourForUid(peerId), online: true })
       setActive(withName)
@@ -3273,7 +3302,8 @@ export function ChatPage() {
     }
     else if (!withName) { setShowList(true) }
     if (st?.draft) setDraft(st.draft)
-    datingPartnerIdRef.current = st?.datingPartnerId ?? null
+    // AI ডেটিং প্রোফাইলের চ্যাট KYC-গোনায় (৫ জন) ধরা হয় না — আসল মানুষ নয়।
+    datingPartnerIdRef.current = st?.datingPartnerId && !isAiDatingId(st.datingPartnerId) ? st.datingPartnerId : null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, params])
   // থ্রেড খুললেই ওই মানুষটার মিসড কল "দেখা" হয় — ব্যাজ সরে যায় (কার্ডটা
@@ -3287,7 +3317,10 @@ export function ChatPage() {
   }, [msgs])
   useEffect(() => () => { typingTimersRef.current.forEach(t => window.clearTimeout(t)) }, [])
   const activeFriend = friends.find(f => f.name === active)
-  const isRealUser = !!activeFriend && !!uid && !isBuddyId(activeFriend.id) && activeFriend.id !== uid
+  // খোলা চ্যাটটা লেবেল করা AI ডেটিং প্রোফাইলের কি না (নামে খোঁজা — AI-দের
+  // নাম বন্ধুদের নাম থেকে আলাদা)।
+  const aiPeer = getAiDatingProfileByName(active)
+  const isRealUser = !!activeFriend && !!uid && !isBuddyId(activeFriend.id) && activeFriend.id !== uid && !isAiDatingId(activeFriend.id)
   const roomId = isRealUser && uid && activeFriend ? chatRoomId(uid, activeFriend.id) : null
   const knownFsIdsRef = useRef<Set<string>>(new Set())
   const subscribedRoomsRef = useRef<Set<string>>(new Set())
@@ -3372,6 +3405,21 @@ export function ChatPage() {
       return
     }
     setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: user?.name || 'You', text }] }))
+    if (aiPeer) {
+      // লেবেল করা AI ডেটিং প্রোফাইল — লোকাল উত্তর-ইঞ্জিন উত্তর দেয় (বন্ধুদের
+      // মতো), from-এ AI প্রোফাইলের নিজের নাম; চ্যাট শুধু এই ডিভাইসে থাকে,
+      // Firestore-এ যায় না, পুশও যায় না।
+      setTyping(t => ({ ...t, [to]: true }))
+      typingTimersRef.current.push(window.setTimeout(() => {
+        const reply = getBuddyReplyDetail(VOICE_BUDDY_ID[aiPeer.voice], text, lastReplyRef.current[aiPeer.id], { lastWasFun: lastFunRef.current[aiPeer.id] })
+        lastReplyRef.current[aiPeer.id] = reply.text
+        lastFunRef.current[aiPeer.id] = reply.fun
+        setMsgs(m => ({ ...m, [to]: [...(m[to] || []), { from: aiPeer.name, text: reply.text }] }))
+        playChatSound(soundSettings)
+        setTyping(t => ({ ...t, [to]: false }))
+      }, 1000 + Math.random() * 2000))
+      return
+    }
     const buddy = getBuddyByName(to)
     if (buddy) {
       setTyping(t => ({ ...t, [to]: true }))
@@ -3458,7 +3506,7 @@ export function ChatPage() {
       <Card>
         <div className="flex items-center gap-2">
           <button onClick={backToList} className="text-sm px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-700 font-medium shrink-0">← All chats</button>
-          <h2 className="font-bold flex-1 flex items-center gap-2 min-w-0">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9 shrink-0" online={activeFriend.online} />}<button onClick={openProfile} className="truncate text-left hover:underline" title={`View ${active}'s profile`}>{active}</button></h2>
+          <h2 className="font-bold flex-1 flex items-center gap-2 min-w-0">{activeFriend && <Avatar photo={activeFriend.photo} name={activeFriend.name} color={activeFriend.color} className="w-9 h-9 shrink-0" online={activeFriend.online} />}<button onClick={openProfile} className="truncate text-left hover:underline" title={`View ${active}'s profile`}>{active}</button>{aiPeer && <span className="shrink-0 text-[11px] font-extrabold bg-pink-600 text-white px-2 py-0.5 rounded-full">{AI_DATING_BADGE}</span>}</h2>
           {isRealUser && !iBlockedThem && !blockedByThem && (
             <button onClick={() => navigate(`/call/friend/${encodeURIComponent(active)}`)} className="shrink-0 px-3 py-1.5 rounded-full bg-green-600 text-white text-xs font-bold" title={`Call ${active}`}>📞 Call</button>
           )}
@@ -3826,10 +3874,13 @@ export function DatingPage() {
     fetchNewMembers().then(list => { if (on) setCandidates(list) }).catch(() => { /* খালি থাকবে */ })
     return () => { on = false }
   }, [])
+  // লেবেল করা AI ডেটিং প্রোফাইল — লোকাল তালিকা (src/data.ts), Firestore-এ নয়।
+  // আসল প্রার্থীদের সাথে একই সাজানো (জেলা, তারপর মিলে যাওয়া ইন্টারেস্ট)।
+  const aiCandidates = useMemo(() => DATING_PROFILES.map(aiDatingToNewMember), [])
   const myInterestSet = useMemo(() => new Set(myInterests), [myInterests])
   const sharedCount = (c: NewMember) => (c.interests ?? []).filter(i => myInterestSet.has(i)).length
   const sortedCandidates = useMemo(() => {
-    const list = candidates.filter(c => c.id !== uid)
+    const list = [...candidates, ...aiCandidates].filter(c => c.id !== uid)
     return [...list].sort((a, b) => {
       const aSame = myDistrict && a.district === myDistrict ? 1 : 0
       const bSame = myDistrict && b.district === myDistrict ? 1 : 0
@@ -3837,7 +3888,7 @@ export function DatingPage() {
       return sharedCount(b) - sharedCount(a)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates, uid, myDistrict, myInterests])
+  }, [candidates, aiCandidates, uid, myDistrict, myInterests])
   // প্রগ্রেসিভ KYC — ডেটিং প্রথমে খোলা; ৫ জন আলাদা মানুষের সাথে চ্যাট করলে
   // KYC বাধ্যতামূলক হয় (নতুন ম্যাচ/চ্যাট/কল বন্ধ, অনুমোদন পেলে আবার খুলবে)।
   // অনুমোদনের পর ডেটিংয়ে ঢুকলে আটকে থাকা রেফারেল বোনাস থাকলে সেটাও দাবি হয়।
@@ -3856,7 +3907,7 @@ export function DatingPage() {
           <Btn variant="ghost" onClick={() => { if (totalPi >= 0.1) { addPi(-0.1, 'Boost', 'Profile Boost'); setBoosted(true) } else alert('Not enough Pi balance — buy Pi.') }}>🚀 Boost (~0.1 π)</Btn>
         </div>
         {boosted && <p className="text-sm text-green-600 mt-2">Boost on — your profile will show more.</p>}
-        <p className="text-xs text-gray-400 mt-2">Premium: unlimited likes + see who liked you • 3 months Tk 249 • Super Like 0.15 π • Most features are free for Bangladeshi users.</p>
+        <p className="text-xs text-gray-400 mt-2">Premium: unlimited likes + see who liked you • 3 months Tk 249 • Super Like 0.15 π (free on AI profiles) • Most features are free for Bangladeshi users.</p>
       </Card>
       {/* ---------- ডেটিং লাইভ ---------- */}
       <Card>
@@ -3896,7 +3947,7 @@ export function DatingPage() {
         )}
       </Card>
       <LeaderboardCard />
-      {matched && matchedId && <Card className="!pb-match !text-white text-center !border-0 shadow-lg"><p className="font-extrabold text-2xl">🎉 It's a Match!</p><p className="text-sm mt-1 opacity-90">You and {matched} liked each other — say something nice!</p>
+      {matched && matchedId && <Card className="!pb-match !text-white text-center !border-0 shadow-lg"><p className="font-extrabold text-2xl">{isAiDatingId(matchedId) ? "🎉 It's an AI Match!" : "🎉 It's a Match!"}</p><p className="text-sm mt-1 opacity-90">{isAiDatingId(matchedId) ? `You matched with ${matched} — an AI companion, always labelled ${AI_DATING_BADGE}. Chats are with AI and free; AI profiles can't take video calls.` : `You and ${matched} liked each other — say something nice!`}</p>
         <input className="w-full rounded-full px-4 py-2.5 mt-3 text-sm text-gray-900 placeholder-gray-400" value={matchMsg} onChange={e => setMatchMsg(e.target.value)} placeholder="Say something nice" />
         <div className="flex gap-2 mt-2 justify-center">
           {['👋', '😊', '❤️'].map(r => (
@@ -3905,15 +3956,17 @@ export function DatingPage() {
         </div>
         <div className="flex gap-2 mt-3 justify-center flex-wrap">
           <Btn className="!bg-white !text-pink-600 font-bold" onClick={() => navigate('/chat', { state: { with: matched, draft: matchMsg, datingPartnerId: matchedId } })}>💬 Send message</Btn>
-          <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 Video Call (Prepaid)</Btn>
+          {!isAiDatingId(matchedId) && <Btn variant="green" onClick={() => navigate(`/call/dating/${matchedId}`)}>📹 Video Call (Prepaid)</Btn>}
         </div>
-        <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>
+        {isAiDatingId(matchedId)
+          ? <p className="text-xs mt-2 opacity-80">💬 Chat is free — replies come from the AI companion, labelled {AI_DATING_BADGE}. Super Likes on AI profiles are always free.</p>
+          : <p className="text-xs mt-2 opacity-80">💳 Video call prepaid — {formatPi(datingRate)}/minute, only the caller's Pi will be cut. This call, like other calls, is covered by admin-only recording.</p>}
       </Card>}
       <div className="grid sm:grid-cols-2 gap-3">
         {sortedCandidates.filter(p => !dismissed[p.id]).length === 0 && (
           <div className="col-span-2 rounded-[20px] border border-[#e7e0f2] dark:border-[#372b52] p-5 text-center">
             <p className="font-bold text-lg">💛 No profiles yet</p>
-            <p className="text-sm text-gray-500 mt-1">Real people only — no fake profiles here. Complete your Dating profile and invite friends to join; new profiles appear here as soon as they sign up.</p>
+            <p className="text-sm text-gray-500 mt-1">Real people and clearly-labelled AI companions (always {AI_DATING_BADGE}) appear here. Complete your Dating profile and invite friends to join; new profiles appear here as soon as they sign up.</p>
             <p className="text-xs text-gray-400 mt-2">18+ only • KYC verified before calls and withdrawals</p>
             <Btn className="mt-3" onClick={() => navigate('/menu')}>Complete my profile</Btn>
           </div>
@@ -3927,7 +3980,7 @@ export function DatingPage() {
             <div className="relative p-4 pt-24 text-white">
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <p className="font-extrabold text-xl">{p.displayName}</p>
+                  <p className="font-extrabold text-xl">{p.displayName}{p.isAI && <span className="inline-block ml-2 align-middle text-[11px] font-extrabold bg-white text-pink-600 px-2 py-0.5 rounded-full">{AI_DATING_BADGE}</span>}</p>
                   {p.district && <p className="text-sm opacity-80">📍 {p.district}</p>}
                   {sameDistrict && <span className="inline-block mt-1 text-[11px] font-bold bg-white text-pink-600 px-2 py-0.5 rounded-full">Same district</span>}
                   {shared.length > 0 && <div className="flex gap-1 flex-wrap mt-2">{shared.map(i => <span key={i} className="text-[11px] bg-white/20 px-2 py-0.5 rounded-full">{i}</span>)}</div>}
@@ -3940,10 +3993,16 @@ export function DatingPage() {
               <div className="flex gap-2 mt-4">
                 <button onClick={() => setDismissed(v => ({ ...v, [p.id]: true }))} className="flex-1 py-2.5 rounded-full bg-white/20 backdrop-blur font-bold text-lg" aria-label="Pass">✕</button>
                 <Btn disabled={!!likedIds[p.id]} className="!bg-white !text-pink-600 font-bold flex-1 !py-2.5 !rounded-full" onClick={() => { if (!useLike()) { alert('Today\'s 30 free likes are over — get Premium.'); return } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.displayName); setMatchedId(p.id) }}>❤️ Like</Btn>
-                <button onClick={() => { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.displayName}`); setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.displayName); setMatchedId(p.id) }} className="flex-1 py-2.5 rounded-full pb-gradient font-bold text-sm">⭐ Super Like (0.15 π)</button>
+                <button onClick={() => { if (!p.isAI) { if (totalPi < 0.15) { alert('Super Like needs 0.15 π.'); return } addPi(-0.15, 'Super Like', `Super Like — ${p.displayName}`) } setLikedIds(v => ({ ...v, [p.id]: true })); setMatched(p.displayName); setMatchedId(p.id) }} className="flex-1 py-2.5 rounded-full pb-gradient font-bold text-sm">{p.isAI ? '⭐ Super Like (Free)' : '⭐ Super Like (0.15 π)'}</button>
               </div>
               <button onClick={() => alert('This profile has been reported — moderation will review it.')} className="text-xs opacity-70 mt-2 underline">🚩 Report</button>
-              {likedIds[p.id] && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 Video Call (prepaid {formatPi(datingRate)}/minute)</Btn>}
+              {likedIds[p.id] && !p.isAI && <Btn variant="green" className="mt-2 w-full" onClick={() => navigate(`/call/dating/${p.id}`)}>📹 Video Call (prepaid {formatPi(datingRate)}/minute)</Btn>}
+              {likedIds[p.id] && p.isAI && (
+                <div className="mt-2">
+                  <p className="text-xs text-white/85 bg-white/10 rounded-lg px-3 py-2">{AI_DATING_BADGE} AI profiles can't take video calls — chat with them instead.</p>
+                  <Btn className="mt-2 w-full !bg-white !text-pink-600 font-bold" onClick={() => navigate('/chat', { state: { with: p.displayName, datingPartnerId: p.id } })}>💬 Chat with {p.displayName}</Btn>
+                </div>
+              )}
             </div>
           </div>
           )
